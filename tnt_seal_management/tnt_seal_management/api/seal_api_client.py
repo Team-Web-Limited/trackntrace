@@ -58,8 +58,14 @@ def get_api_settings():
 	password = get_decrypted_password(
 		_SETTINGS_DOCTYPE, _SETTINGS_NAME, "password", raise_exception=False
 	)
+
+	# Password is optional when a pre-issued token (current_auth_code) is stored directly.
 	if not password:
-		missing.append("Password")
+		cached = get_decrypted_password(
+			_SETTINGS_DOCTYPE, _SETTINGS_NAME, "current_auth_code", raise_exception=False
+		)
+		if not cached:
+			missing.append("Password (or pre-issued Access Token in current_auth_code)")
 
 	if missing:
 		frappe.throw(
@@ -150,7 +156,8 @@ def generate_access_token(force=False):
 			raise RuntimeError(f"Token generation failed: {err}")
 
 		# Persist encrypted token + timestamp
-		set_encrypted_password(_SETTINGS_DOCTYPE, _SETTINGS_NAME, "current_auth_code", token)
+		# set_encrypted_password(doctype, name, pwd, fieldname) — pwd before fieldname
+		set_encrypted_password(_SETTINGS_DOCTYPE, _SETTINGS_NAME, token, "current_auth_code")
 		frappe.db.set_value(
 			_SETTINGS_DOCTYPE,
 			_SETTINGS_NAME,
@@ -186,11 +193,13 @@ def generate_access_token(force=False):
 def get_cached_token():
 	"""
 	Return the cached session token, regenerating it if missing or expired.
+	Note: Password fields return empty from get_single(), so we check
+	token_generated_at for age and use get_decrypted_password() for the value.
 	"""
 	settings = frappe.get_single(_SETTINGS_DOCTYPE)
 	ttl = int(settings.token_ttl_minutes or 55)
 
-	if settings.current_auth_code and settings.token_generated_at:
+	if settings.token_generated_at:
 		age_minutes = (
 			get_datetime(now_datetime()) - get_datetime(settings.token_generated_at)
 		).total_seconds() / 60
