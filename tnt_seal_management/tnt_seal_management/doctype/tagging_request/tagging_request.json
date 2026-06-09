@@ -1,0 +1,237 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "format:TR-{YYYY}-{MM}-{#####}",
+ "creation": "2026-06-04 22:36:38.899030",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "tr_row_1_section",
+  "journey_reference",
+  "tr_row_1_column",
+  "customer",
+  "tr_row_2_section",
+  "vehicle_plate_number",
+  "tr_row_2_column",
+  "container_number",
+  "tr_row_3_section",
+  "origin",
+  "tr_row_3_column",
+  "destination",
+  "tr_row_4_section",
+  "seal",
+  "tr_row_4_column",
+  "technician",
+  "tr_row_5_section",
+  "requested_tagging_date_time",
+  "tr_row_5_column",
+  "actual_tagging_date_time",
+  "tr_row_6_section",
+  "tagging_location",
+  "tr_row_7_section",
+  "booking_status",
+  "tr_row_7_column",
+  "tagging_status",
+  "tr_row_8_section",
+  "photos",
+  "tr_row_9_section",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "tr_row_1_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "journey_reference",
+   "fieldtype": "Link",
+   "label": "Journey Reference",
+   "options": "Seal Journey"
+  },
+  {
+   "fieldname": "tr_row_1_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "tr_row_2_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "vehicle_plate_number",
+   "fieldtype": "Data",
+   "label": "Vehicle Plate Number"
+  },
+  {
+   "fieldname": "tr_row_2_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "container_number",
+   "fieldtype": "Data",
+   "label": "Container Number"
+  },
+  {
+   "fieldname": "tr_row_3_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "origin",
+   "fieldtype": "Data",
+   "label": "Origin"
+  },
+  {
+   "fieldname": "tr_row_3_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "destination",
+   "fieldtype": "Data",
+   "label": "Destination"
+  },
+  {
+   "fieldname": "tr_row_4_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "seal",
+   "fieldtype": "Data",
+   "label": "Seal"
+  },
+  {
+   "fieldname": "tr_row_4_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "technician",
+   "fieldtype": "Link",
+   "label": "Technician",
+   "options": "User"
+  },
+  {
+   "fieldname": "tr_row_5_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "requested_tagging_date_time",
+   "fieldtype": "Datetime",
+   "label": "Requested Tagging Date and Time"
+  },
+  {
+   "fieldname": "tr_row_5_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "actual_tagging_date_time",
+   "fieldtype": "Datetime",
+   "label": "Actual Tagging Date and Time"
+  },
+  {
+   "fieldname": "tr_row_6_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "tagging_location",
+   "fieldtype": "Data",
+   "label": "Tagging Location"
+  },
+  {
+   "fieldname": "tr_row_7_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "booking_status",
+   "fieldtype": "Select",
+   "label": "Booking Status",
+   "options": "Pending\nIn Progress\nCompleted\nCancelled"
+  },
+  {
+   "fieldname": "tr_row_7_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tagging_status",
+   "fieldtype": "Select",
+   "label": "Tagging Status",
+   "options": "Pending\nCompleted"
+  },
+  {
+   "fieldname": "tr_row_8_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "photos",
+   "fieldtype": "Table",
+   "label": "Photos",
+   "options": "Seal Trip Photo"
+  },
+  {
+   "fieldname": "tr_row_9_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Text",
+   "label": "Remarks"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-04 22:36:42.263730",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Tagging Request",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Operations Control Room",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Field Technician",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

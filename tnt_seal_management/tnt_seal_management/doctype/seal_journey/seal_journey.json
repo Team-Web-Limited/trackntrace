@@ -1,0 +1,653 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "format:SJ-{YYYY}-{MM}-{#####}",
+ "creation": "2026-06-04 22:36:40.609720",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "journey_details_tab",
+  "customer",
+  "sales_order_reference",
+  "journey_status",
+  "workflow_state",
+  "client_and_transport_details_tab",
+  "vehicle_plate_number",
+  "container_number",
+  "origin",
+  "destination",
+  "approval_tab",
+  "finance_pcb_approval_status",
+  "finance_pcb_approver",
+  "finance_pcb_approval_date_time",
+  "finance_pcb_remarks",
+  "assignment_tab",
+  "assigned_team_lead",
+  "team_lead_assignment_date_time",
+  "assigned_technician",
+  "technician_assignment_date_time",
+  "technician_status",
+  "pre_tagging_tab",
+  "proposed_seal",
+  "expected_tagging_location",
+  "expected_tagging_date_time",
+  "pre_tagging_checklist",
+  "pre_tagging_status",
+  "pre_tagging_remarks",
+  "tagging_request_tab",
+  "tagging_request_reference",
+  "assigned_seal",
+  "tagging_details_tab",
+  "tagging_status",
+  "tagging_date_time",
+  "tagging_remarks",
+  "photo_evidence_tab",
+  "photos",
+  "post_tagging_tab",
+  "seal_attached_confirmation",
+  "post_tagging_status",
+  "post_tagging_date_time",
+  "journey_readiness",
+  "departure_readiness_remarks",
+  "transit_tracking_tab",
+  "transit_row_1_section",
+  "journey_start_date_time",
+  "transit_row_1_column",
+  "departure_confirmation",
+  "transit_row_2_section",
+  "in_transit_status",
+  "transit_row_2_column",
+  "current_seal_status",
+  "transit_row_3_section",
+  "api_device_status",
+  "transit_row_3_column",
+  "api_last_update_time",
+  "transit_row_4_section",
+  "api_device_location",
+  "transit_row_4_column",
+  "api_battery_level",
+  "transit_row_5_section",
+  "api_latitude",
+  "transit_row_5_column",
+  "api_longitude",
+  "transit_row_6_section",
+  "control_room_remarks",
+  "arrival_tab",
+  "arrival_row_1_section",
+  "arrival_date_time",
+  "arrival_row_1_column",
+  "arrival_location",
+  "arrival_row_2_section",
+  "untagging_started_date_time",
+  "arrival_row_2_column",
+  "untagging_status",
+  "arrival_row_3_section",
+  "untagging_completed_date_time",
+  "arrival_row_3_column",
+  "untagging_confirmation",
+  "arrival_row_4_section",
+  "seal_unlocked_confirmation",
+  "arrival_row_5_section",
+  "arrival_remarks",
+  "seal_return_tab",
+  "seal_condition_after_journey",
+  "completion_date_time",
+  "billing_tab",
+  "billing_status",
+  "total_charge",
+  "logs_attachments_tab",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "journey_details_tab",
+   "fieldtype": "Tab Break",
+   "label": "Journey Details"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sales_order_reference",
+   "fieldtype": "Data",
+   "label": "Sales Order Reference"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "journey_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Journey Status",
+   "options": "Draft\nPending Finance PCB Approval\nFinance PCB Approved\nFinance PCB Rejected\nTeam Lead Assigned\nTechnician Assigned\nPre-Tagging\nTagging Request Booked\nTagging In Progress\nTagged\nPost-Tagging\nReady for Journey\nIn Transit\nArrived\nUntagging In Progress\nUntagged\nCompleted\nCancelled"
+  },
+  {
+   "fieldname": "workflow_state",
+   "fieldtype": "Data",
+   "label": "Workflow State",
+   "read_only": 1
+  },
+  {
+   "fieldname": "client_and_transport_details_tab",
+   "fieldtype": "Tab Break",
+   "label": "Transport Details"
+  },
+  {
+   "fieldname": "vehicle_plate_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vehicle Plate Number"
+  },
+  {
+   "fieldname": "container_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Container Number"
+  },
+  {
+   "fieldname": "origin",
+   "fieldtype": "Data",
+   "label": "Origin"
+  },
+  {
+   "fieldname": "destination",
+   "fieldtype": "Data",
+   "label": "Destination"
+  },
+  {
+   "fieldname": "approval_tab",
+   "fieldtype": "Tab Break",
+   "label": "Approval"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "finance_pcb_approval_status",
+   "fieldtype": "Select",
+   "label": "Finance PCB Approval Status",
+   "options": "Pending\nApproved\nRejected"
+  },
+  {
+   "fieldname": "finance_pcb_approver",
+   "fieldtype": "Link",
+   "label": "Finance PCB Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finance_pcb_approval_date_time",
+   "fieldtype": "Datetime",
+   "label": "Finance PCB Approval Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finance_pcb_remarks",
+   "fieldtype": "Small Text",
+   "label": "Finance PCB Remarks"
+  },
+  {
+   "fieldname": "assignment_tab",
+   "fieldtype": "Tab Break",
+   "label": "Assignment"
+  },
+  {
+   "fieldname": "assigned_team_lead",
+   "fieldtype": "Link",
+   "label": "Assigned Team Lead",
+   "options": "User"
+  },
+  {
+   "fieldname": "team_lead_assignment_date_time",
+   "fieldtype": "Datetime",
+   "label": "Team Lead Assignment Date and Time"
+  },
+  {
+   "fieldname": "assigned_technician",
+   "fieldtype": "Link",
+   "label": "Assigned Technician",
+   "options": "User"
+  },
+  {
+   "fieldname": "technician_assignment_date_time",
+   "fieldtype": "Datetime",
+   "label": "Technician Assignment Date and Time"
+  },
+  {
+   "fieldname": "technician_status",
+   "fieldtype": "Select",
+   "label": "Technician Status",
+   "options": "Available\nOccupied"
+  },
+  {
+   "fieldname": "pre_tagging_tab",
+   "fieldtype": "Tab Break",
+   "label": "Pre-Tagging"
+  },
+  {
+   "fieldname": "proposed_seal",
+   "fieldtype": "Link",
+   "label": "Proposed Seal",
+   "options": "Seal Device"
+  },
+  {
+   "fieldname": "expected_tagging_location",
+   "fieldtype": "Data",
+   "label": "Expected Tagging Location"
+  },
+  {
+   "fieldname": "expected_tagging_date_time",
+   "fieldtype": "Datetime",
+   "label": "Expected Tagging Date and Time"
+  },
+  {
+   "fieldname": "pre_tagging_checklist",
+   "fieldtype": "Small Text",
+   "label": "Pre-Tagging Checklist"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "pre_tagging_status",
+   "fieldtype": "Select",
+   "label": "Pre-Tagging Status",
+   "options": "Pending\nCompleted"
+  },
+  {
+   "fieldname": "pre_tagging_remarks",
+   "fieldtype": "Small Text",
+   "label": "Pre-Tagging Remarks"
+  },
+  {
+   "fieldname": "tagging_request_tab",
+   "fieldtype": "Tab Break",
+   "label": "Tagging Request"
+  },
+  {
+   "fieldname": "tagging_request_reference",
+   "fieldtype": "Link",
+   "label": "Tagging Request Reference",
+   "options": "Tagging Request"
+  },
+  {
+   "fieldname": "assigned_seal",
+   "fieldtype": "Link",
+   "label": "Assigned Seal",
+   "options": "Seal Device"
+  },
+  {
+   "fieldname": "tagging_details_tab",
+   "fieldtype": "Tab Break",
+   "label": "Tagging Details"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "tagging_status",
+   "fieldtype": "Select",
+   "label": "Tagging Status",
+   "options": "Pending\nIn Progress\nCompleted"
+  },
+  {
+   "fieldname": "tagging_date_time",
+   "fieldtype": "Datetime",
+   "label": "Tagging Date and Time"
+  },
+  {
+   "fieldname": "tagging_remarks",
+   "fieldtype": "Small Text",
+   "label": "Tagging Remarks"
+  },
+  {
+   "fieldname": "photo_evidence_tab",
+   "fieldtype": "Tab Break",
+   "label": "Photo Evidence"
+  },
+  {
+   "fieldname": "photos",
+   "fieldtype": "Table",
+   "label": "Seal Trip Photos",
+   "options": "Seal Trip Photo"
+  },
+  {
+   "fieldname": "post_tagging_tab",
+   "fieldtype": "Tab Break",
+   "label": "Post-Tagging"
+  },
+  {
+   "default": "0",
+   "fieldname": "seal_attached_confirmation",
+   "fieldtype": "Check",
+   "label": "Seal Attached Confirmation"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "post_tagging_status",
+   "fieldtype": "Select",
+   "label": "Post-Tagging Status",
+   "options": "Pending\nCompleted"
+  },
+  {
+   "fieldname": "post_tagging_date_time",
+   "fieldtype": "Datetime",
+   "label": "Post-Tagging Date and Time"
+  },
+  {
+   "default": "0",
+   "fieldname": "journey_readiness",
+   "fieldtype": "Check",
+   "label": "Journey Readiness"
+  },
+  {
+   "fieldname": "departure_readiness_remarks",
+   "fieldtype": "Small Text",
+   "label": "Departure Readiness Remarks"
+  },
+  {
+   "fieldname": "transit_tracking_tab",
+   "fieldtype": "Tab Break",
+   "label": "Transit / API Tracking"
+  },
+  {
+   "fieldname": "transit_row_1_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "journey_start_date_time",
+   "fieldtype": "Datetime",
+   "label": "Journey Start Date and Time"
+  },
+  {
+   "fieldname": "transit_row_1_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "departure_confirmation",
+   "fieldtype": "Check",
+   "label": "Departure Confirmation"
+  },
+  {
+   "fieldname": "transit_row_2_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "in_transit_status",
+   "fieldtype": "Data",
+   "label": "In Transit Status"
+  },
+  {
+   "fieldname": "transit_row_2_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "current_seal_status",
+   "fieldtype": "Data",
+   "label": "Current Seal Status"
+  },
+  {
+   "fieldname": "transit_row_3_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "api_device_status",
+   "fieldtype": "Data",
+   "label": "API Device Status"
+  },
+  {
+   "fieldname": "transit_row_3_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "api_last_update_time",
+   "fieldtype": "Datetime",
+   "label": "API Last Update Time"
+  },
+  {
+   "fieldname": "transit_row_4_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "api_device_location",
+   "fieldtype": "Data",
+   "label": "API Device Location"
+  },
+  {
+   "fieldname": "transit_row_4_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "api_battery_level",
+   "fieldtype": "Data",
+   "label": "API Battery Level"
+  },
+  {
+   "fieldname": "transit_row_5_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "api_latitude",
+   "fieldtype": "Data",
+   "label": "API Latitude"
+  },
+  {
+   "fieldname": "transit_row_5_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "api_longitude",
+   "fieldtype": "Data",
+   "label": "API Longitude"
+  },
+  {
+   "fieldname": "transit_row_6_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "control_room_remarks",
+   "fieldtype": "Small Text",
+   "label": "Control Room Remarks"
+  },
+  {
+   "fieldname": "arrival_tab",
+   "fieldtype": "Tab Break",
+   "label": "Arrival"
+  },
+  {
+   "fieldname": "arrival_row_1_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "arrival_date_time",
+   "fieldtype": "Datetime",
+   "label": "Arrival Date and Time"
+  },
+  {
+   "fieldname": "arrival_row_1_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "arrival_location",
+   "fieldtype": "Data",
+   "label": "Arrival Location"
+  },
+  {
+   "fieldname": "arrival_row_2_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "untagging_started_date_time",
+   "fieldtype": "Datetime",
+   "label": "Untagging Started Date and Time"
+  },
+  {
+   "fieldname": "arrival_row_2_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "untagging_status",
+   "fieldtype": "Select",
+   "label": "Untagging Status",
+   "options": "Pending\nIn Progress\nCompleted"
+  },
+  {
+   "fieldname": "arrival_row_3_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "untagging_completed_date_time",
+   "fieldtype": "Datetime",
+   "label": "Untagging Completed Date and Time"
+  },
+  {
+   "fieldname": "arrival_row_3_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "untagging_confirmation",
+   "fieldtype": "Check",
+   "label": "Untagging Confirmation"
+  },
+  {
+   "fieldname": "arrival_row_4_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "seal_unlocked_confirmation",
+   "fieldtype": "Check",
+   "label": "Seal Unlocked Confirmation"
+  },
+  {
+   "fieldname": "arrival_row_5_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "arrival_remarks",
+   "fieldtype": "Small Text",
+   "label": "Arrival Remarks"
+  },
+  {
+   "fieldname": "seal_return_tab",
+   "fieldtype": "Tab Break",
+   "label": "Seal Return"
+  },
+  {
+   "fieldname": "seal_condition_after_journey",
+   "fieldtype": "Select",
+   "label": "Seal Condition After Journey",
+   "options": "Good\nDamaged\nLost"
+  },
+  {
+   "fieldname": "completion_date_time",
+   "fieldtype": "Datetime",
+   "label": "Completion Date and Time"
+  },
+  {
+   "fieldname": "billing_tab",
+   "fieldtype": "Tab Break",
+   "label": "Billing"
+  },
+  {
+   "fieldname": "billing_status",
+   "fieldtype": "Select",
+   "label": "Billing Status",
+   "options": "Not Billed\nPending Billing\nBilled\nCancelled"
+  },
+  {
+   "fieldname": "total_charge",
+   "fieldtype": "Currency",
+   "label": "Total Charge"
+  },
+  {
+   "fieldname": "logs_attachments_tab",
+   "fieldtype": "Tab Break",
+   "label": "Logs and Attachments"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Text",
+   "label": "Remarks"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-04 22:36:40.609720",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Seal Journey",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance PCB",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Team Lead Technician",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Operations Control Room",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Field Technician",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

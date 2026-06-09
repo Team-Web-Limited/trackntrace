@@ -11,15 +11,14 @@ app_license = "mit"
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "tnt_seal_management",
-# 		"logo": "/assets/tnt_seal_management/logo.png",
-# 		"title": "Tnt Seal Management",
-# 		"route": "/tnt_seal_management",
-# 		"has_permission": "tnt_seal_management.api.permission.has_app_permission"
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": "tnt_seal_management",
+		"logo": "/assets/tnt_seal_management/images/tnt-seal-management-logo.svg",
+		"title": "TNT Seal Management",
+		"route": "/app/tnt-seal-management",
+	}
+]
 
 # Includes in <head>
 # ------------------
@@ -255,4 +254,3 @@ app_license = "mit"
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-

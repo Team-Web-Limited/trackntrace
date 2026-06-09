@@ -1,0 +1,258 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "field:seal_number",
+ "creation": "2026-06-04 22:39:17.618859",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "seal_number",
+  "device_id",
+  "seal_type",
+  "serial_number",
+  "current_status",
+  "condition",
+  "assignment_tab",
+  "current_journey",
+  "current_customer",
+  "current_technician",
+  "current_vehicle",
+  "current_container",
+  "warehouse_location",
+  "api_tab",
+  "current_location",
+  "last_known_api_location",
+  "last_api_status",
+  "last_api_sync_time",
+  "battery_level",
+  "transmission_status",
+  "lifecycle_tab",
+  "date_received",
+  "date_activated",
+  "date_deactivated",
+  "remarks",
+  "attachments",
+  "history_tab",
+  "status_history"
+ ],
+ "fields": [
+  {
+   "fieldname": "seal_number",
+   "fieldtype": "Data",
+   "label": "Seal Number",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "device_id",
+   "fieldtype": "Data",
+   "label": "Device ID",
+   "reqd": 1
+  },
+  {
+   "fieldname": "seal_type",
+   "fieldtype": "Data",
+   "label": "Seal Type"
+  },
+  {
+   "fieldname": "serial_number",
+   "fieldtype": "Data",
+   "label": "Serial Number"
+  },
+  {
+   "default": "Quality Check",
+   "fieldname": "current_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Current Status",
+   "options": "Quality Check\nAvailable\nAssigned\nIn Journey\nArrived\nUntagged\nReturned\nDamaged\nLost\nInactive"
+  },
+  {
+   "fieldname": "condition",
+   "fieldtype": "Select",
+   "label": "Condition",
+   "options": "Good\nDamaged\nLost"
+  },
+  {
+   "fieldname": "assignment_tab",
+   "fieldtype": "Tab Break",
+   "label": "Assignment"
+  },
+  {
+   "fieldname": "current_journey",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Current Journey",
+   "options": "Seal Journey"
+  },
+  {
+   "fieldname": "current_customer",
+   "fieldtype": "Link",
+   "label": "Current Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "current_technician",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Current Technician",
+   "options": "User"
+  },
+  {
+   "fieldname": "current_vehicle",
+   "fieldtype": "Data",
+   "label": "Current Vehicle"
+  },
+  {
+   "fieldname": "current_container",
+   "fieldtype": "Data",
+   "label": "Current Container"
+  },
+  {
+   "fieldname": "warehouse_location",
+   "fieldtype": "Data",
+   "label": "Warehouse/Location"
+  },
+  {
+   "fieldname": "api_tab",
+   "fieldtype": "Tab Break",
+   "label": "API / Location"
+  },
+  {
+   "fieldname": "current_location",
+   "fieldtype": "Data",
+   "label": "Current Location"
+  },
+  {
+   "fieldname": "last_known_api_location",
+   "fieldtype": "Data",
+   "label": "Last Known API Location"
+  },
+  {
+   "fieldname": "last_api_status",
+   "fieldtype": "Data",
+   "label": "Last API Status"
+  },
+  {
+   "fieldname": "last_api_sync_time",
+   "fieldtype": "Datetime",
+   "label": "Last API Sync Time"
+  },
+  {
+   "fieldname": "battery_level",
+   "fieldtype": "Data",
+   "label": "Battery Level"
+  },
+  {
+   "fieldname": "transmission_status",
+   "fieldtype": "Data",
+   "label": "Transmission Status"
+  },
+  {
+   "fieldname": "lifecycle_tab",
+   "fieldtype": "Tab Break",
+   "label": "Lifecycle"
+  },
+  {
+   "fieldname": "date_received",
+   "fieldtype": "Date",
+   "label": "Date Received"
+  },
+  {
+   "fieldname": "date_activated",
+   "fieldtype": "Date",
+   "label": "Date Activated"
+  },
+  {
+   "fieldname": "date_deactivated",
+   "fieldtype": "Date",
+   "label": "Date Deactivated"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "attachments",
+   "fieldtype": "Attach Image",
+   "label": "Attachments"
+  },
+  {
+   "fieldname": "history_tab",
+   "fieldtype": "Tab Break",
+   "label": "Status History"
+  },
+  {
+   "fieldname": "status_history",
+   "fieldtype": "Table",
+   "label": "Status History",
+   "options": "Seal Status History"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-04 22:39:17.618859",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Seal Device",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Operations Control Room",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Management",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Field Technician",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
