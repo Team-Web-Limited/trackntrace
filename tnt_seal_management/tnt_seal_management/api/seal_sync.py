@@ -357,7 +357,7 @@ def get_device_dashboard_data():
 	devices = frappe.db.get_all(
 		"Seal Device",
 		fields=[
-			"name", "device_id", "imei_number", "device_type",
+			"name", "device_id", "imei_number",
 			"current_status", "current_vehicle", "current_journey",
 			"current_location", "last_known_api_location",
 			"latitude", "longitude", "speed", "battery_level",
@@ -517,6 +517,105 @@ def _float(val):
 		return float(val)
 	except (ValueError, TypeError):
 		return None
+
+
+@frappe.whitelist()
+def import_devices_from_api():
+	"""
+	Pull live data from the Seal Server and create Seal Device records for any
+	IMEI that does not already exist in the database.
+	Returns a summary dict: created, skipped, errors.
+	"""
+	_require_admin_permission()
+
+	raw = get_live_data(sync_type="Manual Device Sync")
+	records = normalize_live_data_response(raw)
+
+	# Build set of existing IMEIs for fast lookup
+	existing = {
+		r["imei_number"]
+		for r in frappe.db.get_all("Seal Device", fields=["imei_number"])
+		if r.get("imei_number")
+	}
+
+	created, skipped, errors = [], [], []
+
+	for rec in records:
+		imei = str(rec.get("imei") or "").strip()
+		if not imei:
+			continue
+
+		if imei in existing:
+			skipped.append(imei)
+			continue
+
+		plate = _clean_plate(rec.get("vehicle_no") or "", imei)
+
+		try:
+			doc = frappe.get_doc({
+				"doctype": "Seal Device",
+				"seal_number": imei,
+				"device_id": imei,
+				"imei_number": imei,
+				"seal_type": "E-Lock",
+				"current_status": "Available",
+				"condition": "Good",
+				"current_vehicle": plate or None,
+				"current_location": str(rec.get("location") or "")[:140] or None,
+				"last_known_api_location": str(rec.get("location") or "")[:140] or None,
+				"last_api_status": str(rec.get("status") or "")[:140] or None,
+				"latitude": rec.get("latitude"),
+				"longitude": rec.get("longitude"),
+				"speed": rec.get("speed"),
+				"battery_level": str(rec.get("battery") or "")[:140] or None,
+				"last_successful_sync_time": now_datetime(),
+				"raw_api_response": json.dumps(rec.get("_raw", {}))[:5000],
+			})
+			doc.insert(ignore_permissions=True)
+			existing.add(imei)
+			created.append(imei)
+		except Exception as exc:
+			errors.append({"imei": imei, "error": str(exc)[:200]})
+
+	frappe.db.commit()
+
+	return {
+		"created": len(created),
+		"skipped": len(skipped),
+		"errors": len(errors),
+		"error_details": errors[:20],
+		"created_imeis": created[:50],
+	}
+
+
+def _clean_plate(vehicle_no, imei):
+	"""
+	Strip the IMEI suffix that Uffizio appends to vehicle plate numbers.
+	Handles all separator variants the API produces:
+	  'KBZ 803T/ZD 1789-7591116502'   →  'KBZ 803T/ZD 1789'
+	  'KBW 964C - 790104002221'        →  'KBW 964C'
+	  'UA 568DZ-74225280002'           →  'UA 568DZ'   (leading digit before IMEI)
+	  'UBB 663Y-14225280007'           →  'UBB 663Y'
+	  '7591114066'                     →  ''  (no vehicle)
+	  '-7591114007'                    →  ''  (no vehicle)
+	"""
+	import re as _re
+	if not vehicle_no:
+		return ""
+	vn = vehicle_no.strip()
+	if vn == imei or vn.lstrip(" -") == imei:
+		return ""
+	# Regex: separator chars (space/dash/slash) optionally followed by one
+	# extra digit (some Uffizio instances prepend a digit to the IMEI in the
+	# vehicle_no string), then the IMEI itself, at end of string.
+	pattern = _re.compile(r"\s*[-_/]+\s*\d?" + _re.escape(imei) + r"$")
+	plate = pattern.sub("", vn).rstrip(" -_/")
+	if plate and plate != vn:
+		return plate
+	# Fallback: plain endswith strip
+	if vn.endswith(imei):
+		return vn[: -len(imei)].rstrip(" -_/") or ""
+	return vn
 
 
 def _match_record(records, imei, vehicle_no=None):
