@@ -118,6 +118,10 @@ function get_landing_page_html() {
 					<div class="tsm-icon">💰</div>
 					<h3>Billing Rates</h3>
 				</div>
+				<div class="tsm-card tsm-card--primary" data-route="seal-tracking-dashboard">
+					<div class="tsm-icon">🗺</div>
+					<h3>Tracking Dashboard</h3>
+				</div>
 				<div class="tsm-card" data-route="Form/Seal API Settings">
 					<div class="tsm-icon">⚙️</div>
 					<h3>API Settings</h3>

@@ -349,6 +349,71 @@ def test_connection():
 		return {"status": "error", "message": str(exc)}
 
 
+@frappe.whitelist()
+def get_device_dashboard_data():
+	"""Return all Seal Devices with their last-synced API fields for the dashboard."""
+	_require_sync_permission()
+
+	devices = frappe.db.get_all(
+		"Seal Device",
+		fields=[
+			"name", "device_id", "imei_number", "device_type",
+			"current_status", "current_vehicle", "current_journey",
+			"current_location", "last_known_api_location",
+			"latitude", "longitude", "speed", "battery_level",
+			"last_api_status", "transmission_status",
+			"last_successful_sync_time", "last_failed_sync_time",
+			"api_error_message",
+		],
+		order_by="last_successful_sync_time desc",
+	)
+
+	# Build summary counts
+	total = len(devices)
+	active = sum(1 for d in devices if (d.get("last_api_status") or "").upper() in ("ACTIVE", "MOVING", "ON"))
+	in_transit = sum(1 for d in devices if d.get("current_journey"))
+	offline = sum(1 for d in devices if (d.get("last_api_status") or "").upper() in ("INACTIVE", "OFFLINE", ""))
+
+	# Attach journey status to each device
+	if devices:
+		journey_statuses = {}
+		journey_names = [d["current_journey"] for d in devices if d.get("current_journey")]
+		if journey_names:
+			rows = frappe.db.get_all(
+				"Seal Journey",
+				filters={"name": ["in", journey_names]},
+				fields=["name", "journey_status", "vehicle_plate_number", "destination"],
+			)
+			journey_statuses = {r["name"]: r for r in rows}
+
+		for d in devices:
+			j = journey_statuses.get(d.get("current_journey") or "")
+			d["journey_status"] = j["journey_status"] if j else None
+			d["journey_vehicle"] = j["vehicle_plate_number"] if j else None
+			d["journey_destination"] = j["destination"] if j else None
+
+	return {
+		"devices": [dict(d) for d in devices],
+		"summary": {
+			"total": total,
+			"active": active,
+			"in_transit": in_transit,
+			"offline": offline,
+		},
+	}
+
+
+@frappe.whitelist()
+def trigger_sync_all():
+	"""Manually trigger the scheduled batch sync from the dashboard."""
+	_require_sync_permission()
+	try:
+		scheduled_sync_active_journeys()
+		return {"status": "success", "message": _("Sync triggered for all active journeys.")}
+	except Exception as exc:
+		return {"status": "error", "message": str(exc)}
+
+
 # ---------------------------------------------------------------------------
 # Permission helpers
 # ---------------------------------------------------------------------------
