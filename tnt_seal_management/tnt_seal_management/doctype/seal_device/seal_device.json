@@ -10,6 +10,7 @@
  "field_order": [
   "seal_number",
   "device_id",
+  "imei_number",
   "seal_type",
   "serial_number",
   "current_status",
@@ -28,6 +29,18 @@
   "last_api_sync_time",
   "battery_level",
   "transmission_status",
+  "api_coords_section",
+  "latitude",
+  "api_coords_col",
+  "longitude",
+  "api_speed_section",
+  "speed",
+  "api_sync_section",
+  "last_successful_sync_time",
+  "api_sync_col",
+  "last_failed_sync_time",
+  "api_error_message",
+  "raw_api_response",
   "lifecycle_tab",
   "date_received",
   "date_activated",
@@ -50,6 +63,13 @@
    "fieldtype": "Data",
    "label": "Device ID",
    "reqd": 1
+  },
+  {
+   "fieldname": "imei_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "IMEI Number",
+   "unique": 1
   },
   {
    "fieldname": "seal_type",
@@ -138,7 +158,8 @@
   {
    "fieldname": "last_api_sync_time",
    "fieldtype": "Datetime",
-   "label": "Last API Sync Time"
+   "label": "Last API Sync Time",
+   "read_only": 1
   },
   {
    "fieldname": "battery_level",
@@ -149,6 +170,71 @@
    "fieldname": "transmission_status",
    "fieldtype": "Data",
    "label": "Transmission Status"
+  },
+  {
+   "fieldname": "api_coords_section",
+   "fieldtype": "Section Break",
+   "label": "GPS Coordinates"
+  },
+  {
+   "fieldname": "latitude",
+   "fieldtype": "Float",
+   "label": "Latitude",
+   "read_only": 1
+  },
+  {
+   "fieldname": "api_coords_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "longitude",
+   "fieldtype": "Float",
+   "label": "Longitude",
+   "read_only": 1
+  },
+  {
+   "fieldname": "api_speed_section",
+   "fieldtype": "Section Break",
+   "label": "Speed"
+  },
+  {
+   "fieldname": "speed",
+   "fieldtype": "Float",
+   "label": "Speed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "api_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Sync Status"
+  },
+  {
+   "fieldname": "last_successful_sync_time",
+   "fieldtype": "Datetime",
+   "label": "Last Successful Sync Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "api_sync_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_failed_sync_time",
+   "fieldtype": "Datetime",
+   "label": "Last Failed Sync Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "api_error_message",
+   "fieldtype": "Small Text",
+   "label": "API Error Message",
+   "read_only": 1
+  },
+  {
+   "fieldname": "raw_api_response",
+   "fieldtype": "Long Text",
+   "label": "Raw API Response",
+   "read_only": 1
   },
   {
    "fieldname": "lifecycle_tab",
@@ -195,7 +281,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-04 22:39:17.618859",
+ "modified": "2026-06-09 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Device",

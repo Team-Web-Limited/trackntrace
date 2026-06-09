@@ -8,13 +8,35 @@
  "engine": "InnoDB",
  "field_order": [
   "enabled",
+  "connection_section",
   "api_base_url",
+  "project_id",
+  "connection_col",
+  "company_name",
+  "authentication_section",
   "authentication_type",
-  "api_key_token",
   "username",
+  "auth_col",
   "password",
-  "sync_frequency",
+  "api_key_token",
+  "token_section",
+  "current_auth_code",
+  "token_generated_at",
+  "token_col",
+  "token_ttl_minutes",
+  "sync_config_section",
+  "sync_frequency_minutes",
+  "sync_col",
+  "minimum_request_gap_seconds",
+  "last_request_time",
+  "status_section",
   "last_sync_date_time",
+  "status_col",
+  "last_successful_sync_time",
+  "failure_section",
+  "last_failed_sync_time",
+  "failure_col",
+  "last_error_message",
   "remarks"
  ],
  "fields": [
@@ -25,9 +47,35 @@
    "label": "Enabled"
   },
   {
+   "fieldname": "connection_section",
+   "fieldtype": "Section Break",
+   "label": "Connection"
+  },
+  {
    "fieldname": "api_base_url",
    "fieldtype": "Data",
    "label": "API Base URL"
+  },
+  {
+   "fieldname": "project_id",
+   "fieldtype": "Data",
+   "label": "Project ID",
+   "description": "The ProjectId appended to the live data endpoint URL (e.g. 37)"
+  },
+  {
+   "fieldname": "connection_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company_name",
+   "fieldtype": "Data",
+   "label": "Company Name",
+   "description": "Company name sent in the API request body as company_names"
+  },
+  {
+   "fieldname": "authentication_section",
+   "fieldtype": "Section Break",
+   "label": "Authentication"
   },
   {
    "fieldname": "authentication_type",
@@ -36,14 +84,13 @@
    "options": "Token\nBasic Auth\nOAuth"
   },
   {
-   "fieldname": "api_key_token",
-   "fieldtype": "Password",
-   "label": "API Key / Token"
-  },
-  {
    "fieldname": "username",
    "fieldtype": "Data",
    "label": "Username"
+  },
+  {
+   "fieldname": "auth_col",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "password",
@@ -51,14 +98,108 @@
    "label": "Password"
   },
   {
-   "fieldname": "sync_frequency",
-   "fieldtype": "Data",
-   "label": "Sync Frequency"
+   "fieldname": "api_key_token",
+   "fieldtype": "Password",
+   "label": "API Key / Token (Static)"
+  },
+  {
+   "fieldname": "token_section",
+   "fieldtype": "Section Break",
+   "label": "Cached Session Token"
+  },
+  {
+   "fieldname": "current_auth_code",
+   "fieldtype": "Password",
+   "label": "Current Auth Code",
+   "read_only": 1,
+   "description": "Auto-generated session token stored after calling generateAccessToken"
+  },
+  {
+   "fieldname": "token_generated_at",
+   "fieldtype": "Datetime",
+   "label": "Token Generated At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "token_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "55",
+   "fieldname": "token_ttl_minutes",
+   "fieldtype": "Int",
+   "label": "Token TTL Minutes",
+   "description": "Minutes before cached token is considered expired and regenerated"
+  },
+  {
+   "fieldname": "sync_config_section",
+   "fieldtype": "Section Break",
+   "label": "Sync Configuration"
+  },
+  {
+   "default": "15",
+   "fieldname": "sync_frequency_minutes",
+   "fieldtype": "Int",
+   "label": "Sync Frequency Minutes",
+   "description": "How often the scheduler syncs active journeys (informational — change hooks.py cron to adjust)"
+  },
+  {
+   "fieldname": "sync_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "10",
+   "fieldname": "minimum_request_gap_seconds",
+   "fieldtype": "Int",
+   "label": "Minimum Request Gap Seconds",
+   "description": "Minimum seconds to wait between consecutive API calls (rate-limit protection)"
+  },
+  {
+   "fieldname": "last_request_time",
+   "fieldtype": "Datetime",
+   "label": "Last Request Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Sync Status"
   },
   {
    "fieldname": "last_sync_date_time",
    "fieldtype": "Datetime",
    "label": "Last Sync Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_successful_sync_time",
+   "fieldtype": "Datetime",
+   "label": "Last Successful Sync Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "failure_section",
+   "fieldtype": "Section Break",
+   "label": "Failure Tracking"
+  },
+  {
+   "fieldname": "last_failed_sync_time",
+   "fieldtype": "Datetime",
+   "label": "Last Failed Sync Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "failure_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_error_message",
+   "fieldtype": "Small Text",
+   "label": "Last Error Message",
    "read_only": 1
   },
   {
@@ -71,7 +212,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-06-04 22:39:18.692984",
+ "modified": "2026-06-09 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal API Settings",

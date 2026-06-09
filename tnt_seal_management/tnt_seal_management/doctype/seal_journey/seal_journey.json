@@ -72,6 +72,10 @@
   "api_latitude",
   "transit_row_5_column",
   "api_longitude",
+  "transit_row_5b_section",
+  "api_speed",
+  "transit_row_5b_column",
+  "api_sync_error",
   "transit_row_6_section",
   "control_room_remarks",
   "arrival_tab",
@@ -98,6 +102,7 @@
   "billing_status",
   "total_charge",
   "logs_attachments_tab",
+  "api_raw_response",
   "remarks"
  ],
  "fields": [
@@ -394,7 +399,8 @@
   {
    "fieldname": "api_device_status",
    "fieldtype": "Data",
-   "label": "API Device Status"
+   "label": "API Device Status",
+   "read_only": 1
   },
   {
    "fieldname": "transit_row_3_column",
@@ -403,7 +409,8 @@
   {
    "fieldname": "api_last_update_time",
    "fieldtype": "Datetime",
-   "label": "API Last Update Time"
+   "label": "API Last Update Time",
+   "read_only": 1
   },
   {
    "fieldname": "transit_row_4_section",
@@ -412,7 +419,8 @@
   {
    "fieldname": "api_device_location",
    "fieldtype": "Data",
-   "label": "API Device Location"
+   "label": "API Device Location",
+   "read_only": 1
   },
   {
    "fieldname": "transit_row_4_column",
@@ -421,7 +429,8 @@
   {
    "fieldname": "api_battery_level",
    "fieldtype": "Data",
-   "label": "API Battery Level"
+   "label": "API Battery Level",
+   "read_only": 1
   },
   {
    "fieldname": "transit_row_5_section",
@@ -430,7 +439,8 @@
   {
    "fieldname": "api_latitude",
    "fieldtype": "Data",
-   "label": "API Latitude"
+   "label": "API Latitude",
+   "read_only": 1
   },
   {
    "fieldname": "transit_row_5_column",
@@ -439,7 +449,28 @@
   {
    "fieldname": "api_longitude",
    "fieldtype": "Data",
-   "label": "API Longitude"
+   "label": "API Longitude",
+   "read_only": 1
+  },
+  {
+   "fieldname": "transit_row_5b_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "api_speed",
+   "fieldtype": "Float",
+   "label": "API Speed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "transit_row_5b_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "api_sync_error",
+   "fieldtype": "Small Text",
+   "label": "API Sync Error",
+   "read_only": 1
   },
   {
    "fieldname": "transit_row_6_section",
@@ -569,6 +600,12 @@
    "label": "Logs and Attachments"
   },
   {
+   "fieldname": "api_raw_response",
+   "fieldtype": "Long Text",
+   "label": "API Raw Response",
+   "read_only": 1
+  },
+  {
    "fieldname": "remarks",
    "fieldtype": "Text",
    "label": "Remarks"
@@ -577,7 +614,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-04 22:36:40.609720",
+ "modified": "2026-06-09 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Journey",

@@ -1,0 +1,234 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 0,
+ "allow_rename": 0,
+ "autoname": "format:SASL-{YYYY}-{MM}-{#####}",
+ "creation": "2026-06-09 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "header_section",
+  "sync_type",
+  "sync_col",
+  "sync_status",
+  "time_section",
+  "sync_started_at",
+  "time_col",
+  "sync_completed_at",
+  "target_section",
+  "seal_device",
+  "imei_number",
+  "target_col",
+  "seal_journey",
+  "vehicle_number",
+  "counts_section",
+  "devices_synced",
+  "counts_col",
+  "journeys_updated",
+  "http_status_code",
+  "request_section",
+  "request_url",
+  "request_body",
+  "response_section",
+  "response_body",
+  "error_section",
+  "error_message",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "header_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "sync_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Sync Type",
+   "options": "Manual Device Sync\nManual Journey Sync\nScheduled Sync\nToken Generation\nTest Connection"
+  },
+  {
+   "fieldname": "sync_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sync_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Sync Status",
+   "options": "\nSuccess\nFailed\nPartial",
+   "reqd": 1
+  },
+  {
+   "fieldname": "time_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "sync_started_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Sync Started At"
+  },
+  {
+   "fieldname": "time_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sync_completed_at",
+   "fieldtype": "Datetime",
+   "label": "Sync Completed At"
+  },
+  {
+   "fieldname": "target_section",
+   "fieldtype": "Section Break",
+   "label": "Target"
+  },
+  {
+   "fieldname": "seal_device",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Seal Device",
+   "options": "Seal Device"
+  },
+  {
+   "fieldname": "imei_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "IMEI Number"
+  },
+  {
+   "fieldname": "target_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "seal_journey",
+   "fieldtype": "Link",
+   "label": "Seal Journey",
+   "options": "Seal Journey"
+  },
+  {
+   "fieldname": "vehicle_number",
+   "fieldtype": "Data",
+   "label": "Vehicle Number"
+  },
+  {
+   "fieldname": "counts_section",
+   "fieldtype": "Section Break",
+   "label": "Counts"
+  },
+  {
+   "default": "0",
+   "fieldname": "devices_synced",
+   "fieldtype": "Int",
+   "label": "Devices Synced"
+  },
+  {
+   "fieldname": "counts_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "journeys_updated",
+   "fieldtype": "Int",
+   "label": "Journeys Updated"
+  },
+  {
+   "fieldname": "http_status_code",
+   "fieldtype": "Int",
+   "label": "HTTP Status Code"
+  },
+  {
+   "fieldname": "request_section",
+   "fieldtype": "Section Break",
+   "label": "Request"
+  },
+  {
+   "fieldname": "request_url",
+   "fieldtype": "Small Text",
+   "label": "Request URL"
+  },
+  {
+   "fieldname": "request_body",
+   "fieldtype": "Long Text",
+   "label": "Request Body",
+   "description": "Credentials and auth tokens are redacted"
+  },
+  {
+   "fieldname": "response_section",
+   "fieldtype": "Section Break",
+   "label": "Response"
+  },
+  {
+   "fieldname": "response_body",
+   "fieldtype": "Long Text",
+   "label": "Response Body"
+  },
+  {
+   "fieldname": "error_section",
+   "fieldtype": "Section Break",
+   "label": "Error"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Long Text",
+   "label": "Error Message"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Seal API Sync Log",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Seal System Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Operations Control Room"
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Management"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "sync_started_at",
+ "sort_order": "DESC",
+ "states": []
+}

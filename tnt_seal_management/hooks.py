@@ -148,23 +148,17 @@ add_to_apps_screen = [
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"tnt_seal_management.tasks.all"
-# 	],
-# 	"daily": [
-# 		"tnt_seal_management.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"tnt_seal_management.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"tnt_seal_management.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"tnt_seal_management.tasks.monthly"
-# 	],
-# }
+# Sync live tracking data from the Seal Server API every 15 minutes.
+# Only journeys with journey_status "In Transit" or "Ready for Journey" are synced.
+# Adjust the cron expression here if a different frequency is needed;
+# the Sync Frequency Minutes field in Seal API Settings is informational only.
+scheduler_events = {
+	"cron": {
+		"*/15 * * * *": [
+			"tnt_seal_management.tnt_seal_management.api.seal_sync.scheduled_sync_active_journeys"
+		]
+	}
+}
 
 # Testing
 # -------
