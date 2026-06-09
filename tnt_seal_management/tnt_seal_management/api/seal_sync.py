@@ -107,6 +107,7 @@ def sync_seal_device(seal_device_name, sync_type="Manual Device Sync"):
 		raw = get_live_data(
 			imei_nos=device.imei_number,
 			vehicle_nos=device.current_vehicle or None,
+			sync_type=sync_type,
 		)
 	except Exception as exc:
 		frappe.db.set_value(
@@ -226,7 +227,7 @@ def scheduled_sync_active_journeys():
 	}
 
 	try:
-		raw = get_live_data(imei_nos=all_imeis)
+		raw = get_live_data(imei_nos=all_imeis, sync_type="Scheduled Sync")
 		records = normalize_live_data_response(raw)
 
 		synced = 0

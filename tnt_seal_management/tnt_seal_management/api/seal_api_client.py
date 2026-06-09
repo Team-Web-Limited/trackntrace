@@ -217,7 +217,7 @@ def get_cached_token():
 # Live data call
 # ---------------------------------------------------------------------------
 
-def get_live_data(vehicle_nos=None, imei_nos=None, force_token_refresh=False):
+def get_live_data(vehicle_nos=None, imei_nos=None, force_token_refresh=False, sync_type="Manual Device Sync"):
 	"""
 	POST to getTokenBaseLiveData endpoint.
 	Handles token expiry by retrying once with a fresh token.
@@ -250,7 +250,7 @@ def get_live_data(vehicle_nos=None, imei_nos=None, force_token_refresh=False):
 
 	log = {
 		"doctype": _SYNC_LOG_DOCTYPE,
-		"sync_type": "Manual Device Sync",
+		"sync_type": sync_type,
 		"sync_started_at": now_datetime(),
 		"request_url": url,
 		# auth-code header is redacted
