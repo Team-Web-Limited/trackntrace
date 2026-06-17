@@ -3,7 +3,7 @@ import frappe
 def execute():
     # Roles
     roles = [
-        "Finance PCB", "Team Lead Technician", "Field Technician", 
+        "Finance PCB", "Account Manager", "PCB Team Leader", "Field Technician",
         "Operations Control Room", "Management", "Seal System Administrator"
     ]
     for r in roles:
@@ -111,7 +111,7 @@ def execute():
                 {"fieldname": "proposed_seal", "label": "Proposed Seal", "fieldtype": "Data"},
                 {"fieldname": "expected_tagging_location", "label": "Expected Tagging Location", "fieldtype": "Data"},
                 {"fieldname": "expected_tagging_date_time", "label": "Expected Tagging Date and Time", "fieldtype": "Datetime"},
-                {"fieldname": "pre_tagging_checklist", "label": "Pre-Tagging Checklist", "fieldtype": "Small Text"},
+                {"fieldname": "pre_tagging_checklist", "label": "Pre-Tagging Checklist", "fieldtype": "Table", "options": "Pre Tagging Checklist Item"},
                 {"fieldname": "pre_tagging_status", "label": "Pre-Tagging Status", "fieldtype": "Select", "options": "Pending\nCompleted", "default": "Pending"},
                 {"fieldname": "pre_tagging_remarks", "label": "Pre-Tagging Remarks", "fieldtype": "Small Text"},
                 
@@ -172,7 +172,7 @@ def execute():
             "permissions": [
                 {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1},
                 {"role": "Finance PCB", "read": 1, "write": 1},
-                {"role": "Team Lead Technician", "read": 1, "write": 1},
+                {"role": "PCB Team Leader", "read": 1, "write": 1},
                 {"role": "Operations Control Room", "read": 1, "write": 1, "create": 1},
                 {"role": "Field Technician", "read": 1, "write": 1}
             ]

@@ -12,9 +12,9 @@ def execute():
         {"first": "Faith", "last": "Akinyi", "email": "faith.akinyi@tnt-seal.co.ke", "gender": "Female", "dob": "1993-01-30", "doj": "2023-04-10", "designation": "Control Room Operator"},
         {"first": "Brian", "last": "Kipchoge", "email": "brian.kipchoge@tnt-seal.co.ke", "gender": "Male", "dob": "1989-06-25", "doj": "2022-11-05", "designation": "Control Room Supervisor"},
 
-        {"first": "Samuel", "last": "Njoroge", "email": "samuel.njoroge@tnt-seal.co.ke", "gender": "Male", "dob": "1987-02-14", "doj": "2022-05-15", "designation": "Team Lead Technician"},
-        {"first": "Alice", "last": "Mutua", "email": "alice.mutua@tnt-seal.co.ke", "gender": "Female", "dob": "1990-08-08", "doj": "2023-01-08", "designation": "Team Lead Technician"},
-        {"first": "Joseph", "last": "Otieno", "email": "joseph.otieno@tnt-seal.co.ke", "gender": "Male", "dob": "1986-12-20", "doj": "2022-07-01", "designation": "Team Lead Technician"},
+        {"first": "Samuel", "last": "Njoroge", "email": "samuel.njoroge@tnt-seal.co.ke", "gender": "Male", "dob": "1987-02-14", "doj": "2022-05-15", "designation": "PCB Team Leader"},
+        {"first": "Alice", "last": "Mutua", "email": "alice.mutua@tnt-seal.co.ke", "gender": "Female", "dob": "1990-08-08", "doj": "2023-01-08", "designation": "PCB Team Leader"},
+        {"first": "Joseph", "last": "Otieno", "email": "joseph.otieno@tnt-seal.co.ke", "gender": "Male", "dob": "1986-12-20", "doj": "2022-07-01", "designation": "PCB Team Leader"},
 
         {"first": "Kevin", "last": "Kamau", "email": "kevin.kamau@tnt-seal.co.ke", "gender": "Male", "dob": "1995-05-10", "doj": "2024-01-15", "designation": "Field Technician"},
         {"first": "Sarah", "last": "Wambui", "email": "sarah.wambui@tnt-seal.co.ke", "gender": "Female", "dob": "1996-10-03", "doj": "2024-03-01", "designation": "Field Technician"},

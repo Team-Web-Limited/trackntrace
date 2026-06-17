@@ -1,0 +1,430 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:JR-{YYYY}-{MM}-{#####}",
+ "creation": "2026-06-13 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "jr_row_1_section",
+  "job_order",
+  "jr_row_1_column",
+  "client_name",
+  "jr_row_2_section",
+  "vehicle",
+  "jr_row_2_column",
+  "assigned_technician",
+  "jr_row_3_section",
+  "entry_number",
+  "jr_row_3_column",
+  "container_number",
+  "jr_row_4_section",
+  "number_of_seals",
+  "seals",
+  "jr_row_5_section",
+  "origin",
+  "jr_row_5_column",
+  "destination",
+  "jr_row_6_section",
+  "driver_contact",
+  "jr_row_7_section",
+  "entry_document",
+  "jr_row_7_column",
+  "tagging_photos",
+  "jr_cr_section",
+  "control_room_approver",
+  "jr_cr_column",
+  "control_room_approval_date_time",
+  "jr_cr_remarks_section",
+  "control_room_remarks",
+  "jr_tagging_section",
+  "actual_tagging_date_time",
+  "jr_tagging_column",
+  "tagging_location",
+  "jr_tagging_row2_section",
+  "tagging_completed",
+  "jr_tagging_row2_column",
+  "tagging_remarks",
+  "jr_row_8_section",
+  "journey_request_status",
+  "jr_row_8_column",
+  "customer_care_approver",
+  "jr_row_9_section",
+  "approval_date_time",
+  "jr_row_9_column",
+  "customer_care_remarks",
+  "jr_row_10_section",
+  "approval_log",
+  "jr_row_11_section",
+  "journey_reference",
+  "jr_row_12_section",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "jr_row_1_section",
+   "fieldtype": "Section Break",
+   "label": "Job Order"
+  },
+  {
+   "fieldname": "job_order",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Job Order",
+   "options": "PCB Job Order",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "jr_row_1_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "job_order.client_name",
+   "fieldname": "client_name",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Client Name",
+   "options": "Customer",
+   "read_only": 1
+  },
+  {
+   "fieldname": "jr_row_2_section",
+   "fieldtype": "Section Break",
+   "label": "Vehice only"
+  },
+  {
+   "fieldname": "vehicle",
+   "fieldtype": "Link",
+   "label": "Vehicle",
+   "options": "Vehicle",
+   "reqd": 1
+  },
+  {
+   "fieldname": "jr_row_2_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "assigned_technician",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Assigned Technician",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "jr_row_3_section",
+   "fieldtype": "Section Break",
+   "label": "Entry & Container"
+  },
+  {
+   "fieldname": "entry_number",
+   "fieldtype": "Data",
+   "label": "Entry Number",
+   "reqd": 1
+  },
+  {
+   "fieldname": "jr_row_3_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "container_number",
+   "fieldtype": "Data",
+   "label": "Container Number",
+   "reqd": 1
+  },
+  {
+   "fieldname": "jr_row_4_section",
+   "fieldtype": "Section Break",
+   "label": "Seals"
+  },
+  {
+   "default": "1",
+   "fieldname": "number_of_seals",
+   "fieldtype": "Int",
+   "label": "Number of Seals",
+   "non_negative": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "seals",
+   "fieldtype": "Table",
+   "label": "Seal Serial Number(s)",
+   "options": "Journey Request Seal"
+  },
+  {
+   "fieldname": "jr_row_5_section",
+   "fieldtype": "Section Break",
+   "label": "Route"
+  },
+  {
+   "fieldname": "origin",
+   "fieldtype": "Select",
+   "label": "Origin",
+   "options": "Mombasa Port, Kenya\nNairobi ICD, Kenya\nEldoret, Kenya\nKisumu, Kenya\nMalaba Border, Kenya/Uganda\nBusia Border, Kenya/Uganda\nNamanga Border, Kenya/Tanzania\nIsebania Border, Kenya/Tanzania\nMoyale Border, Kenya/Ethiopia\nKampala, Uganda\nMbarara, Uganda\nMutukula Border, Uganda/Tanzania\nNimule Border, Uganda/South Sudan\nDar es Salaam Port, Tanzania\nDar es Salaam ICD, Tanzania\nArusha, Tanzania\nKigali, Rwanda\nRusumo Border, Rwanda/Tanzania\nJuba, South Sudan\nAddis Ababa, Ethiopia",
+   "reqd": 1
+  },
+  {
+   "fieldname": "jr_row_5_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "destination",
+   "fieldtype": "Select",
+   "label": "Destination",
+   "options": "Mombasa Port, Kenya\nNairobi ICD, Kenya\nEldoret, Kenya\nKisumu, Kenya\nMalaba Border, Kenya/Uganda\nBusia Border, Kenya/Uganda\nNamanga Border, Kenya/Tanzania\nIsebania Border, Kenya/Tanzania\nMoyale Border, Kenya/Ethiopia\nKampala, Uganda\nMbarara, Uganda\nMutukula Border, Uganda/Tanzania\nNimule Border, Uganda/South Sudan\nDar es Salaam Port, Tanzania\nDar es Salaam ICD, Tanzania\nArusha, Tanzania\nKigali, Rwanda\nRusumo Border, Rwanda/Tanzania\nJuba, South Sudan\nAddis Ababa, Ethiopia",
+   "reqd": 1
+  },
+  {
+   "fieldname": "jr_row_6_section",
+   "fieldtype": "Section Break",
+   "label": "Driver"
+  },
+  {
+   "fieldname": "driver_contact",
+   "fieldtype": "Phone",
+   "label": "Driver Contact",
+   "reqd": 1
+  },
+  {
+   "fieldname": "jr_row_7_section",
+   "fieldtype": "Section Break",
+   "label": "Documents & Photos"
+  },
+  {
+   "fieldname": "entry_document",
+   "fieldtype": "Attach",
+   "label": "Entry Document"
+  },
+  {
+   "fieldname": "jr_row_7_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tagging_photos",
+   "fieldtype": "Table",
+   "label": "Tagging Pictures",
+   "options": "Seal Trip Photo"
+  },
+  {
+   "fieldname": "jr_cr_section",
+   "fieldtype": "Section Break",
+   "label": "Control Room Approval"
+  },
+  {
+   "fieldname": "control_room_approver",
+   "fieldtype": "Link",
+   "label": "Control Room Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "jr_cr_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "control_room_approval_date_time",
+   "fieldtype": "Datetime",
+   "label": "Control Room Approval Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "jr_cr_remarks_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "control_room_remarks",
+   "fieldtype": "Small Text",
+   "label": "Control Room Remarks",
+   "read_only": 1
+  },
+  {
+   "fieldname": "jr_tagging_section",
+   "fieldtype": "Section Break",
+   "label": "Actual Tagging"
+  },
+  {
+   "fieldname": "actual_tagging_date_time",
+   "fieldtype": "Datetime",
+   "label": "Actual Tagging Date and Time"
+  },
+  {
+   "fieldname": "jr_tagging_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tagging_location",
+   "fieldtype": "Data",
+   "label": "Tagging Location"
+  },
+  {
+   "fieldname": "jr_tagging_row2_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "tagging_completed",
+   "fieldtype": "Check",
+   "label": "Tagging Completed"
+  },
+  {
+   "fieldname": "jr_tagging_row2_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tagging_remarks",
+   "fieldtype": "Small Text",
+   "label": "Tagging Remarks"
+  },
+  {
+   "fieldname": "jr_row_8_section",
+   "fieldtype": "Section Break",
+   "label": "Customer Care Approval"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "journey_request_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nPending Control Room Approval\nPending Tagging\nPending Customer Care Approval\nApproved\nRejected\nCancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "jr_row_8_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customer_care_approver",
+   "fieldtype": "Link",
+   "label": "Customer Care Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "jr_row_9_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "approval_date_time",
+   "fieldtype": "Datetime",
+   "label": "Approval Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "jr_row_9_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customer_care_remarks",
+   "fieldtype": "Small Text",
+   "label": "Customer Care Remarks",
+   "read_only": 1
+  },
+  {
+   "fieldname": "jr_row_10_section",
+   "fieldtype": "Section Break",
+   "label": "Approval History"
+  },
+  {
+   "fieldname": "approval_log",
+   "fieldtype": "Table",
+   "label": "Approval Log",
+   "options": "Journey Request Approval",
+   "read_only": 1
+  },
+  {
+   "fieldname": "jr_row_11_section",
+   "fieldtype": "Section Break",
+   "label": "Journey"
+  },
+  {
+   "fieldname": "journey_reference",
+   "fieldtype": "Link",
+   "label": "Journey Reference",
+   "options": "Seal Journey",
+   "read_only": 1
+  },
+  {
+   "fieldname": "jr_row_12_section",
+   "fieldtype": "Section Break",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Text",
+   "label": "Remarks"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-14 19:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Journey Request",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Field Technician",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Customer Care",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Operations Control Room",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Management",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -9,6 +9,114 @@ frappe.pages["tnt-seal-management"].on_page_load = function (wrapper) {
 	bind_actions(page);
 };
 
+const TNT_DASHBOARD_CARDS = [
+	{
+		title: "Seal Journeys",
+		icon: "🚚",
+		route: "List/Seal Journey",
+		primary: true,
+		roles: ["System Manager", "Finance PCB", "Operations Control Room"],
+	},
+	{
+		title: "Journey Requests",
+		icon: "🧾",
+		route: "journey-request-list",
+		roles: [
+			"System Manager",
+			"Customer Care",
+			"Management",
+			"Operations Control Room",
+			"Field Technician",
+		],
+	},
+	{
+		title: "Tagging Bookings",
+		icon: "📅",
+		route: "tagging-booking-list",
+		primary: true,
+		roles: ["System Manager", "Account Manager", "Finance PCB", "Management"],
+	},
+	{
+		title: "PCB Job Orders",
+		icon: "📋",
+		route: "pcb-job-order-list",
+		roles: ["System Manager", "Finance PCB", "Management"],
+	},
+	{
+		title: "Assignments",
+		icon: "👷",
+		route: "assignment-list",
+		primary: true,
+		roles: ["System Manager", "PCB Team Leader", "Management"],
+	},
+	{
+		title: "Current Customers",
+		icon: "🏢",
+		route: "current-customer-list",
+		roles: [
+			"System Manager",
+			"Account Manager",
+			"Customer Care",
+			"Finance PCB",
+			"Management",
+			"Operations Control Room",
+		],
+	},
+	{
+		title: "Vehicles",
+		icon: "🚘",
+		route: "vehicle-list",
+		roles: ["System Manager", "Management"],
+	},
+	{
+		title: "Seal Device",
+		icon: "🔒",
+		route: "seal-device-dashboard",
+		roles: [
+			"System Manager",
+			"Seal System Administrator",
+			"Operations Control Room",
+			"Management",
+		],
+	},
+	{
+		title: "Billing Rates",
+		icon: "💰",
+		route: "List/Seal Billing Rate",
+		roles: ["System Manager", "Finance PCB", "Management"],
+	},
+	{
+		title: "Tracking Dashboard",
+		icon: "🗺",
+		route: "seal-tracking-dashboard",
+		primary: true,
+		roles: [
+			"System Manager",
+			"Seal System Administrator",
+			"Operations Control Room",
+			"Management",
+		],
+	},
+	{
+		title: "Journey Monitoring",
+		icon: "📡",
+		route: "journey-monitoring",
+		primary: true,
+		roles: [
+			"System Manager",
+			"Seal System Administrator",
+			"Operations Control Room",
+			"Management",
+		],
+	},
+	{
+		title: "Seal Settings",
+		icon: "⚙️",
+		route: "Form/Seal API Settings",
+		roles: ["System Manager"],
+	},
+];
+
 function bind_actions(page) {
 	$(page.body)
 		.find("[data-route]")
@@ -19,7 +127,34 @@ function bind_actions(page) {
 		});
 }
 
+function get_visible_cards() {
+	return TNT_DASHBOARD_CARDS.filter((card) =>
+		card.roles.some((role) => frappe.user.has_role(role))
+	);
+}
+
+function get_card_html(card) {
+	const primaryClass = card.primary ? " tsm-card--primary" : "";
+
+	return `
+		<div class="tsm-card${primaryClass}" data-route="${frappe.utils.escape_html(card.route)}">
+			<div class="tsm-icon">${card.icon}</div>
+			<h3>${__(card.title)}</h3>
+		</div>
+	`;
+}
+
 function get_landing_page_html() {
+	const cards = get_visible_cards();
+	const cardsHtml = cards.length
+		? cards.map(get_card_html).join("")
+		: `
+			<div class="tsm-empty">
+				<h3>${__("No dashboard cards available")}</h3>
+				<p>${__("Your role does not currently have access to any TNT module.")}</p>
+			</div>
+		`;
+
 	return `
 		<style>
 			.tsm-landing {
@@ -46,8 +181,9 @@ function get_landing_page_html() {
 			}
 
 			.tsm-card:hover {
-				border-color: rgba(14, 165, 233, 0.2);
-				box-shadow: 0 4px 12px rgba(14, 165, 233, 0.05);
+				border-color: #38bdf8;
+				box-shadow: 0 12px 28px rgba(14, 165, 233, 0.14);
+				transform: translateY(-2px);
 			}
 
 			.tsm-card--primary {
@@ -80,6 +216,24 @@ function get_landing_page_html() {
 				color: #0c4a6e;
 			}
 
+			.tsm-empty {
+				grid-column: 1 / -1;
+				padding: 48px 24px;
+				border: 1px dashed #bae6fd;
+				border-radius: 22px;
+				color: var(--text-muted, #64748b);
+				text-align: center;
+			}
+
+			.tsm-empty h3 {
+				margin: 0 0 8px;
+				color: #0c4a6e;
+			}
+
+			.tsm-empty p {
+				margin: 0;
+			}
+
 			/* Dark mode compatibility */
 			[data-theme="dark"] .tsm-card {
 				background: #1e293b;
@@ -102,30 +256,7 @@ function get_landing_page_html() {
 
 		<div class="tsm-landing">
 			<section class="tsm-grid">
-				<div class="tsm-card tsm-card--primary" data-route="List/Seal Journey">
-					<div class="tsm-icon">🚚</div>
-					<h3>Seal Journeys</h3>
-				</div>
-				<div class="tsm-card" data-route="List/Tagging Request">
-					<div class="tsm-icon">📸</div>
-					<h3>Tagging Requests</h3>
-				</div>
-				<div class="tsm-card" data-route="List/Seal Device">
-					<div class="tsm-icon">🔒</div>
-					<h3>Seal Device</h3>
-				</div>
-				<div class="tsm-card" data-route="List/Seal Billing Rate">
-					<div class="tsm-icon">💰</div>
-					<h3>Billing Rates</h3>
-				</div>
-				<div class="tsm-card tsm-card--primary" data-route="seal-tracking-dashboard">
-					<div class="tsm-icon">🗺</div>
-					<h3>Tracking Dashboard</h3>
-				</div>
-				<div class="tsm-card" data-route="Form/Seal API Settings">
-					<div class="tsm-icon">⚙️</div>
-					<h3>API Settings</h3>
-				</div>
+				${cardsHtml}
 			</section>
 		</div>
 	`;

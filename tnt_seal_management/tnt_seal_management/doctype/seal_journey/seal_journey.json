@@ -10,6 +10,7 @@
  "field_order": [
   "journey_details_tab",
   "customer",
+  "tagging_booking",
   "sales_order_reference",
   "journey_status",
   "workflow_state",
@@ -36,8 +37,8 @@
   "pre_tagging_checklist",
   "pre_tagging_status",
   "pre_tagging_remarks",
-  "tagging_request_tab",
-  "tagging_request_reference",
+  "seals_tab",
+  "journey_seals",
   "assigned_seal",
   "tagging_details_tab",
   "tagging_status",
@@ -120,9 +121,16 @@
    "reqd": 1
   },
   {
+   "fieldname": "tagging_booking",
+   "fieldtype": "Link",
+   "label": "Tagging Booking",
+   "options": "Tagging Booking",
+   "read_only": 1
+  },
+  {
    "fieldname": "sales_order_reference",
    "fieldtype": "Data",
-   "label": "Sales Order Reference"
+   "label": "PCB Job Order"
   },
   {
    "default": "Draft",
@@ -250,9 +258,12 @@
    "label": "Expected Tagging Date and Time"
   },
   {
+   "cannot_add_rows": 1,
+   "cannot_delete_rows": 1,
    "fieldname": "pre_tagging_checklist",
-   "fieldtype": "Small Text",
-   "label": "Pre-Tagging Checklist"
+   "fieldtype": "Table",
+   "label": "Pre-Tagging Checklist",
+   "options": "Pre Tagging Checklist Item"
   },
   {
    "default": "Pending",
@@ -267,20 +278,20 @@
    "label": "Pre-Tagging Remarks"
   },
   {
-   "fieldname": "tagging_request_tab",
+   "fieldname": "seals_tab",
    "fieldtype": "Tab Break",
-   "label": "Tagging Request"
+   "label": "Seals"
   },
   {
-   "fieldname": "tagging_request_reference",
-   "fieldtype": "Link",
-   "label": "Tagging Request Reference",
-   "options": "Tagging Request"
+   "fieldname": "journey_seals",
+   "fieldtype": "Table",
+   "label": "Journey Seals",
+   "options": "Journey Request Seal"
   },
   {
    "fieldname": "assigned_seal",
    "fieldtype": "Link",
-   "label": "Assigned Seal",
+   "label": "Assigned Seal (Primary)",
    "options": "Seal Device"
   },
   {
@@ -614,7 +625,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-09 00:00:00.000000",
+ "modified": "2026-06-14 14:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Journey",
@@ -653,31 +664,7 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Team Lead Technician",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
    "role": "Operations Control Room",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Field Technician",
    "share": 1,
    "write": 1
   }

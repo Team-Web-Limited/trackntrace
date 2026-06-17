@@ -17,6 +17,7 @@
   "condition",
   "assignment_tab",
   "current_journey",
+  "current_journey_request",
   "current_customer",
   "current_technician",
   "current_vehicle",
@@ -26,6 +27,7 @@
   "current_location",
   "last_known_api_location",
   "last_api_status",
+  "lock_status",
   "last_api_sync_time",
   "battery_level",
   "transmission_status",
@@ -108,6 +110,13 @@
    "options": "Seal Journey"
   },
   {
+   "fieldname": "current_journey_request",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Current Journey Request",
+   "options": "Journey Request"
+  },
+  {
    "fieldname": "current_customer",
    "fieldtype": "Link",
    "label": "Current Customer",
@@ -154,6 +163,13 @@
    "fieldname": "last_api_status",
    "fieldtype": "Data",
    "label": "Last API Status"
+  },
+  {
+   "fieldname": "lock_status",
+   "fieldtype": "Select",
+   "label": "Lock Status",
+   "options": "\nLocked\nUnlocked",
+   "read_only": 1
   },
   {
    "fieldname": "last_api_sync_time",
@@ -281,7 +297,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-09 00:00:00.000000",
+ "modified": "2026-06-14 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Device",
@@ -324,16 +340,20 @@
    "write": 1
   },
   {
-   "create": 1,
-   "delete": 1,
    "email": 1,
-   "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
    "role": "Field Technician",
-   "share": 1,
-   "write": 1
+   "share": 1
+  },
+  {
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Customer Care",
+   "share": 1
   }
  ],
  "row_format": "Dynamic",

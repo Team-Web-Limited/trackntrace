@@ -9,7 +9,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import get_datetime, now_datetime
 
 from tnt_seal_management.tnt_seal_management.api.seal_api_client import (
 	_save_sync_log,
@@ -78,6 +78,7 @@ def normalize_live_data_response(response_json):
 				"speed": _float(_pick(rec, ["speed", "Speed"])),
 				"battery": _pick(rec, ["battery", "Battery", "battery_level", "battery_percentage"]),
 				"transmission_status": _pick(rec, ["transmission_status", "TransmissionStatus", "GPS", "gps"]),
+				"elock": _pick(rec, ["elock", "Elock", "ELock", "ELOCK", "lock_status", "LockStatus"]),
 				"last_update_time": _pick(rec, ["last_update_time", "LastUpdateTime", "datetime", "Datetime", "DateTime", "date_time", "GPSActualTime", "gps_date_time", "serverTimeStamp"]),
 				"_raw": rec,
 			}
@@ -136,10 +137,20 @@ def sync_seal_device(seal_device_name, sync_type="Manual Device Sync"):
 	if device.current_journey:
 		try:
 			_apply_to_journey(device.current_journey, matched)
+			_apply_to_seal_journey_seals(device.current_journey, seal_device_name, matched)
 		except Exception as exc:
 			frappe.log_error(
 				f"Journey update failed for {device.current_journey}: {exc}",
 				"Seal Journey Sync",
+			)
+
+	if device.current_journey_request:
+		try:
+			_apply_to_journey_request_seals(device.current_journey_request, seal_device_name, matched)
+		except Exception as exc:
+			frappe.log_error(
+				f"Journey Request update failed for {device.current_journey_request}: {exc}",
+				"Seal Journey Request Sync",
 			)
 
 	return matched
@@ -188,18 +199,61 @@ def scheduled_sync_active_journeys():
 	"""
 	Scheduler entry point: sync all Seal Devices linked to active/in-transit journeys.
 	Failures on individual devices do not abort the batch.
+	Frequency is controlled by Sync Frequency Minutes in Seal API Settings.
 	"""
+	settings = frappe.db.get_value(
+		"Seal API Settings",
+		"Seal API Settings",
+		["sync_frequency_minutes", "last_successful_sync_time"],
+		as_dict=True,
+	) or {}
+	freq = int(settings.get("sync_frequency_minutes") or 15)
+	last_sync = settings.get("last_successful_sync_time")
+	if last_sync:
+		elapsed_minutes = (now_datetime() - get_datetime(last_sync)).total_seconds() / 60
+		if elapsed_minutes < freq:
+			return
+
 	active = frappe.db.get_all(
 		"Seal Journey",
 		filters=[["journey_status", "in", ["In Transit", "Ready for Journey"]]],
 		fields=["name", "assigned_seal", "vehicle_plate_number"],
 	)
 
-	if not active:
+	active_jr_seals = frappe.db.sql(
+		"""
+		select jrs.seal_device, jrs.parent as journey_request, sd.imei_number
+		from `tabJourney Request Seal` jrs
+		inner join `tabJourney Request` jr on jr.name = jrs.parent
+		inner join `tabSeal Device` sd on sd.name = jrs.seal_device
+		where jrs.parenttype = 'Journey Request'
+			and jr.journey_request_status = 'Approved'
+			and sd.imei_number is not null and sd.imei_number != ''
+		""",
+		as_dict=True,
+	)
+
+	active_sj_seals = frappe.db.sql(
+		"""
+		select sjs.seal_device, sjs.parent as seal_journey, sd.imei_number
+		from `tabJourney Request Seal` sjs
+		inner join `tabSeal Journey` sj on sj.name = sjs.parent
+		inner join `tabSeal Device` sd on sd.name = sjs.seal_device
+		where sjs.parenttype = 'Seal Journey'
+			and sj.journey_status in ('In Transit', 'Ready for Journey')
+			and sd.imei_number is not null and sd.imei_number != ''
+		""",
+		as_dict=True,
+	)
+
+	if not active and not active_jr_seals and not active_sj_seals:
 		return
 
-	# Build IMEI → [journey names] and IMEI → device name maps
+	# Build IMEI → [journey names], IMEI → [journey request names],
+	# IMEI → [(seal journey, device)] and IMEI → device name maps
 	imei_journeys = {}
+	imei_journey_requests = {}
+	imei_seal_journey_seals = {}
 	imei_device = {}
 
 	for j in active:
@@ -212,10 +266,20 @@ def scheduled_sync_active_journeys():
 		imei_journeys.setdefault(imei, []).append(j.name)
 		imei_device[imei] = j.assigned_seal
 
-	if not imei_journeys:
+	for row in active_jr_seals:
+		imei = str(row.imei_number)
+		imei_journey_requests.setdefault(imei, []).append(row.journey_request)
+		imei_device.setdefault(imei, row.seal_device)
+
+	for row in active_sj_seals:
+		imei = str(row.imei_number)
+		imei_seal_journey_seals.setdefault(imei, []).append((row.seal_journey, row.seal_device))
+		imei_device.setdefault(imei, row.seal_device)
+
+	if not imei_device:
 		return
 
-	all_imeis = ",".join(imei_journeys.keys())
+	all_imeis = ",".join(imei_device.keys())
 
 	log = {
 		"doctype": _SYNC_LOG_DOCTYPE,
@@ -248,6 +312,24 @@ def scheduled_sync_active_journeys():
 					except Exception as exc:
 						frappe.log_error(
 							f"Scheduled sync: journey {jname} update failed: {exc}",
+							"Seal Scheduled Sync",
+						)
+				for jr_name in imei_journey_requests.get(imei, []):
+					try:
+						_apply_to_journey_request_seals(jr_name, device_name, rec)
+						updated += 1
+					except Exception as exc:
+						frappe.log_error(
+							f"Scheduled sync: journey request {jr_name} update failed: {exc}",
+							"Seal Scheduled Sync",
+						)
+				for sj_name, sj_device in imei_seal_journey_seals.get(imei, []):
+					try:
+						_apply_to_seal_journey_seals(sj_name, sj_device, rec)
+						updated += 1
+					except Exception as exc:
+						frappe.log_error(
+							f"Scheduled sync: seal journey {sj_name} update failed: {exc}",
 							"Seal Scheduled Sync",
 						)
 			except Exception as exc:
@@ -292,6 +374,142 @@ def scheduled_sync_active_journeys():
 		frappe.log_error(f"Scheduled seal sync failed: {exc}", "Seal Scheduled Sync")
 
 	_save_sync_log(log)
+
+
+# ---------------------------------------------------------------------------
+# Full-fleet sync (all devices with an IMEI)
+# ---------------------------------------------------------------------------
+
+def sync_all_devices(sync_type="Manual Device Sync"):
+	"""
+	Pull live data for every Seal Device that has an IMEI number and update
+	their fields. Also updates linked Seal Journey API fields where present.
+	Failures on individual devices do not abort the batch.
+	"""
+	devices = frappe.db.get_all(
+		"Seal Device",
+		filters=[["imei_number", "!=", ""]],
+		fields=["name", "imei_number", "current_vehicle", "current_journey", "current_journey_request"],
+	)
+	devices = [d for d in devices if d.get("imei_number")]
+
+	if not devices:
+		return {"synced": 0, "failed": 0, "journeys_updated": 0}
+
+	imei_device = {str(d["imei_number"]): d for d in devices}
+	all_imeis = ",".join(imei_device.keys())
+
+	log = {
+		"doctype": _SYNC_LOG_DOCTYPE,
+		"sync_type": sync_type,
+		"sync_started_at": now_datetime(),
+		"imei_number": all_imeis[:140],
+		"devices_synced": 0,
+		"journeys_updated": 0,
+	}
+
+	synced = 0
+	failed = 0
+	updated = 0
+
+	try:
+		raw = get_live_data(imei_nos=all_imeis, sync_type=sync_type)
+		records = normalize_live_data_response(raw)
+
+		for rec in records:
+			imei = str(rec.get("imei") or "")
+			if not imei or imei not in imei_device:
+				continue
+			device = imei_device[imei]
+			try:
+				_apply_to_device(device["name"], rec)
+				synced += 1
+				if device.get("current_journey"):
+					try:
+						_apply_to_journey(device["current_journey"], rec)
+						_apply_to_seal_journey_seals(device["current_journey"], device["name"], rec)
+						updated += 1
+					except Exception as exc:
+						frappe.log_error(
+							f"Bulk sync: journey {device['current_journey']} update failed: {exc}",
+							"Seal Bulk Sync",
+						)
+				if device.get("current_journey_request"):
+					try:
+						_apply_to_journey_request_seals(device["current_journey_request"], device["name"], rec)
+						updated += 1
+					except Exception as exc:
+						frappe.log_error(
+							f"Bulk sync: journey request {device['current_journey_request']} update failed: {exc}",
+							"Seal Bulk Sync",
+						)
+			except Exception as exc:
+				failed += 1
+				frappe.log_error(
+					f"Bulk sync: device {device['name']} (IMEI {imei}) failed: {exc}",
+					"Seal Bulk Sync",
+				)
+
+		frappe.db.commit()
+
+		log.update({
+			"sync_status": "Success" if synced > 0 else "Partial",
+			"sync_completed_at": now_datetime(),
+			"devices_synced": synced,
+			"journeys_updated": updated,
+			"response_body": json.dumps(raw)[:3000],
+		})
+
+	except Exception as exc:
+		failed = len(devices)
+		log.update({
+			"sync_status": "Failed",
+			"error_message": str(exc),
+			"sync_completed_at": now_datetime(),
+		})
+		frappe.log_error(f"Bulk fleet sync failed: {exc}", "Seal Bulk Sync")
+
+	_save_sync_log(log)
+	return {"synced": synced, "failed": failed, "journeys_updated": updated}
+
+
+def scheduled_sync_all_devices():
+	"""
+	Scheduler entry point: full-fleet sync of every Seal Device with an IMEI.
+	Only runs when "Full Fleet Sync Enabled" is checked in Seal API Settings,
+	and only after "Full Fleet Sync Frequency Minutes" has elapsed since the
+	last run. Tracks its own timer (last_full_fleet_sync_time) independently
+	of the active-journeys scheduled sync, so the two jobs don't reset each
+	other's intervals.
+	"""
+	settings = frappe.db.get_value(
+		"Seal API Settings",
+		"Seal API Settings",
+		["full_fleet_sync_enabled", "full_fleet_sync_frequency_minutes", "last_full_fleet_sync_time"],
+		as_dict=True,
+	) or {}
+
+	if not settings.get("full_fleet_sync_enabled"):
+		return
+
+	freq = int(settings.get("full_fleet_sync_frequency_minutes") or 10)
+	last_sync = settings.get("last_full_fleet_sync_time")
+	if last_sync:
+		elapsed_minutes = (now_datetime() - get_datetime(last_sync)).total_seconds() / 60
+		if elapsed_minutes < freq:
+			return
+
+	result = sync_all_devices(sync_type="Scheduled Full Fleet Sync")
+
+	updates = {"last_full_fleet_sync_time": now_datetime()}
+	if not result.get("synced"):
+		updates["last_failed_sync_time"] = now_datetime()
+		updates["last_error_message"] = (
+			f"Scheduled full fleet sync: 0 devices synced, {result.get('failed', 0)} failed."
+		)[:500]
+
+	frappe.db.set_value("Seal API Settings", "Seal API Settings", updates)
+	frappe.db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -349,30 +567,104 @@ def test_connection():
 		return {"status": "error", "message": str(exc)}
 
 
+# ---------------------------------------------------------------------------
+# Status normalisation — map raw device-API vocabulary to internal buckets
+# ---------------------------------------------------------------------------
+
+# The tracking API reports states like RUNNING/STOP/IDLE/INACTIVE/OFFLINE.
+# The dashboard groups every device into exactly one visible "bucket":
+#   - "active"  => the device is online / communicating (moving, stopped or idle)
+#   - "offline" => the device is not transmitting (inactive, offline or unknown)
+# "motion" is a finer label used for the "Moving Now" metric and badge colour.
+# Any unrecognised or blank status maps to offline/unknown so that no synced
+# device ever disappears from the summary counts (active + offline == total).
+_API_STATUS_MAP = {
+	"RUNNING": {"bucket": "active", "motion": "moving"},
+	"MOVING": {"bucket": "active", "motion": "moving"},
+	"ON": {"bucket": "active", "motion": "moving"},
+	"ACTIVE": {"bucket": "active", "motion": "moving"},
+	"STOP": {"bucket": "active", "motion": "stopped"},
+	"STOPPED": {"bucket": "active", "motion": "stopped"},
+	"IDLE": {"bucket": "active", "motion": "idle"},
+	"INACTIVE": {"bucket": "offline", "motion": "inactive"},
+	"OFFLINE": {"bucket": "offline", "motion": "inactive"},
+}
+
+_UNKNOWN_STATUS = {"bucket": "offline", "motion": "unknown"}
+
+
+def normalize_api_status(raw):
+	"""Map a raw device-API status string to an internal {bucket, motion} dict."""
+	key = (raw or "").strip().upper()
+	if not key:
+		return _UNKNOWN_STATUS
+	return _API_STATUS_MAP.get(key, _UNKNOWN_STATUS)
+
+
+# The Uffizio E-Lock devices report their seal state via the "elock" field
+# as CLOSE/OPEN. We surface this on the dashboard as Locked/Unlocked.
+_ELOCK_STATUS_MAP = {
+	"CLOSE": "Locked",
+	"CLOSED": "Locked",
+	"LOCK": "Locked",
+	"LOCKED": "Locked",
+	"OPEN": "Unlocked",
+	"UNLOCK": "Unlocked",
+	"UNLOCKED": "Unlocked",
+}
+
+
+def normalize_elock_status(raw):
+	"""Map a raw "elock" API value (CLOSE/OPEN) to Locked/Unlocked, or "" if unknown."""
+	key = (raw or "").strip().upper()
+	return _ELOCK_STATUS_MAP.get(key, "")
+
+
 @frappe.whitelist()
 def get_device_dashboard_data():
 	"""Return all Seal Devices with their last-synced API fields for the dashboard."""
-	_require_sync_permission()
+	_require_dashboard_permission()
 
 	devices = frappe.db.get_all(
 		"Seal Device",
 		fields=[
 			"name", "device_id", "imei_number",
-			"current_status", "current_vehicle", "current_journey",
+			"current_status", "condition", "current_vehicle", "current_journey",
+			"current_technician",
 			"current_location", "last_known_api_location",
 			"latitude", "longitude", "speed", "battery_level",
-			"last_api_status", "transmission_status",
+			"last_api_status", "lock_status", "transmission_status",
 			"last_successful_sync_time", "last_failed_sync_time",
-			"api_error_message",
+			"api_error_message", "remarks",
 		],
 		order_by="last_successful_sync_time desc",
 	)
 
-	# Build summary counts
+	# Build summary counts.
+	# Every device is normalised into exactly one of two buckets (active/offline)
+	# so active + offline == total and nothing falls through the cracks.
 	total = len(devices)
-	active = sum(1 for d in devices if (d.get("last_api_status") or "").upper() in ("ACTIVE", "MOVING", "ON"))
+	statuses = [normalize_api_status(d.get("last_api_status")) for d in devices]
+	active = sum(1 for s in statuses if s["bucket"] == "active")
+	offline = sum(1 for s in statuses if s["bucket"] == "offline")
+
+	# "In Transit" stays a business-state metric: device linked to a Seal Journey.
 	in_transit = sum(1 for d in devices if d.get("current_journey"))
-	offline = sum(1 for d in devices if (d.get("last_api_status") or "").upper() in ("INACTIVE", "OFFLINE", ""))
+
+	# "Moving Now" is the live physical-motion metric. We trust the device's
+	# self-reported status, not the speed field: per the Uffizio tracking API,
+	# INACTIVE means "no data received for ~60 min" — its speed is a stale
+	# last-known reading, not live movement. Only RUNNING is genuine motion.
+	moving_now = sum(1 for s in statuses if s["motion"] == "moving")
+
+	available = sum(1 for d in devices if d.get("current_status") == "Available")
+	assigned = sum(1 for d in devices if d.get("current_status") in ("Assigned", "In Journey"))
+	issues = sum(
+		1
+		for d in devices
+		if d.get("current_status") in ("Damaged", "Lost", "Inactive")
+		or d.get("condition") in ("Damaged", "Lost")
+	)
 
 	# Attach journey status to each device
 	if devices:
@@ -398,18 +690,36 @@ def get_device_dashboard_data():
 			"total": total,
 			"active": active,
 			"in_transit": in_transit,
+			"moving_now": moving_now,
 			"offline": offline,
+			"available": available,
+			"assigned": assigned,
+			"issues": issues,
 		},
 	}
 
 
 @frappe.whitelist()
 def trigger_sync_all():
-	"""Manually trigger the scheduled batch sync from the dashboard."""
+	"""Manually trigger the scheduled batch sync (active journeys only) from the dashboard."""
 	_require_sync_permission()
 	try:
 		scheduled_sync_active_journeys()
 		return {"status": "success", "message": _("Sync triggered for all active journeys.")}
+	except Exception as exc:
+		return {"status": "error", "message": str(exc)}
+
+
+@frappe.whitelist()
+def trigger_sync_all_devices():
+	"""Manually trigger a full fleet sync (every device with an IMEI) from the dashboard."""
+	_require_sync_permission()
+	try:
+		result = sync_all_devices()
+		return {
+			"status": "success",
+			"message": _("{0} device(s) synced, {1} failed.").format(result["synced"], result["failed"]),
+		}
 	except Exception as exc:
 		return {"status": "error", "message": str(exc)}
 
@@ -420,6 +730,16 @@ def trigger_sync_all():
 
 _SYNC_ROLES = {"System Manager", "Seal System Administrator", "Operations Control Room"}
 _ADMIN_ROLES = {"System Manager", "Seal System Administrator"}
+_DASHBOARD_ROLES = _SYNC_ROLES | {"Management"}
+
+
+def _require_dashboard_permission():
+	user_roles = set(frappe.get_roles(frappe.session.user))
+	if not user_roles & _DASHBOARD_ROLES:
+		frappe.throw(
+			_("You do not have permission to view seal dashboard data."),
+			frappe.PermissionError,
+		)
 
 
 def _require_sync_permission():
@@ -467,6 +787,9 @@ def _apply_to_device(device_name, rec):
 		upd["battery_level"] = str(rec["battery"])[:140]
 	if rec.get("transmission_status"):
 		upd["transmission_status"] = str(rec["transmission_status"])[:140]
+	lock_status = normalize_elock_status(rec.get("elock"))
+	if lock_status:
+		upd["lock_status"] = lock_status
 
 	frappe.db.set_value("Seal Device", device_name, upd)
 	frappe.db.commit()
@@ -495,6 +818,57 @@ def _apply_to_journey(journey_name, rec):
 
 	frappe.db.set_value("Seal Journey", journey_name, upd)
 	frappe.db.commit()
+
+
+def _apply_to_journey_request_seal(row_name, rec):
+	"""Write normalised API record fields to a single Journey Request Seal row."""
+	upd = {"api_last_update_time": now_datetime()}
+	if rec.get("status"):
+		upd["api_device_status"] = str(rec["status"])[:140]
+	if rec.get("location"):
+		upd["api_location"] = str(rec["location"])[:140]
+	if rec.get("battery") is not None:
+		upd["battery_level"] = str(rec["battery"])[:140]
+	lock_status = normalize_elock_status(rec.get("elock"))
+	if lock_status:
+		upd["lock_status"] = lock_status
+
+	frappe.db.set_value("Journey Request Seal", row_name, upd)
+	frappe.db.commit()
+
+
+def _apply_to_journey_request_seals(journey_request_name, seal_device_name, rec):
+	"""Apply a normalised API record to every row of this seal within a Journey Request."""
+	rows = frappe.db.get_all(
+		"Journey Request Seal",
+		filters={
+			"parent": journey_request_name,
+			"parenttype": "Journey Request",
+			"seal_device": seal_device_name,
+		},
+		pluck="name",
+	)
+	for row_name in rows:
+		_apply_to_journey_request_seal(row_name, rec)
+
+
+def _apply_to_seal_journey_seals(seal_journey_name, seal_device_name, rec):
+	"""Apply a normalised API record to every row of this seal within a Seal Journey.
+
+	The Seal Journey's ``journey_seals`` child reuses the Journey Request Seal
+	doctype, distinguished by parenttype.
+	"""
+	rows = frappe.db.get_all(
+		"Journey Request Seal",
+		filters={
+			"parent": seal_journey_name,
+			"parenttype": "Seal Journey",
+			"seal_device": seal_device_name,
+		},
+		pluck="name",
+	)
+	for row_name in rows:
+		_apply_to_journey_request_seal(row_name, rec)
 
 
 # ---------------------------------------------------------------------------
@@ -564,6 +938,7 @@ def import_devices_from_api():
 				"current_location": str(rec.get("location") or "")[:140] or None,
 				"last_known_api_location": str(rec.get("location") or "")[:140] or None,
 				"last_api_status": str(rec.get("status") or "")[:140] or None,
+				"lock_status": normalize_elock_status(rec.get("elock")) or None,
 				"latitude": rec.get("latitude"),
 				"longitude": rec.get("longitude"),
 				"speed": rec.get("speed"),

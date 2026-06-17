@@ -1,10 +1,10 @@
 {
  "content": null,
- "creation": "2026-06-04 00:00:00.000000",
+ "creation": "2026-06-04 00:00:00",
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2026-06-04 00:00:00.000000",
+ "modified": "2026-06-09 23:34:02.648393",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "tnt-seal-management",
@@ -13,11 +13,35 @@
  "roles": [
   {
    "role": "System Manager"
+  },
+  {
+   "role": "Account Manager"
+  },
+  {
+   "role": "Customer Care"
+  },
+  {
+   "role": "Field Technician"
+  },
+  {
+   "role": "Finance PCB"
+  },
+  {
+   "role": "Management"
+  },
+  {
+   "role": "Operations Control Room"
+  },
+  {
+   "role": "Seal System Administrator"
+  },
+  {
+   "role": "PCB Team Leader"
   }
  ],
  "script": null,
  "standard": "Yes",
  "style": null,
  "system_page": 0,
- "title": "TNT Seal Management"
+ "title": "ECTS TRACKNTRACE"
 }

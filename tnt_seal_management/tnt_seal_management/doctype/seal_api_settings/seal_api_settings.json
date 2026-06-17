@@ -26,17 +26,22 @@
   "token_ttl_minutes",
   "sync_config_section",
   "sync_frequency_minutes",
+  "full_fleet_sync_enabled",
+  "full_fleet_sync_frequency_minutes",
   "sync_col",
   "minimum_request_gap_seconds",
   "last_request_time",
   "status_section",
   "last_sync_date_time",
+  "last_full_fleet_sync_time",
   "status_col",
   "last_successful_sync_time",
   "failure_section",
   "last_failed_sync_time",
   "failure_col",
   "last_error_message",
+  "checklist_section",
+  "pre_tagging_checklist_template",
   "remarks"
  ],
  "fields": [
@@ -144,6 +149,20 @@
    "description": "How often the scheduler syncs active journeys (informational — change hooks.py cron to adjust)"
   },
   {
+   "default": "0",
+   "fieldname": "full_fleet_sync_enabled",
+   "fieldtype": "Check",
+   "label": "Full Fleet Sync Enabled",
+   "description": "Automatically sync every Seal Device with an IMEI on the interval below"
+  },
+  {
+   "default": "10",
+   "fieldname": "full_fleet_sync_frequency_minutes",
+   "fieldtype": "Int",
+   "label": "Full Fleet Sync Frequency Minutes",
+   "description": "How often the scheduler runs a full fleet sync (all devices), when enabled above"
+  },
+  {
    "fieldname": "sync_col",
    "fieldtype": "Column Break"
   },
@@ -170,6 +189,13 @@
    "fieldtype": "Datetime",
    "label": "Last Sync Date and Time",
    "read_only": 1
+  },
+  {
+   "fieldname": "last_full_fleet_sync_time",
+   "fieldtype": "Datetime",
+   "label": "Last Full Fleet Sync Time",
+   "read_only": 1,
+   "description": "Last time the automatic full-fleet sync ran successfully"
   },
   {
    "fieldname": "status_col",
@@ -203,6 +229,18 @@
    "read_only": 1
   },
   {
+   "fieldname": "checklist_section",
+   "fieldtype": "Section Break",
+   "label": "Journey Checklist"
+  },
+  {
+   "description": "Master checklist copied into each new Seal Journey. Only System Managers can change this template.",
+   "fieldname": "pre_tagging_checklist_template",
+   "fieldtype": "Table",
+   "label": "Pre-Tagging Checklist Template",
+   "options": "Pre Tagging Checklist Template Item"
+  },
+  {
    "fieldname": "remarks",
    "fieldtype": "Small Text",
    "label": "Remarks"
@@ -212,7 +250,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-06-09 00:00:00.000000",
+ "modified": "2026-06-11 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal API Settings",

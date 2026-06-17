@@ -1,0 +1,98 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 0,
+ "creation": "2026-06-13 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "seal_device",
+  "seal_number",
+  "serial_number",
+  "tag_status",
+  "lock_status",
+  "api_device_status",
+  "api_location",
+  "battery_level",
+  "api_last_update_time"
+ ],
+ "fields": [
+  {
+   "fieldname": "seal_device",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Seal Device",
+   "options": "Seal Device",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "seal_device.seal_number",
+   "fieldname": "seal_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Seal Serial Number",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "seal_device.serial_number",
+   "fieldname": "serial_number",
+   "fieldtype": "Data",
+   "label": "Device Serial Number",
+   "read_only": 1
+  },
+  {
+   "default": "Pending",
+   "fieldname": "tag_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Tag Status",
+   "options": "Pending\nTagged\nUntagged"
+  },
+  {
+   "fieldname": "lock_status",
+   "fieldtype": "Data",
+   "label": "Lock Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "api_device_status",
+   "fieldtype": "Data",
+   "label": "API Device Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "api_location",
+   "fieldtype": "Data",
+   "label": "API Device Location",
+   "read_only": 1
+  },
+  {
+   "fieldname": "battery_level",
+   "fieldtype": "Data",
+   "label": "Battery Level",
+   "read_only": 1
+  },
+  {
+   "fieldname": "api_last_update_time",
+   "fieldtype": "Datetime",
+   "label": "API Last Update Time",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-06-13 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Journey Request Seal",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

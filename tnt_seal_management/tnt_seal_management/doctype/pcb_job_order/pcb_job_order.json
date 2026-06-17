@@ -1,0 +1,182 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:JO-{YYYY}-{MM}-{#####}",
+ "creation": "2026-06-13 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "job_details_section",
+  "tagging_booking",
+  "client_name",
+  "details_column",
+  "job_order_status",
+  "scheduled_date_time",
+  "location",
+  "contact_section",
+  "contact_person_name",
+  "contact_column",
+  "contact_person_phone",
+  "assignment_section",
+  "assigned_pcb_team_leader",
+  "assignment_column",
+  "team_leader_assignment_date_time",
+  "assignment_reference",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "job_details_section",
+   "fieldtype": "Section Break",
+   "label": "Job Order Details"
+  },
+  {
+   "fieldname": "tagging_booking",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Tagging Booking",
+   "options": "Tagging Booking",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "client_name",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Client Name",
+   "options": "Customer",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "details_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Unassigned",
+   "fieldname": "job_order_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Job Order Status",
+   "options": "Unassigned\nTeam Leader Assigned\nCompleted\nCancelled",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "scheduled_date_time",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Scheduled Date and Time",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "location",
+   "fieldtype": "Data",
+   "label": "Location",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "contact_section",
+   "fieldtype": "Section Break",
+   "label": "Contact Person"
+  },
+  {
+   "fieldname": "contact_person_name",
+   "fieldtype": "Data",
+   "label": "Contact Person Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "contact_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contact_person_phone",
+   "fieldtype": "Phone",
+   "label": "Contact Person Phone",
+   "read_only": 1
+  },
+  {
+   "fieldname": "assignment_section",
+   "fieldtype": "Section Break",
+   "label": "PCB Team Assignment"
+  },
+  {
+   "fieldname": "assigned_pcb_team_leader",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Assigned PCB Team Leader",
+   "options": "User"
+  },
+  {
+   "fieldname": "assignment_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "team_leader_assignment_date_time",
+   "fieldtype": "Datetime",
+   "label": "Team Leader Assignment Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "assignment_reference",
+   "fieldtype": "Link",
+   "label": "PCB Assignment",
+   "options": "PCB Assignment",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "links": [],
+ "modified": "2026-06-14 14:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "PCB Job Order",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance PCB",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Management",
+   "share": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

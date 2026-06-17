@@ -1,0 +1,206 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "format:TB-{YYYY}-{MM}-{#####}",
+ "creation": "2026-06-13 14:30:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "booking_details_section",
+  "client_name",
+  "booking_details_column",
+  "booking_status",
+  "location",
+  "booking_date_time",
+  "contact_section",
+  "contact_person_name",
+  "contact_column",
+  "contact_person_phone",
+  "approval_section",
+  "finance_pcb_approval_status",
+  "approval_column",
+  "finance_pcb_approver",
+  "finance_pcb_approval_date_time",
+  "finance_pcb_remarks",
+  "pcb_job_order_reference",
+  "seal_journey_reference"
+ ],
+ "fields": [
+  {
+   "fieldname": "booking_details_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "client_name",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Client Name",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "booking_details_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "booking_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Booking Status",
+   "options": "Draft\nPending Finance PCB Approval\nFinance PCB Approved\nFinance PCB Rejected",
+   "read_only": 1
+  },
+  {
+   "fieldname": "location",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Location",
+   "reqd": 1
+  },
+  {
+   "fieldname": "booking_date_time",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Date and Time",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contact_section",
+   "fieldtype": "Section Break",
+   "label": "Contact Person Details"
+  },
+  {
+   "fieldname": "contact_person_name",
+   "fieldtype": "Data",
+   "label": "Contact Person Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contact_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contact_person_phone",
+   "fieldtype": "Phone",
+   "label": "Contact Person Phone Number",
+   "reqd": 1
+  },
+  {
+   "fieldname": "approval_section",
+   "fieldtype": "Section Break",
+   "label": "Finance Approval"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "finance_pcb_approval_status",
+   "fieldtype": "Select",
+   "label": "Finance PCB Approval Status",
+   "options": "Pending\nApproved\nRejected",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "finance_pcb_approver",
+   "fieldtype": "Link",
+   "label": "Finance PCB Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finance_pcb_approval_date_time",
+   "fieldtype": "Datetime",
+   "label": "Finance PCB Approval Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finance_pcb_remarks",
+   "fieldtype": "Small Text",
+   "label": "Finance PCB Remarks"
+  },
+  {
+   "fieldname": "pcb_job_order_reference",
+   "fieldtype": "Link",
+   "label": "PCB Job Order",
+   "options": "PCB Job Order",
+   "read_only": 1
+  },
+  {
+   "fieldname": "seal_journey_reference",
+   "fieldtype": "Link",
+   "label": "Seal Journey",
+   "options": "Seal Journey",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-14 13:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Tagging Booking",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Account Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance PCB",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Management",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

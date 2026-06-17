@@ -341,7 +341,15 @@ def _extract_api_error(data):
 		return str(err)
 	root = data.get("root")
 	if isinstance(root, dict):
-		return root.get("error") or root.get("Error")
+		err = root.get("error") or root.get("Error")
+		if err:
+			return str(err)
+
+	# getTokenBaseLiveData reports rejected IMEIs as {"result": 0, "message": "..."}
+	# rather than under "error"/"Error".
+	if data.get("result") in (0, "0", False) and data.get("message"):
+		return str(data["message"])
+
 	return None
 
 

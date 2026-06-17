@@ -1,0 +1,82 @@
+{
+ "app": "tnt_seal_management",
+ "charts": [],
+ "content": "[{\"id\": \"header_operations\", \"type\": \"header\", \"data\": {\"text\": \"Operations\", \"col\": 12}}, {\"id\": \"sc_seal_journey\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Seal Journey\", \"col\": 4}}, {\"id\": \"header_inventory\", \"type\": \"header\", \"data\": {\"text\": \"Inventory & Billing\", \"col\": 12}}, {\"id\": \"sc_seal_device\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Seal Device\", \"col\": 4}}, {\"id\": \"sc_seal_billing_rate\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Seal Billing Rate\", \"col\": 4}}, {\"id\": \"header_customers\", \"type\": \"header\", \"data\": {\"text\": \"Customers\", \"col\": 12}}, {\"id\": \"sc_current_customers\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Current Customers\", \"col\": 4}}, {\"id\": \"card_customers\", \"type\": \"card\", \"data\": {\"card_name\": \"Customers\", \"col\": 4}}, {\"id\": \"header_settings\", \"type\": \"header\", \"data\": {\"text\": \"Settings\", \"col\": 12}}, {\"id\": \"sc_seal_api_settings\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Seal Settings\", \"col\": 4}}]",
+ "creation": "2026-06-17 10:47:03.394613",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "hide_custom": 0,
+ "icon": "shield-check",
+ "idx": 0,
+ "indicator_color": "blue",
+ "is_hidden": 0,
+ "label": "TNT Operations Hub",
+ "link_type": "DocType",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Customers",
+   "link_count": 1,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Current Customers",
+   "link_count": 0,
+   "link_to": "current-customer-list",
+   "link_type": "Page",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-06-17 10:47:03.394613",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "TNT Operations Hub",
+ "number_cards": [],
+ "owner": "Administrator",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [],
+ "sequence_id": 0.0,
+ "shortcuts": [
+  {
+   "doc_view": "List",
+   "label": "Seal Journey",
+   "link_to": "Seal Journey",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "label": "Seal Device",
+   "link_to": "Seal Device",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "label": "Seal Billing Rate",
+   "link_to": "Seal Billing Rate",
+   "type": "DocType"
+  },
+  {
+   "color": "#059669",
+   "doc_view": "",
+   "label": "Current Customers",
+   "link_to": "current-customer-list",
+   "type": "Page"
+  },
+  {
+   "doc_view": "List",
+   "label": "Seal Settings",
+   "link_to": "Seal API Settings",
+   "type": "DocType"
+  }
+ ],
+ "title": "TNT Operations Hub",
+ "type": "Workspace"
+}

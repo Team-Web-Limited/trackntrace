@@ -3,9 +3,18 @@
 
 frappe.ui.form.on("Seal API Settings", {
 	refresh(frm) {
+		frm.page.set_title(__("Seal Settings"));
+		_configure_checklist_template(frm);
 		_add_test_connection_button(frm);
 	},
 });
+
+function _configure_checklist_template(frm) {
+	const canManageTemplate = frappe.user.has_role("System Manager");
+	frm.set_df_property("pre_tagging_checklist_template", "read_only", !canManageTemplate);
+	frm.set_df_property("pre_tagging_checklist_template", "cannot_add_rows", !canManageTemplate);
+	frm.set_df_property("pre_tagging_checklist_template", "cannot_delete_rows", !canManageTemplate);
+}
 
 function _add_test_connection_button(frm) {
 	frm.add_custom_button(__("Test API Connection"), function () {

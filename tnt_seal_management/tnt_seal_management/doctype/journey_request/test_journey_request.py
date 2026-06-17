@@ -13,9 +13,9 @@ IGNORE_TEST_RECORD_DEPENDENCIES = []  # eg. ["User"]
 
 
 
-class IntegrationTestTaggingRequest(IntegrationTestCase):
+class IntegrationTestJourneyRequest(IntegrationTestCase):
 	"""
-	Integration tests for TaggingRequest.
+	Integration tests for JourneyRequest.
 	Use this class for testing interactions between multiple components.
 	"""
 

@@ -125,13 +125,15 @@ add_to_apps_screen = [
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+permission_query_conditions = {
+	"PCB Assignment": "tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment.get_permission_query_conditions",
+	"Journey Request": "tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.get_permission_query_conditions",
+}
+
+has_permission = {
+	"PCB Assignment": "tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment.has_permission",
+	"Journey Request": "tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.has_permission",
+}
 
 # Document Events
 # ---------------
@@ -148,14 +150,20 @@ add_to_apps_screen = [
 # Scheduled Tasks
 # ---------------
 
-# Sync live tracking data from the Seal Server API every 15 minutes.
-# Only journeys with journey_status "In Transit" or "Ready for Journey" are synced.
-# Adjust the cron expression here if a different frequency is needed;
-# the Sync Frequency Minutes field in Seal API Settings is informational only.
+# The scheduler fires every minute; actual sync frequency is controlled by
+# "Sync Frequency Minutes" in Seal API Settings (default 15). The function
+# checks elapsed time since the last successful sync and exits early if the
+# configured interval has not yet passed.
+#
+# scheduled_sync_all_devices follows the same pattern: it only runs a
+# full-fleet sync (all devices with an IMEI) when "Full Fleet Sync Enabled"
+# is checked in Seal API Settings, gated by its own
+# "Full Fleet Sync Frequency Minutes" interval (default 10).
 scheduler_events = {
 	"cron": {
-		"*/15 * * * *": [
-			"tnt_seal_management.tnt_seal_management.api.seal_sync.scheduled_sync_active_journeys"
+		"* * * * *": [
+			"tnt_seal_management.tnt_seal_management.api.seal_sync.scheduled_sync_active_journeys",
+			"tnt_seal_management.tnt_seal_management.api.seal_sync.scheduled_sync_all_devices",
 		]
 	}
 }

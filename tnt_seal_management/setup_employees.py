@@ -15,10 +15,10 @@ def execute():
         {"first": "Faith", "last": "Akinyi", "email": "faith.akinyi@tnt-seal.co.ke", "roles": ["Operations Control Room"]},
         {"first": "Brian", "last": "Kipchoge", "email": "brian.kipchoge@tnt-seal.co.ke", "roles": ["Operations Control Room"]},
 
-        # Team Lead Technician (3)
-        {"first": "Samuel", "last": "Njoroge", "email": "samuel.njoroge@tnt-seal.co.ke", "roles": ["Team Lead Technician"]},
-        {"first": "Alice", "last": "Mutua", "email": "alice.mutua@tnt-seal.co.ke", "roles": ["Team Lead Technician"]},
-        {"first": "Joseph", "last": "Otieno", "email": "joseph.otieno@tnt-seal.co.ke", "roles": ["Team Lead Technician"]},
+        # PCB Team Leader (3)
+        {"first": "Samuel", "last": "Njoroge", "email": "samuel.njoroge@tnt-seal.co.ke", "roles": ["PCB Team Leader"]},
+        {"first": "Alice", "last": "Mutua", "email": "alice.mutua@tnt-seal.co.ke", "roles": ["PCB Team Leader"]},
+        {"first": "Joseph", "last": "Otieno", "email": "joseph.otieno@tnt-seal.co.ke", "roles": ["PCB Team Leader"]},
 
         # Field Technician (4)
         {"first": "Kevin", "last": "Kamau", "email": "kevin.kamau@tnt-seal.co.ke", "roles": ["Field Technician"]},
