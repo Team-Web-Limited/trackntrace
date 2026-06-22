@@ -10,7 +10,17 @@
  "name": "seal-journey-list",
  "owner": "Administrator",
  "page_name": "seal-journey-list",
- "roles": [],
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Seal System Administrator"
+  },
+  {
+   "role": "Account Manager"
+  }
+ ],
  "script": null,
  "standard": "Yes",
  "style": null,
