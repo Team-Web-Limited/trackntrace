@@ -18,6 +18,12 @@ frappe.pages["pcb-job-order-list"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Refresh"), () => _pjo_load(page));
+
+	const $statsBar = $('<div class="pjo-header-stats"></div>');
+	$(wrapper).find('.page-head .page-actions').before($statsBar);
+	page.pjo_stats_bar = $statsBar;
+
 	_pjo_inject_styles();
 	_pjo_build_page(page);
 	_pjo_load(page);
@@ -25,8 +31,9 @@ frappe.pages["pcb-job-order-list"].on_page_load = function (wrapper) {
 
 function _pjo_build_page(page) {
 	const statuses = [
-		["All", __("All")],
+		["All", __("All Job Orders")],
 		["Unassigned", __("Unassigned")],
+		["Team Leader Assigned", __("Assigned")],
 		["Completed", __("Completed")],
 		["Cancelled", __("Cancelled")],
 	];
@@ -36,45 +43,51 @@ function _pjo_build_page(page) {
 			<section class="pjo-panel">
 				<div class="pjo-toolbar">
 					<div class="pjo-toolbar-top">
-						<div class="pjo-status-filters">
-						${statuses
-							.map(
-								([value, label]) => `
-									<button class="pjo-status-btn ${value === "All" ? "active" : ""}" data-status="${frappe.utils.escape_html(value)}">
-										${frappe.utils.escape_html(label)}
-									</button>
-								`
-							)
-							.join("")}
-						</div>
-						<section class="pjo-stats"></section>
-					</div>
-					<div class="pjo-filter-grid">
-						<label class="pjo-field">
-							<span>${__("Search")}</span>
+						<label class="pjo-field pjo-search-inline">
 							<input class="pjo-search" type="search" placeholder="${__("Job order, booking, client, location or contact")}">
 						</label>
-						<label class="pjo-field">
+
+						<div class="pjo-filter-dropdown">
+							<button class="pjo-filter-btn">
+								<span class="pjo-filter-btn-label">${__("All Job Orders")}</span>
+								<span class="pjo-filter-btn-count">0</span>
+								<span class="pjo-filter-arrow">&#9662;</span>
+							</button>
+							<div class="pjo-filter-menu">
+								${statuses.map(([val, lbl]) => `
+									<div class="pjo-filter-item ${val === "All" ? "active" : ""}" data-status="${frappe.utils.escape_html(val)}" data-label="${frappe.utils.escape_html(lbl)}">
+										${frappe.utils.escape_html(lbl)}
+										<span class="pjo-fcount" data-fcount="${frappe.utils.escape_html(val)}">0</span>
+									</div>
+								`).join("")}
+							</div>
+						</div>
+
+						<label class="pjo-field pjo-team-leader-field">
 							<span>${__("PCB Team Leader")}</span>
 							<div class="pjo-team-leader-filter"></div>
 						</label>
-						<label class="pjo-field">
+
+						<label class="pjo-field pjo-date-field">
 							<span>${__("From")}</span>
 							<input class="pjo-from-date" type="date">
 						</label>
-						<label class="pjo-field">
+						<label class="pjo-field pjo-date-field">
 							<span>${__("To")}</span>
 							<input class="pjo-to-date" type="date">
 						</label>
 						<div class="pjo-actions">
 							<button class="pjo-clear-btn">${__("Clear filters")}</button>
-							<button class="pjo-refresh-btn">${__("Refresh")}</button>
 						</div>
 					</div>
 				</div>
+			</section>
+
+			<section class="pjo-table-panel">
 				<div class="pjo-table-scroll"><div class="pjo-table-wrap"></div></div>
 				<div class="pjo-pagination"></div>
 			</section>
+
 			<div class="pjo-loading" style="display:none"><div class="pjo-spinner"></div></div>
 		</div>
 	`);
@@ -101,35 +114,58 @@ function _pjo_build_page(page) {
 	}, 350);
 
 	$(page.body).on("input", ".pjo-search", delayedSearch);
+
 	page.pjo_team_leader_control.$input.on("change", () => {
 		page.pjo_state.team_leader = page.pjo_team_leader_control.get_value() || "";
 		page.pjo_state.page = 1;
 		_pjo_load(page);
 	});
+
 	$(page.body).on("change", ".pjo-from-date, .pjo-to-date", () => {
 		page.pjo_state.from_date = $(page.body).find(".pjo-from-date").val() || "";
 		page.pjo_state.to_date = $(page.body).find(".pjo-to-date").val() || "";
 		page.pjo_state.page = 1;
 		_pjo_load(page);
 	});
-	$(page.body).on("click", ".pjo-status-btn", function () {
-		$(page.body).find(".pjo-status-btn").removeClass("active");
-		$(this).addClass("active");
+
+	$(page.body).on("click", ".pjo-filter-btn", function (e) {
+		e.stopPropagation();
+		const $menu = $(page.body).find(".pjo-filter-menu");
+		const isOpen = $menu.hasClass("open");
+		if (!isOpen) {
+			const rect = this.getBoundingClientRect();
+			$menu.css({ top: rect.bottom + 6, left: rect.left });
+		}
+		$menu.toggleClass("open");
+	});
+
+	$(page.body).on("click", ".pjo-filter-item", function () {
 		page.pjo_state.status = $(this).data("status");
 		page.pjo_state.page = 1;
+		$(page.body).find(".pjo-filter-item").removeClass("active");
+		$(this).addClass("active");
+		$(page.body).find(".pjo-filter-btn-label").text($(this).data("label"));
+		$(page.body).find(".pjo-filter-menu").removeClass("open");
 		_pjo_load(page);
 	});
-	$(page.body).on("click", ".pjo-refresh-btn", () => _pjo_load(page));
+
+	$(document).on("click.pjo-dropdown", function () {
+		$(page.body).find(".pjo-filter-menu").removeClass("open");
+	});
+
 	$(page.body).on("click", ".pjo-clear-btn", () => _pjo_clear_filters(page));
+
 	$(page.body).on("click", ".pjo-assign-btn", function (event) {
 		event.stopPropagation();
 		const name = $(this).data("name");
 		if (name) _pjo_prompt_for_tag_operator(page, name);
 	});
+
 	$(page.body).on("click", ".pjo-row", function () {
 		const name = $(this).data("name");
 		if (name) frappe.set_route("Form", "PCB Job Order", name);
 	});
+
 	$(page.body).on("click", ".pjo-page-btn", function () {
 		if ($(this).prop("disabled")) return;
 		page.pjo_state.page = Number.parseInt($(this).data("page"), 10);
@@ -170,19 +206,41 @@ function _pjo_load(page) {
 }
 
 function _pjo_render_stats(page, summary) {
-	const stats = [
-		[__("All Job Orders"), summary.All || 0, "all"],
-		[__("Unassigned"), summary.Unassigned || 0, "unassigned"],
-		[__("Team Leader Assigned"), summary["Team Leader Assigned"] || 0, "assigned"],
-		[__("Completed"), summary.Completed || 0, "completed"],
-	];
-	$(page.body).find(".pjo-stats").html(
-		stats.map(([label, value, variant]) => `
-			<div class="pjo-stat pjo-stat--${variant}">
-				<span>${frappe.utils.escape_html(label)}</span><strong>${value}</strong>
-			</div>
-		`).join("")
-	);
+	const html = `
+		<div class="pjo-stat-card">
+			<div class="pjo-stat-label">${__("All")}</div>
+			<div class="pjo-stat-value">${summary.All || 0}</div>
+		</div>
+		<div class="pjo-stat-card pjo-stat--unassigned">
+			<div class="pjo-stat-label">${__("Unassigned")}</div>
+			<div class="pjo-stat-value">${summary.Unassigned || 0}</div>
+		</div>
+		<div class="pjo-stat-card pjo-stat--assigned">
+			<div class="pjo-stat-label">${__("Assigned")}</div>
+			<div class="pjo-stat-value">${summary["Team Leader Assigned"] || 0}</div>
+		</div>
+		<div class="pjo-stat-card pjo-stat--completed">
+			<div class="pjo-stat-label">${__("Completed")}</div>
+			<div class="pjo-stat-value">${summary.Completed || 0}</div>
+		</div>
+	`;
+	if (page.pjo_stats_bar) {
+		page.pjo_stats_bar.html(html);
+	}
+
+	const countMap = {
+		"All": summary.All || 0,
+		"Unassigned": summary.Unassigned || 0,
+		"Team Leader Assigned": summary["Team Leader Assigned"] || 0,
+		"Completed": summary.Completed || 0,
+		"Cancelled": summary.Cancelled || 0,
+	};
+	$(page.body).find(".pjo-fcount").each(function () {
+		const key = $(this).data("fcount");
+		$(this).text(countMap[key] ?? 0);
+	});
+	const currentCount = countMap[page.pjo_state.status] ?? 0;
+	$(page.body).find(".pjo-filter-btn-count").text(currentCount);
 }
 
 function _pjo_render_table(page, jobOrders) {
@@ -291,8 +349,8 @@ function _pjo_prompt_for_tag_operator(page, jobOrderName) {
 }
 
 function _pjo_render_pagination(page) {
-	const pages = Math.max(1, Math.ceil(page.pjo_state.total / page.pjo_state.page_length));
-	page.pjo_state.page = Math.min(page.pjo_state.page, pages);
+	const totalPages = Math.max(1, Math.ceil(page.pjo_state.total / page.pjo_state.page_length));
+	page.pjo_state.page = Math.min(page.pjo_state.page, totalPages);
 	const start = page.pjo_state.total
 		? (page.pjo_state.page - 1) * page.pjo_state.page_length + 1
 		: 0;
@@ -301,8 +359,8 @@ function _pjo_render_pagination(page) {
 		<span>${__("Showing {0}-{1} of {2}", [start, end, page.pjo_state.total])}</span>
 		<div>
 			<button class="pjo-page-btn" data-page="${page.pjo_state.page - 1}" ${page.pjo_state.page <= 1 ? "disabled" : ""}>${__("Previous")}</button>
-			<b>${__("Page {0} of {1}", [page.pjo_state.page, pages])}</b>
-			<button class="pjo-page-btn" data-page="${page.pjo_state.page + 1}" ${page.pjo_state.page >= pages ? "disabled" : ""}>${__("Next")}</button>
+			<b>${__("Page {0} of {1}", [page.pjo_state.page, totalPages])}</b>
+			<button class="pjo-page-btn" data-page="${page.pjo_state.page + 1}" ${page.pjo_state.page >= totalPages ? "disabled" : ""}>${__("Next")}</button>
 		</div>
 	`);
 }
@@ -317,8 +375,9 @@ function _pjo_clear_filters(page) {
 		page: 1,
 	});
 	$(page.body).find(".pjo-search, .pjo-from-date, .pjo-to-date").val("");
-	$(page.body).find(".pjo-status-btn").removeClass("active");
-	$(page.body).find('.pjo-status-btn[data-status="All"]').addClass("active");
+	$(page.body).find(".pjo-filter-item").removeClass("active");
+	$(page.body).find('.pjo-filter-item[data-status="All"]').addClass("active");
+	$(page.body).find(".pjo-filter-btn-label").text(__("All Job Orders"));
 	page.pjo_team_leader_control.set_value("");
 	_pjo_load(page);
 }
@@ -343,111 +402,243 @@ function _pjo_inject_styles() {
 		.pjo-page {
 			--pjo-blue: #0284c7;
 			--pjo-dark: #075985;
-			max-width: 1540px;
+			--pjo-ink: #0c4a6e;
+			max-width: 1580px;
 			margin: 0 auto;
 			padding: 32px 24px 48px;
 			position: relative;
 			font-family: var(--font-stack);
 		}
-		.pjo-stats {
-			display: grid;
-			grid-template-columns: repeat(4, minmax(0, 1fr));
-			gap: 14px;
-			min-width: 0;
-		}
-		.pjo-stat {
+
+		/* ---- header stats bar ---- */
+		.pjo-header-stats {
 			display: flex;
-			align-items: flex-end;
-			justify-content: space-between;
-			min-height: 78px;
-			padding: 16px 18px;
+			align-items: center;
+			gap: 8px;
+			flex: 1;
+			padding: 0 20px;
+			overflow-x: auto;
+		}
+		.pjo-header-stats .pjo-stat-card {
+			display: flex;
+			min-height: unset;
+			padding: 6px 14px;
+			flex-direction: row;
+			align-items: center;
+			gap: 8px;
+			border-radius: 999px;
 			border: 1px solid rgba(14, 165, 233, .2);
-			border-top: 4px solid #38bdf8;
-			border-radius: 20px;
+			border-top: 1px solid #075985;
 			background: var(--card-bg, #fff);
-			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
+			white-space: nowrap;
 		}
-		.pjo-stat--all,
-		.pjo-stat--assigned {
-			background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-			border-color: #bae6fd;
-		}
-		.pjo-stat--all { border-top-color: #075985; }
-		.pjo-stat--unassigned { border-top-color: #f59e0b; }
-		.pjo-stat--assigned { border-top-color: #0284c7; }
-		.pjo-stat--completed { border-top-color: #16a34a; }
-		.pjo-stat span {
-			max-width: 130px;
+		.pjo-header-stats .pjo-stat--unassigned { border-top-color: #f59e0b; }
+		.pjo-header-stats .pjo-stat--assigned { border-top-color: var(--pjo-blue); }
+		.pjo-header-stats .pjo-stat--completed { border-top-color: #16a34a; }
+		.pjo-header-stats .pjo-stat-label {
 			color: #0369a1;
-			font-size: 12px;
 			font-weight: 800;
-			letter-spacing: .05em;
 			text-transform: uppercase;
+			max-width: none;
+			font-size: 10px;
+			letter-spacing: .04em;
 		}
-		.pjo-stat strong { color: #0c4a6e; font-size: 34px; line-height: 1; }
+		.pjo-header-stats .pjo-stat-value {
+			color: var(--pjo-ink);
+			font-size: 18px;
+			font-weight: 900;
+			line-height: 1;
+		}
+
+		/* ---- layout panels ---- */
 		.pjo-panel {
+			width: 100%;
 			overflow: hidden;
 			border: 1px solid rgba(14, 165, 233, .2);
 			border-radius: 22px;
 			background: var(--card-bg, #fff);
 			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
+			margin-bottom: 20px;
 		}
+		.pjo-table-panel {
+			position: sticky;
+			top: 60px;
+			border: 1px solid rgba(14, 165, 233, .2);
+			border-radius: 22px;
+			background: var(--card-bg, #fff);
+			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
+			overflow: hidden;
+		}
+		.pjo-table-scroll { overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 200px); }
+
+		/* ---- toolbar ---- */
 		.pjo-toolbar { padding: 18px; border-bottom: 1px solid #e0f2fe; background: #f0f9ff; }
 		.pjo-toolbar-top {
-			display: grid;
-			grid-template-columns: minmax(0, auto) minmax(720px, 1fr);
-			align-items: start;
-			gap: 18px;
-			margin-bottom: 14px;
-		}
-		.pjo-status-filters { display: flex; gap: 8px; overflow-x: auto; }
-		.pjo-status-btn,
-		.pjo-clear-btn,
-		.pjo-refresh-btn,
-		.pjo-page-btn {
-			border: 1px solid #bae6fd;
-			border-radius: 999px;
-			background: var(--card-bg, #fff);
-			color: #075985;
-			padding: 9px 15px;
-			font-size: 13px;
-			font-weight: 700;
-			white-space: nowrap;
-			cursor: pointer;
-		}
-		.pjo-status-btn.active,
-		.pjo-refresh-btn { border-color: var(--pjo-blue); background: var(--pjo-blue); color: #fff; }
-		.pjo-filter-grid {
-			display: grid;
-			grid-template-columns: minmax(300px, 1.6fr) minmax(240px, 1fr) 170px 170px auto;
-			align-items: end;
+			display: flex;
+			align-items: center;
 			gap: 12px;
 		}
-		.pjo-field { display: flex; flex-direction: column; gap: 5px; margin: 0; }
-		.pjo-field > span {
-			color: #0369a1;
-			font-size: 12px;
-			font-weight: 700;
-			letter-spacing: .05em;
-			text-transform: uppercase;
+		.pjo-search-inline {
+			flex: 1;
+			display: flex;
+			align-items: center;
 		}
-		.pjo-field input,
-		.pjo-team-leader-filter .control-input {
+		.pjo-search-inline input {
 			width: 100%;
-			height: 42px;
+			height: 38px;
+			padding: 8px 12px;
 			border: 1px solid #bae6fd;
 			border-radius: 10px;
 			background: var(--card-bg, #fff);
 			color: var(--text-color, #0c4a6e);
-			padding: 9px 12px;
 			font-size: 14px;
+		}
+		.pjo-search-inline input:focus {
+			outline: none;
+			border-color: var(--pjo-blue);
+			box-shadow: 0 0 0 3px rgba(14, 165, 233, .12);
+		}
+
+		/* ---- filter dropdown ---- */
+		.pjo-filter-dropdown { position: relative; }
+		.pjo-filter-btn {
+			display: inline-flex;
+			align-items: center;
+			gap: 7px;
+			height: 38px;
+			padding: 0 14px;
+			border: 1px solid #bae6fd;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			color: #075985;
+			font-size: 13px;
+			font-weight: 700;
+			white-space: nowrap;
+			cursor: pointer;
+			transition: border-color .15s;
+		}
+		.pjo-filter-btn:hover { border-color: var(--pjo-blue); }
+		.pjo-filter-btn-count {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 20px;
+			padding: 1px 6px;
+			border-radius: 999px;
+			background: #e0f2fe;
+			color: #075985;
+			font-size: 11px;
+			font-weight: 800;
+		}
+		.pjo-filter-arrow { color: #94a3b8; font-size: 11px; }
+		.pjo-filter-menu {
+			display: none;
+			position: fixed;
+			min-width: 240px;
+			border: 1px solid #bae6fd;
+			border-radius: 12px;
+			background: var(--card-bg, #fff);
+			box-shadow: 0 8px 24px rgba(14, 165, 233, .12);
+			z-index: 1000;
+			overflow: hidden;
+		}
+		.pjo-filter-menu.open { display: block; }
+		.pjo-filter-item {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			padding: 10px 16px;
+			font-size: 13px;
+			font-weight: 600;
+			color: #334155;
+			cursor: pointer;
+			transition: background .12s;
+		}
+		.pjo-filter-item:hover { background: #f0f9ff; }
+		.pjo-filter-item.active { background: #e0f2fe; color: var(--pjo-blue); }
+		.pjo-fcount {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 22px;
+			padding: 1px 6px;
+			border-radius: 999px;
+			background: #e0f2fe;
+			color: #075985;
+			font-size: 11px;
+			font-weight: 800;
+		}
+		.pjo-filter-item.active .pjo-fcount { background: var(--pjo-blue); color: #fff; }
+
+		/* ---- regular fields ---- */
+		.pjo-field { display: flex; flex-direction: column; gap: 5px; margin: 0; }
+		.pjo-field > span {
+			color: #0369a1;
+			font-size: 11px;
+			font-weight: 700;
+			letter-spacing: .05em;
+			text-transform: uppercase;
+		}
+		.pjo-date-field input[type="date"] {
+			width: 140px;
+			height: 38px;
+			border: 1px solid #bae6fd;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			color: var(--text-color, #0c4a6e);
+			padding: 0 10px;
+			font-size: 13px;
+		}
+		.pjo-date-field input[type="date"]:focus,
+		.pjo-team-leader-filter .control-input:focus-within {
+			outline: none;
+			border-color: var(--pjo-blue);
+			box-shadow: 0 0 0 3px rgba(14, 165, 233, .12);
+		}
+		.pjo-team-leader-field { min-width: 180px; }
+		.pjo-team-leader-filter .control-input {
+			height: 38px;
+			border: 1px solid #bae6fd;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			padding: 0;
+			overflow: hidden;
+		}
+		.pjo-team-leader-filter .control-input input {
+			border: 0;
+			height: 100%;
+			padding: 0 12px;
+			background: transparent;
+			color: var(--text-color, #0c4a6e);
+			font-size: 13px;
 		}
 		.pjo-team-leader-filter .form-group { margin: 0; }
 		.pjo-team-leader-filter .control-label,
 		.pjo-team-leader-filter .help-box { display: none; }
-		.pjo-actions { display: flex; gap: 8px; padding-bottom: 1px; }
-		.pjo-table-scroll { overflow-x: auto; }
-		.pjo-table { width: 100%; min-width: 1480px; border-collapse: collapse; }
+
+		/* ---- actions ---- */
+		.pjo-actions { display: flex; gap: 8px; }
+		.pjo-clear-btn {
+			padding: 9px 16px;
+			border: 1px solid #cbd5e1;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			color: #475569;
+			font-size: 13px;
+			font-weight: 700;
+			cursor: pointer;
+			height: 38px;
+			transition: background .12s, border-color .12s;
+		}
+		.pjo-clear-btn:hover { background: #f8fafc; border-color: #94a3b8; }
+
+		/* ---- table ---- */
+		.pjo-table {
+			width: 100%;
+			min-width: 1480px;
+			border-collapse: collapse;
+			table-layout: auto;
+		}
 		.pjo-table th,
 		.pjo-table td {
 			padding: 16px 18px;
@@ -459,6 +650,9 @@ function _pjo_inject_styles() {
 			line-height: 1.45;
 		}
 		.pjo-table th {
+			position: sticky;
+			top: 0;
+			z-index: 10;
 			background: #f0f9ff;
 			color: #0369a1;
 			font-size: 11px;
@@ -468,7 +662,9 @@ function _pjo_inject_styles() {
 		}
 		.pjo-row { cursor: pointer; }
 		.pjo-row:hover { background: rgba(224, 242, 254, .7); }
-		.pjo-name { color: var(--pjo-blue); font-size: 16px; font-weight: 800; }
+		.pjo-row td:first-child { border-left: 3px solid transparent; }
+		.pjo-row:hover td:first-child { border-left-color: var(--pjo-blue); }
+		.pjo-name { color: var(--pjo-blue); font-size: 14px; font-weight: 800; }
 		.pjo-badge {
 			display: inline-flex;
 			border-radius: 999px;
@@ -492,8 +688,21 @@ function _pjo_inject_styles() {
 			white-space: nowrap;
 			cursor: pointer;
 		}
-		.pjo-empty { padding: 60px 20px; text-align: center; color: #64748b; }
-		.pjo-empty strong { display: block; margin-bottom: 6px; color: #0c4a6e; font-size: 22px; }
+		.pjo-empty {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 6px;
+			padding: 58px 20px;
+			color: var(--text-muted, #64748b);
+			text-align: center;
+		}
+		.pjo-empty strong {
+			color: var(--pjo-ink);
+			font-size: 22px;
+		}
+
+		/* ---- pagination ---- */
 		.pjo-pagination {
 			display: flex;
 			align-items: center;
@@ -505,7 +714,20 @@ function _pjo_inject_styles() {
 			font-size: 13px;
 		}
 		.pjo-pagination div { display: flex; align-items: center; gap: 9px; }
+		.pjo-pagination b { font-weight: 700; }
+		.pjo-page-btn {
+			padding: 6px 12px;
+			border: 1px solid #bae6fd;
+			border-radius: 8px;
+			background: var(--card-bg, #fff);
+			color: #075985;
+			font-size: 13px;
+			font-weight: 700;
+			cursor: pointer;
+		}
 		.pjo-page-btn:disabled { cursor: default; opacity: .45; }
+
+		/* ---- loading overlay ---- */
 		.pjo-loading {
 			position: absolute;
 			inset: 0;
@@ -513,6 +735,7 @@ function _pjo_inject_styles() {
 			display: flex;
 			align-items: center;
 			justify-content: center;
+			border-radius: 22px;
 			background: rgba(240, 249, 255, .72);
 			backdrop-filter: blur(2px);
 		}
@@ -525,42 +748,46 @@ function _pjo_inject_styles() {
 			animation: pjo-spin .7s linear infinite;
 		}
 		@keyframes pjo-spin { to { transform: rotate(360deg); } }
-		[data-theme="dark"] .pjo-stat,
+
+		/* ---- dark mode ---- */
+		[data-theme="dark"] .pjo-stat-card {
+			background: rgba(14, 116, 144, .18);
+			border-color: rgba(14, 116, 144, .3);
+		}
 		[data-theme="dark"] .pjo-panel,
-		[data-theme="dark"] .pjo-status-btn,
-		[data-theme="dark"] .pjo-clear-btn,
-		[data-theme="dark"] .pjo-page-btn,
-		[data-theme="dark"] .pjo-field input,
-		[data-theme="dark"] .pjo-team-leader-filter .control-input {
+		[data-theme="dark"] .pjo-table-panel,
+		[data-theme="dark"] .pjo-page-btn {
 			background: #1e293b;
 			border-color: #334155;
 			color: #f1f5f9;
 		}
-		[data-theme="dark"] .pjo-stat--all,
-		[data-theme="dark"] .pjo-stat--assigned {
-			background: linear-gradient(135deg, #075985 0%, #0369a1 100%);
-			border-color: #0284c7;
+		[data-theme="dark"] .pjo-search-inline input,
+		[data-theme="dark"] .pjo-date-field input[type="date"],
+		[data-theme="dark"] .pjo-team-leader-filter .control-input,
+		[data-theme="dark"] .pjo-filter-btn,
+		[data-theme="dark"] .pjo-filter-menu,
+		[data-theme="dark"] .pjo-clear-btn {
+			background: #1e293b;
+			border-color: #334155;
+			color: #cbd5e1;
 		}
-		[data-theme="dark"] .pjo-stat span,
 		[data-theme="dark"] .pjo-field > span { color: #7dd3fc; }
-		[data-theme="dark"] .pjo-stat strong { color: #f8fafc; }
 		[data-theme="dark"] .pjo-toolbar,
 		[data-theme="dark"] .pjo-table th,
-		[data-theme="dark"] .pjo-pagination { background: #0f172a; border-color: #334155; color: #7dd3fc; }
+		[data-theme="dark"] .pjo-pagination {
+			background: #0f172a;
+			border-color: #334155;
+			color: #7dd3fc;
+		}
 		[data-theme="dark"] .pjo-table td { border-bottom-color: #334155; color: #cbd5e1; }
 		[data-theme="dark"] .pjo-row:hover { background: rgba(14, 165, 233, .12); }
 		[data-theme="dark"] .pjo-loading { background: rgba(15, 23, 42, .62); }
+
 		@media (max-width: 1100px) {
-			.pjo-toolbar-top { grid-template-columns: 1fr; }
-			.pjo-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-			.pjo-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-			.pjo-actions { grid-column: 1 / -1; }
+			.pjo-toolbar-top { flex-direction: column; align-items: stretch; }
 		}
 		@media (max-width: 720px) {
 			.pjo-page { padding: 10px 8px 32px; }
-			.pjo-stats { grid-template-columns: 1fr; }
-			.pjo-filter-grid { grid-template-columns: 1fr; }
-			.pjo-actions { grid-column: auto; }
 			.pjo-pagination { align-items: flex-start; flex-direction: column; }
 		}
 	`;

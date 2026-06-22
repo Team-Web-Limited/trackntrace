@@ -13,7 +13,7 @@ const TNT_DASHBOARD_CARDS = [
 	{
 		title: "Seal Journeys",
 		icon: "🚚",
-		route: "List/Seal Journey",
+		route: "seal-journey-list",
 		primary: true,
 		roles: ["System Manager", "Finance PCB", "Operations Control Room"],
 	},
@@ -82,7 +82,7 @@ const TNT_DASHBOARD_CARDS = [
 	{
 		title: "Billing Rates",
 		icon: "💰",
-		route: "List/Seal Billing Rate",
+		route: "seal-billing-rate-list",
 		roles: ["System Manager", "Finance PCB", "Management"],
 	},
 	{
@@ -93,6 +93,17 @@ const TNT_DASHBOARD_CARDS = [
 		roles: [
 			"System Manager",
 			"Seal System Administrator",
+			"Operations Control Room",
+			"Management",
+		],
+	},
+	{
+		title: "Control Room",
+		icon: "🛂",
+		route: "control-room",
+		primary: true,
+		roles: [
+			"System Manager",
 			"Operations Control Room",
 			"Management",
 		],

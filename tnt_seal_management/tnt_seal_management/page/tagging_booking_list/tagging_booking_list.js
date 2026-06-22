@@ -18,7 +18,12 @@ frappe.pages["tagging-booking-list"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Refresh"), () => _load_tagging_bookings(page));
 	page.set_primary_action(__("New Booking"), () => frappe.new_doc("Tagging Booking"));
+
+	const $statsBar = $('<div class="tb-header-stats"></div>');
+	$(wrapper).find('.page-head .page-actions').before($statsBar);
+	page.tb_stats_bar = $statsBar;
 
 	_inject_tagging_booking_styles();
 	_build_tagging_booking_page(page);
@@ -39,53 +44,52 @@ function _build_tagging_booking_page(page) {
 			<section class="tb-panel">
 				<div class="tb-toolbar">
 					<div class="tb-toolbar-top">
-						<div class="tb-status-filters">
-						${statuses
-							.map(
-								([value, label]) => `
-									<button class="tb-status-btn ${value === "All" ? "active" : ""}" data-status="${frappe.utils.escape_html(value)}">
-										${frappe.utils.escape_html(label)}
-									</button>
-								`
-							)
-							.join("")}
-						</div>
-						<section class="tb-stat-row"></section>
-					</div>
-
-					<div class="tb-filter-grid">
-						<label class="tb-field tb-field--search">
-							<span>${__("Search")}</span>
+						<label class="tb-field tb-search-inline">
 							<input class="tb-search" type="search" placeholder="${__("Booking, client, location or contact")}">
 						</label>
-						<label class="tb-field">
+
+						<div class="tb-filter-dropdown">
+							<button class="tb-filter-btn">
+								<span class="tb-filter-btn-label">${__("All")}</span>
+								<span class="tb-filter-btn-count">0</span>
+								<span class="tb-filter-arrow">&#9662;</span>
+							</button>
+							<div class="tb-filter-menu">
+								${statuses.map(([val, lbl]) => `
+									<div class="tb-filter-item ${val === "All" ? "active" : ""}" data-status="${frappe.utils.escape_html(val)}" data-label="${frappe.utils.escape_html(lbl)}">
+										${frappe.utils.escape_html(lbl)}
+										<span class="tb-fcount" data-fcount="${frappe.utils.escape_html(val)}">0</span>
+									</div>
+								`).join("")}
+							</div>
+						</div>
+
+						<label class="tb-field tb-customer-field">
 							<span>${__("Client")}</span>
 							<div class="tb-customer-filter"></div>
 						</label>
-						<label class="tb-field">
+
+						<label class="tb-field tb-date-field">
 							<span>${__("From")}</span>
 							<input class="tb-from-date" type="date">
 						</label>
-						<label class="tb-field">
+						<label class="tb-field tb-date-field">
 							<span>${__("To")}</span>
 							<input class="tb-to-date" type="date">
 						</label>
-						<div class="tb-filter-actions">
+						<div class="tb-actions">
 							<button class="tb-clear-btn">${__("Clear filters")}</button>
-							<button class="tb-refresh-btn">${__("Refresh")}</button>
 						</div>
 					</div>
 				</div>
+			</section>
 
-				<div class="tb-table-scroll">
-					<div class="tb-table-wrap"></div>
-				</div>
+			<section class="tb-table-panel">
+				<div class="tb-table-scroll"><div class="tb-table-wrap"></div></div>
 				<div class="tb-pagination"></div>
 			</section>
 
-			<div class="tb-loading" style="display:none">
-				<div class="tb-spinner"></div>
-			</div>
+			<div class="tb-loading" style="display:none"><div class="tb-spinner"></div></div>
 		</div>
 	`);
 
@@ -120,15 +124,31 @@ function _build_tagging_booking_page(page) {
 		_load_tagging_bookings(page);
 	});
 
-	$(page.body).on("click", ".tb-status-btn", function () {
-		$(page.body).find(".tb-status-btn").removeClass("active");
-		$(this).addClass("active");
+	$(page.body).on("click", ".tb-filter-btn", function (e) {
+		e.stopPropagation();
+		const $menu = $(page.body).find(".tb-filter-menu");
+		const isOpen = $menu.hasClass("open");
+		if (!isOpen) {
+			const rect = this.getBoundingClientRect();
+			$menu.css({ top: rect.bottom + 6, left: rect.left });
+		}
+		$menu.toggleClass("open");
+	});
+
+	$(page.body).on("click", ".tb-filter-item", function () {
 		page.tb_state.status = $(this).data("status");
 		page.tb_state.page = 1;
+		$(page.body).find(".tb-filter-item").removeClass("active");
+		$(this).addClass("active");
+		$(page.body).find(".tb-filter-btn-label").text($(this).data("label"));
+		$(page.body).find(".tb-filter-menu").removeClass("open");
 		_load_tagging_bookings(page);
 	});
 
-	$(page.body).on("click", ".tb-refresh-btn", () => _load_tagging_bookings(page));
+	$(document).on("click.tb-dropdown", function () {
+		$(page.body).find(".tb-filter-menu").removeClass("open");
+	});
+
 	$(page.body).on("click", ".tb-clear-btn", () => _clear_tagging_booking_filters(page));
 
 	$(page.body).on("click", ".tb-booking-row", function () {
@@ -181,25 +201,34 @@ function _load_tagging_bookings(page) {
 }
 
 function _render_tagging_booking_stats(page, summary) {
-	const stats = [
-		[__("All bookings"), summary.All || 0, "all"],
-		[__("Awaiting Finance"), summary["Pending Finance PCB Approval"] || 0, "pending"],
-		[__("Approved"), summary["Finance PCB Approved"] || 0, "approved"],
-		[__("Rejected"), summary["Finance PCB Rejected"] || 0, "rejected"],
-	];
+	const html = `
+		<div class="tb-stat-card">
+			<div class="tb-stat-label">${__("All")}</div>
+			<div class="tb-stat-value">${summary.All || 0}</div>
+		</div>
+		<div class="tb-stat-card tb-stat--pending">
+			<div class="tb-stat-label">${__("Pending")}</div>
+			<div class="tb-stat-value">${summary["Pending Finance PCB Approval"] || 0}</div>
+		</div>
+		<div class="tb-stat-card tb-stat--approved">
+			<div class="tb-stat-label">${__("Approved")}</div>
+			<div class="tb-stat-value">${summary["Finance PCB Approved"] || 0}</div>
+		</div>
+		<div class="tb-stat-card tb-stat--rejected">
+			<div class="tb-stat-label">${__("Rejected")}</div>
+			<div class="tb-stat-value">${summary["Finance PCB Rejected"] || 0}</div>
+		</div>
+	`;
+	if (page.tb_stats_bar) {
+		page.tb_stats_bar.html(html);
+	}
 
-	$(page.body).find(".tb-stat-row").html(
-		stats
-			.map(
-				([label, value, variant]) => `
-					<div class="tb-stat-card tb-stat-card--${variant}">
-						<span>${frappe.utils.escape_html(label)}</span>
-						<strong>${value}</strong>
-					</div>
-				`
-			)
-			.join("")
-	);
+	$(page.body).find(".tb-fcount").each(function () {
+		const key = $(this).data("fcount");
+		$(this).text(summary[key] ?? 0);
+	});
+	const currentCount = summary[page.tb_state.status] ?? 0;
+	$(page.body).find(".tb-filter-btn-count").text(currentCount);
 }
 
 function _render_tagging_booking_table(page, bookings) {
@@ -283,9 +312,11 @@ function _clear_tagging_booking_filters(page) {
 	page.tb_state.page = 1;
 
 	$(page.body).find(".tb-search, .tb-from-date, .tb-to-date").val("");
-	$(page.body).find(".tb-status-btn").removeClass("active");
-	$(page.body).find('.tb-status-btn[data-status="All"]').addClass("active");
+	$(page.body).find(".tb-filter-item").removeClass("active");
+	$(page.body).find('.tb-filter-item[data-status="All"]').addClass("active");
+	$(page.body).find(".tb-filter-btn-label").text(__("All"));
 	page.tb_customer_control.set_value("");
+
 	_load_tagging_bookings(page);
 }
 
@@ -318,143 +349,236 @@ function _inject_tagging_booking_styles() {
 			--tb-ink: #0c4a6e;
 			--tb-blue: #0284c7;
 			--tb-blue-dark: #075985;
-			--tb-sky: #e0f2fe;
-			--tb-sky-light: #f0f9ff;
-			max-width: 1380px;
+			max-width: 1580px;
 			margin: 0 auto;
 			padding: 32px 24px 48px;
 			position: relative;
-			color: var(--tb-ink);
 			font-family: var(--font-stack);
 		}
-		.tb-stat-row {
-			display: grid;
-			grid-template-columns: repeat(4, minmax(0, 1fr));
-			gap: 14px;
-			min-width: 0;
-		}
-		.tb-stat-card {
+
+		/* ---- header stats bar ---- */
+		.tb-header-stats {
 			display: flex;
-			align-items: flex-end;
-			justify-content: space-between;
-			min-height: 78px;
-			padding: 16px 18px;
-			border-radius: 20px;
-			border: 1px solid rgba(14, 165, 233, 0.2);
+			align-items: center;
+			gap: 8px;
+			flex: 1;
+			padding: 0 20px;
+			overflow-x: auto;
+		}
+		.tb-header-stats .tb-stat-card {
+			display: flex;
+			min-height: unset;
+			padding: 6px 14px;
+			flex-direction: row;
+			align-items: center;
+			gap: 8px;
+			border-radius: 999px;
+			border: 1px solid rgba(14, 165, 233, .2);
+			border-top: 1px solid #075985;
 			background: var(--card-bg, #fff);
-			box-shadow: 0 4px 12px rgba(14, 165, 233, 0.05);
+			white-space: nowrap;
 		}
-		.tb-stat-card span {
-			max-width: 110px;
+		.tb-header-stats .tb-stat--pending { border-top-color: #f59e0b; }
+		.tb-header-stats .tb-stat--approved { border-top-color: #16a34a; }
+		.tb-header-stats .tb-stat--rejected { border-top-color: #dc2626; }
+		.tb-header-stats .tb-stat-label {
 			color: #0369a1;
-			font-size: 12px;
-			font-weight: 700;
+			font-weight: 800;
 			text-transform: uppercase;
-			letter-spacing: .05em;
+			max-width: none;
+			font-size: 10px;
+			letter-spacing: .04em;
 		}
-		.tb-stat-card strong {
-			color: var(--tb-ink);
-			font-size: 34px;
+		.tb-header-stats .tb-stat-value {
+			color: #0c4a6e;
+			font-size: 18px;
+			font-weight: 900;
 			line-height: 1;
 		}
-		.tb-stat-card--all,
-		.tb-stat-card--approved {
-			background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
-			border-color: #bae6fd;
-		}
-		.tb-stat-card--pending { border-top: 4px solid #0ea5e9; }
-		.tb-stat-card--approved { border-top: 4px solid var(--tb-blue); }
-		.tb-stat-card--rejected { border-top: 4px solid #38bdf8; }
-		.tb-stat-card--all { border-top: 4px solid var(--tb-blue-dark); }
+
+		/* ---- layout panels ---- */
 		.tb-panel {
+			width: 100%;
 			overflow: hidden;
-			border: 1px solid rgba(14, 165, 233, 0.2);
+			border: 1px solid rgba(14, 165, 233, .2);
 			border-radius: 22px;
 			background: var(--card-bg, #fff);
-			box-shadow: 0 4px 12px rgba(14, 165, 233, 0.05);
+			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
+			margin-bottom: 20px;
 		}
-		.tb-toolbar {
-			padding: 18px;
-			border-bottom: 1px solid #e0f2fe;
-			background: var(--tb-sky-light);
-		}
-		.tb-toolbar-top {
-			display: grid;
-			grid-template-columns: minmax(0, auto) minmax(680px, 1fr);
-			align-items: start;
-			gap: 18px;
-			margin-bottom: 14px;
-		}
-		.tb-status-filters {
-			display: flex;
-			gap: 7px;
-			overflow-x: auto;
-			padding-bottom: 2px;
-		}
-		.tb-status-btn,
-		.tb-clear-btn,
-		.tb-refresh-btn,
-		.tb-page-btn {
-			border: 1px solid #bae6fd;
-			border-radius: 999px;
+		.tb-table-panel {
+			position: sticky;
+			top: 60px;
+			border: 1px solid rgba(14, 165, 233, .2);
+			border-radius: 22px;
 			background: var(--card-bg, #fff);
-			color: var(--tb-blue-dark);
-			padding: 9px 15px;
-			font-size: 13px;
-			font-weight: 700;
-			white-space: nowrap;
-			cursor: pointer;
+			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
+			overflow: hidden;
 		}
-		.tb-status-btn.active {
-			border-color: var(--tb-blue);
-			background: var(--tb-blue);
-			color: #fff;
-		}
-		.tb-filter-grid {
-			display: grid;
-			grid-template-columns: minmax(300px, 1.7fr) minmax(240px, 1fr) minmax(170px, .72fr) minmax(170px, .72fr) auto;
-			align-items: end;
+		.tb-table-scroll { overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 200px); }
+
+		/* ---- toolbar ---- */
+		.tb-toolbar { padding: 18px; border-bottom: 1px solid #e0f2fe; background: #f0f9ff; }
+		.tb-toolbar-top {
+			display: flex;
+			align-items: center;
 			gap: 12px;
 		}
-		.tb-field {
+		.tb-search-inline {
+			flex: 1;
 			display: flex;
-			flex-direction: column;
-			gap: 5px;
-			margin: 0;
+			align-items: center;
 		}
-		.tb-field > span {
-			color: #0369a1;
-			font-size: 12px;
-			font-weight: 700;
-			text-transform: uppercase;
-			letter-spacing: .05em;
-		}
-		.tb-field input,
-		.tb-customer-filter .control-input {
+		.tb-search-inline input {
 			width: 100%;
-			height: 42px;
+			height: 38px;
+			padding: 8px 12px;
 			border: 1px solid #bae6fd;
 			border-radius: 10px;
 			background: var(--card-bg, #fff);
 			color: var(--text-color, #0c4a6e);
-			padding: 9px 12px;
 			font-size: 14px;
+		}
+		.tb-search-inline input:focus {
+			outline: none;
+			border-color: var(--tb-blue);
+			box-shadow: 0 0 0 3px rgba(14, 165, 233, .12);
+		}
+
+		/* ---- filter dropdown ---- */
+		.tb-filter-dropdown { position: relative; }
+		.tb-filter-btn {
+			display: inline-flex;
+			align-items: center;
+			gap: 7px;
+			height: 38px;
+			padding: 0 14px;
+			border: 1px solid #bae6fd;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			color: #075985;
+			font-size: 13px;
+			font-weight: 700;
+			white-space: nowrap;
+			cursor: pointer;
+			transition: border-color .15s;
+		}
+		.tb-filter-btn:hover { border-color: var(--tb-blue); }
+		.tb-filter-btn-count {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 20px;
+			padding: 1px 6px;
+			border-radius: 999px;
+			background: #e0f2fe;
+			color: #075985;
+			font-size: 11px;
+			font-weight: 800;
+		}
+		.tb-filter-arrow { color: #94a3b8; font-size: 11px; }
+		.tb-filter-menu {
+			display: none;
+			position: fixed;
+			min-width: 240px;
+			border: 1px solid #bae6fd;
+			border-radius: 12px;
+			background: var(--card-bg, #fff);
+			box-shadow: 0 8px 24px rgba(14, 165, 233, .12);
+			z-index: 1000;
+			overflow: hidden;
+		}
+		.tb-filter-menu.open { display: block; }
+		.tb-filter-item {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			padding: 10px 16px;
+			font-size: 13px;
+			font-weight: 600;
+			color: #334155;
+			cursor: pointer;
+			transition: background .12s;
+		}
+		.tb-filter-item:hover { background: #f0f9ff; }
+		.tb-filter-item.active { background: #e0f2fe; color: var(--tb-blue); }
+		.tb-fcount {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 22px;
+			padding: 1px 6px;
+			border-radius: 999px;
+			background: #e0f2fe;
+			color: #075985;
+			font-size: 11px;
+			font-weight: 800;
+		}
+		.tb-filter-item.active .tb-fcount { background: var(--tb-blue); color: #fff; }
+
+		/* ---- regular fields ---- */
+		.tb-field { display: flex; flex-direction: column; gap: 5px; margin: 0; }
+		.tb-field > span {
+			color: #0369a1;
+			font-size: 11px;
+			font-weight: 700;
+			letter-spacing: .05em;
+			text-transform: uppercase;
+		}
+		.tb-date-field input[type="date"] {
+			width: 140px;
+			height: 38px;
+			border: 1px solid #bae6fd;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			color: var(--text-color, #0c4a6e);
+			padding: 0 10px;
+			font-size: 13px;
+		}
+		.tb-date-field input[type="date"]:focus,
+		.tb-customer-filter .control-input:focus-within {
+			outline: none;
+			border-color: var(--tb-blue);
+			box-shadow: 0 0 0 3px rgba(14, 165, 233, .12);
+		}
+		.tb-customer-field { min-width: 180px; }
+		.tb-customer-filter .control-input {
+			height: 38px;
+			border: 1px solid #bae6fd;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			padding: 0;
+			overflow: hidden;
+		}
+		.tb-customer-filter .control-input input {
+			border: 0;
+			height: 100%;
+			padding: 0 12px;
+			background: transparent;
+			color: var(--text-color, #0c4a6e);
+			font-size: 13px;
 		}
 		.tb-customer-filter .form-group { margin: 0; }
 		.tb-customer-filter .control-label,
 		.tb-customer-filter .help-box { display: none; }
-		.tb-filter-actions {
-			display: flex;
-			gap: 7px;
-			padding-bottom: 1px;
+
+		/* ---- actions ---- */
+		.tb-actions { display: flex; gap: 8px; padding-top: 20px; }
+		.tb-clear-btn {
+			padding: 9px 16px;
+			border: 1px solid #cbd5e1;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			color: #475569;
+			font-size: 13px;
+			font-weight: 700;
+			cursor: pointer;
+			height: 38px;
+			transition: background .12s, border-color .12s;
 		}
-		.tb-clear-btn { color: #0369a1; }
-		.tb-refresh-btn {
-			border-color: var(--tb-blue);
-			background: var(--tb-blue);
-			color: #fff;
-		}
-		.tb-table-scroll { overflow-x: auto; }
+		.tb-clear-btn:hover { background: #f8fafc; border-color: #94a3b8; }
+
+		/* ---- table ---- */
 		.tb-table {
 			width: 100%;
 			min-width: 1240px;
@@ -468,10 +592,13 @@ function _inject_tagging_booking_styles() {
 			text-align: left;
 			vertical-align: middle;
 			color: var(--text-color, #334155);
-			font-size: 15px;
-			line-height: 1.45;
+			font-size: 14px;
+			line-height: 1.35;
 		}
 		.tb-table th {
+			position: sticky;
+			top: 0;
+			z-index: 10;
 			background: #f0f9ff;
 			color: #0369a1;
 			font-size: 11px;
@@ -487,7 +614,7 @@ function _inject_tagging_booking_styles() {
 			display: block;
 			color: var(--tb-blue);
 			font-weight: 800;
-			font-size: 18px;
+			font-size: 14px;
 			line-height: 1.3;
 		}
 		.tb-table small {
@@ -537,6 +664,16 @@ function _inject_tagging_booking_styles() {
 			gap: 9px;
 		}
 		.tb-pagination b { font-weight: 700; }
+		.tb-page-btn {
+			padding: 6px 12px;
+			border: 1px solid #bae6fd;
+			border-radius: 8px;
+			background: var(--card-bg, #fff);
+			color: #075985;
+			font-size: 13px;
+			font-weight: 700;
+			cursor: pointer;
+		}
 		.tb-page-btn:disabled { cursor: default; opacity: .45; }
 		.tb-loading {
 			position: absolute;
@@ -558,30 +695,28 @@ function _inject_tagging_booking_styles() {
 			animation: tb-spin .7s linear infinite;
 		}
 		@keyframes tb-spin { to { transform: rotate(360deg); } }
-		[data-theme="dark"] .tb-page {
-			--tb-ink: #f8fafc;
-			--tb-blue: #38bdf8;
-			--tb-blue-dark: #7dd3fc;
+
+		[data-theme="dark"] .tb-stat-card {
+			background: rgba(14, 116, 144, .18);
+			border-color: rgba(14, 116, 144, .3);
 		}
-		[data-theme="dark"] .tb-stat-card,
 		[data-theme="dark"] .tb-panel,
-		[data-theme="dark"] .tb-status-btn,
-		[data-theme="dark"] .tb-clear-btn,
-		[data-theme="dark"] .tb-page-btn,
-		[data-theme="dark"] .tb-field input,
-		[data-theme="dark"] .tb-customer-filter .control-input {
+		[data-theme="dark"] .tb-page-btn {
 			background: #1e293b;
 			border-color: #334155;
 			color: #f1f5f9;
 		}
-		[data-theme="dark"] .tb-stat-card--all,
-		[data-theme="dark"] .tb-stat-card--approved {
-			background: linear-gradient(135deg, #075985 0%, #0369a1 100%);
-			border-color: #0284c7;
+		[data-theme="dark"] .tb-search-inline input,
+		[data-theme="dark"] .tb-date-field input[type="date"],
+		[data-theme="dark"] .tb-customer-filter .control-input,
+		[data-theme="dark"] .tb-filter-btn,
+		[data-theme="dark"] .tb-filter-menu,
+		[data-theme="dark"] .tb-clear-btn {
+			background: #1e293b;
+			border-color: #334155;
+			color: #cbd5e1;
 		}
-		[data-theme="dark"] .tb-stat-card span,
 		[data-theme="dark"] .tb-field > span { color: #7dd3fc; }
-		[data-theme="dark"] .tb-stat-card strong { color: #f1f5f9; }
 		[data-theme="dark"] .tb-toolbar,
 		[data-theme="dark"] .tb-table th,
 		[data-theme="dark"] .tb-pagination {
@@ -595,17 +730,12 @@ function _inject_tagging_booking_styles() {
 		}
 		[data-theme="dark"] .tb-booking-row:hover { background: rgba(14, 165, 233, .12); }
 		[data-theme="dark"] .tb-loading { background: rgba(15, 23, 42, .62); }
-		@media (max-width: 1000px) {
-			.tb-toolbar-top { grid-template-columns: 1fr; }
-			.tb-stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-			.tb-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-			.tb-filter-actions { grid-column: 1 / -1; }
+
+		@media (max-width: 1100px) {
+			.tb-toolbar-top { flex-direction: column; align-items: stretch; }
 		}
 		@media (max-width: 720px) {
 			.tb-page { padding: 10px 8px 32px; }
-			.tb-stat-row { grid-template-columns: 1fr; }
-			.tb-filter-grid { grid-template-columns: 1fr; }
-			.tb-filter-actions { grid-column: auto; }
 			.tb-pagination { align-items: flex-start; flex-direction: column; }
 		}
 	`;

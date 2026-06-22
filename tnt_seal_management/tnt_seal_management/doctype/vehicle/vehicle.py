@@ -63,7 +63,7 @@ def get_vehicle_list(search=None, status=None, page=1, page_length=25):
 
 	total_rows = frappe.get_list(
 		"Vehicle",
-		fields=[{"COUNT": "*", "as": "count"}],
+		fields=["count(*) as count"],
 		filters=filters,
 		or_filters=or_filters,
 		limit_page_length=1,
@@ -73,7 +73,7 @@ def get_vehicle_list(search=None, status=None, page=1, page_length=25):
 	summary = {"All": 0, "Active": 0, "Maintenance": 0, "Inactive": 0}
 	summary_rows = frappe.get_list(
 		"Vehicle",
-		fields=["vehicle_status", {"COUNT": "*", "as": "count"}],
+		fields=["vehicle_status", "count(*) as count"],
 		filters=[],
 		or_filters=or_filters,
 		group_by="vehicle_status",

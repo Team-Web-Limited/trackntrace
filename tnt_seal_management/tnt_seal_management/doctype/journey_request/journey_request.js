@@ -1,5 +1,11 @@
 frappe.ui.form.on("Journey Request", {
 	refresh(frm) {
+		frm.add_fetch("seal_device", "lock_status", "lock_status");
+		frm.add_fetch("seal_device", "last_api_status", "api_device_status");
+		frm.add_fetch("seal_device", "battery_level", "battery_level");
+		frm.add_fetch("seal_device", "current_location", "api_location");
+		frm.add_fetch("seal_device", "last_api_sync_time", "api_last_update_time");
+
 		_journey_request_apply_locks(frm);
 		_journey_request_add_list_button(frm);
 
@@ -39,11 +45,13 @@ const JR_METHOD = (name) =>
 
 function _journey_request_add_buttons(frm) {
 	const status = frm.doc.journey_request_status;
-	const isTech = frappe.user.has_role("Field Technician");
-	const isControlRoom = frappe.user.has_role("Operations Control Room");
-	const isCustomerCare = frappe.user.has_role("Customer Care");
+	// System Manager / Administrator may act at any stage of the workflow.
+	const isAdmin = frappe.user.has_role("System Manager");
+	const isTech = frappe.user.has_role("Field Technician") || isAdmin;
+	const isControlRoom = frappe.user.has_role("Operations Control Room") || isAdmin;
+	const isCustomerCare = frappe.user.has_role("Customer Care") || isAdmin;
 
-	if (status === "Draft" && (isTech || frappe.user.has_role("System Manager"))) {
+	if (status === "Draft" && isTech) {
 		frm.add_custom_button(__("Submit to Control Room"), () =>
 			_jr_call(frm, "submit_to_control_room")
 		).addClass("btn-primary");
@@ -62,7 +70,7 @@ function _journey_request_add_buttons(frm) {
 		);
 	}
 
-	if (status === "Pending Tagging" && (isTech || frappe.user.has_role("System Manager"))) {
+	if (status === "Pending Tagging" && isTech) {
 		frm.add_custom_button(__("Complete Tagging"), () => {
 			frappe.warn(
 				__("Complete Tagging"),
@@ -175,7 +183,7 @@ function _jr_swap_seal(frm) {
 }
 
 function _journey_request_add_list_button(frm) {
-	const label = __("Journey Request List");
+	const label = __("Back");
 	frm.page.remove_inner_button(label);
 	frm.page
 		.add_inner_button(label, () => frappe.set_route("journey-request-list"))
@@ -230,5 +238,6 @@ function _journey_request_apply_locks(frm) {
 
 	frm.set_df_property("job_order", "read_only", 1);
 	frm.fields_dict.seals?.grid?.toggle_enable(!lockedContent);
+	frm.fields_dict.entry_document?.grid?.toggle_enable(!lockedContent);
 	frm.fields_dict.tagging_photos?.grid?.toggle_enable(!lockedTagging);
 }

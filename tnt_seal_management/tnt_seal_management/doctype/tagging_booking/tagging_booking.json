@@ -55,9 +55,10 @@
   },
   {
    "fieldname": "location",
-   "fieldtype": "Data",
+   "fieldtype": "Autocomplete",
    "in_list_view": 1,
    "label": "Location",
+   "options": "\nNairobi\nMombasa\nKisumu\nNakuru\nEldoret\nThika\nMalindi\nKitale\nGarissa\nKakamega\nNyeri\nMachakos\nMeru\nKericho\nEmbu\nNaivasha\nNanyuki\nKilifi\nVoi\nNamanga\nBusia\nIsiolo\nLamu\nLodwar\nMarsabit\nMandera\nWajir\nNarok\nKajiado\nKitui",
    "reqd": 1
   },
   {

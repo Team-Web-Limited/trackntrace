@@ -8,6 +8,7 @@ from frappe.utils import cint, getdate
 
 from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey import (
 	set_journey_status,
+	sync_seal_journey_mirror,
 )
 
 
@@ -80,15 +81,18 @@ def _ensure_journey_request(assignment):
 			"client_name": assignment.client_name,
 			"assigned_technician": assignment.assigned_field_technician,
 			"journey_reference": seal_journey,
+			# Leave the route blank at this stage — origin and destination are set
+			# later in the Journey Request. Passing empty strings prevents Frappe
+			# from auto-filling both mandatory Select fields with their first
+			# option, which would otherwise trip the "same address" validation.
+			"origin": "",
+			"destination": "",
 		}
 	).insert(ignore_permissions=True, ignore_mandatory=True)
 
 	if seal_journey:
-		set_journey_status(
-			seal_journey,
-			"Technician Assigned",
-			{"assigned_technician": assignment.assigned_field_technician},
-		)
+		set_journey_status(seal_journey, "Technician Assigned")
+		sync_seal_journey_mirror(seal_journey)
 
 
 def _ensure_assignment_status_permission(assignment):
@@ -200,7 +204,7 @@ def get_assignment_list(
 
 	total_rows = frappe.get_list(
 		"PCB Assignment",
-		fields=[{"COUNT": "*", "as": "count"}],
+		fields=["count(*) as count"],
 		filters=filters,
 		or_filters=or_filters,
 		limit_page_length=1,
@@ -210,7 +214,7 @@ def get_assignment_list(
 	summary = {"All": 0, "Pending": 0, "Assigned": 0, "Cancelled": 0}
 	summary_rows = frappe.get_list(
 		"PCB Assignment",
-		fields=["assignment_status", {"COUNT": "*", "as": "count"}],
+		fields=["assignment_status", "count(*) as count"],
 		filters=base_filters,
 		or_filters=or_filters,
 		group_by="assignment_status",

@@ -7,6 +7,10 @@ frappe.ui.form.on("PCB Assignment", {
 	},
 
 	refresh(frm) {
+		frm.add_custom_button(__("Back"), () => {
+			frappe.set_route("assignment-list");
+		});
+
 		if (frm.is_new()) return;
 
 		const can_update_status =
@@ -18,7 +22,7 @@ frappe.ui.form.on("PCB Assignment", {
 			frm.add_custom_button(
 				__("Mark as Assigned"),
 				() => _asg_update_status(frm, "Assigned"),
-				__("Status")
+				__("Actions")
 			);
 		}
 		frm.add_custom_button(
@@ -28,7 +32,7 @@ frappe.ui.form.on("PCB Assignment", {
 					_asg_update_status(frm, "Cancelled")
 				);
 			},
-			__("Status")
+			__("Actions")
 		);
 	},
 });

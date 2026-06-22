@@ -9,6 +9,7 @@ from frappe.utils import cint, cstr, getdate, now_datetime
 
 from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey import (
 	set_journey_status,
+	sync_seal_journey_mirror,
 )
 
 ASSIGNABLE_SEAL_STATUSES = ("Available",)
@@ -35,7 +36,7 @@ CONTENT_FIELDS = (
 	"entry_document",
 	"seals",
 )
-EVIDENCE_FIELDS = ("tagging_photos",)
+EVIDENCE_FIELDS = ("entry_document", "tagging_photos")
 TAGGING_FIELDS = (
 	"actual_tagging_date_time",
 	"tagging_location",
@@ -52,7 +53,7 @@ _FIELD_LABELS = {
 	"origin": "Origin",
 	"destination": "Destination",
 	"driver_contact": "Driver Contact",
-	"entry_document": "Entry Document",
+	"entry_document": "Entry Pictures",
 	"seals": "Seal Serial Number(s)",
 	"tagging_photos": "Tagging Pictures",
 	"actual_tagging_date_time": "Actual Tagging Date and Time",
@@ -106,8 +107,8 @@ class JourneyRequest(Document):
 	def _field_changed(self, previous, fieldname):
 		if fieldname == "seals":
 			return _seals_signature(self) != _seals_signature(previous)
-		if fieldname == "tagging_photos":
-			return _photos_signature(self) != _photos_signature(previous)
+		if fieldname in EVIDENCE_FIELDS:
+			return _photos_signature(self, fieldname) != _photos_signature(previous, fieldname)
 		return self.get(fieldname) != previous.get(fieldname)
 
 	def enforce_tagging_irreversible(self):
@@ -189,9 +190,9 @@ def _seals_signature(doc):
 	return tuple((row.seal_device, row.tag_status) for row in (doc.get("seals") or []))
 
 
-def _photos_signature(doc):
+def _photos_signature(doc, fieldname):
 	return tuple(
-		(row.photo_type, row.photo_attachment) for row in (doc.get("tagging_photos") or [])
+		(row.photo_type, row.photo_attachment) for row in (doc.get(fieldname) or [])
 	)
 
 
@@ -254,7 +255,11 @@ def _get_journey_request(docname):
 
 
 def _ensure_role(role, message):
-	if role not in frappe.get_roles():
+	# System Manager / Administrator may act on any stage of the workflow.
+	roles = set(frappe.get_roles())
+	if "System Manager" in roles or frappe.session.user == "Administrator":
+		return
+	if role not in roles:
 		frappe.throw(message, title=_("Insufficient Permission"))
 
 
@@ -287,6 +292,7 @@ def submit_to_control_room(docname):
 	doc.flags.ignore_field_locks = True
 	doc.save()
 	set_journey_status(doc.journey_reference, "Pre-Tagging")
+	sync_seal_journey_mirror(doc.journey_reference)
 	frappe.db.commit()
 
 
@@ -311,6 +317,7 @@ def approve_by_control_room(docname, remarks=None):
 	doc.flags.ignore_field_locks = True
 	doc.save()
 	set_journey_status(doc.journey_reference, "Tagging In Progress")
+	sync_seal_journey_mirror(doc.journey_reference)
 	frappe.db.commit()
 
 
@@ -417,7 +424,8 @@ def complete_tagging(docname):
 		_("Only the assigned Field Technician can complete tagging."),
 	)
 	doc = _get_journey_request(docname)
-	if doc.assigned_technician and doc.assigned_technician != frappe.session.user:
+	is_admin = "System Manager" in set(frappe.get_roles()) or frappe.session.user == "Administrator"
+	if not is_admin and doc.assigned_technician and doc.assigned_technician != frappe.session.user:
 		frappe.throw(
 			_("This journey request is assigned to {0}.").format(doc.assigned_technician),
 			title=_("Not Assigned to You"),
@@ -452,6 +460,7 @@ def complete_tagging(docname):
 		"Tagged",
 		{"tagging_status": "Completed", "tagging_date_time": doc.actual_tagging_date_time},
 	)
+	sync_seal_journey_mirror(doc.journey_reference)
 	frappe.db.commit()
 
 
@@ -478,6 +487,10 @@ def approve_journey_request(docname, remarks=None):
 	doc.journey_reference = seal_journey.name
 	doc.flags.ignore_field_locks = True
 	doc.save()
+
+	# _finalize sets the In Transit status + child tables; mirror fills the
+	# remaining customer-care approval detail from the now-saved request.
+	sync_seal_journey_mirror(seal_journey.name)
 
 	for row in doc.seals:
 		update = {
@@ -687,7 +700,7 @@ def get_journey_request_list(
 
 	total_result = frappe.get_list(
 		"Journey Request",
-		fields=[{"COUNT": "*", "as": "count"}],
+		fields=["count(*) as count"],
 		filters=filters,
 		or_filters=or_filters,
 		limit_page_length=1,
@@ -697,7 +710,7 @@ def get_journey_request_list(
 	summary = {status: 0 for status in ("All",) + JOURNEY_REQUEST_STATUSES}
 	summary_rows = frappe.get_list(
 		"Journey Request",
-		fields=["journey_request_status", {"COUNT": "*", "as": "count"}],
+		fields=["journey_request_status", "count(*) as count"],
 		filters=base_filters,
 		or_filters=or_filters,
 		group_by="journey_request_status",

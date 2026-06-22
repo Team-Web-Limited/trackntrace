@@ -14,7 +14,7 @@ frappe.pages["seal-tracking-dashboard"].on_page_load = function (wrapper) {
 		page_size: 30,
 	};
 
-	page.add_inner_button("← Dashboard", () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button("Dashboard", () => frappe.set_route("tnt-seal-management"));
 	_inject_styles();
 	_build_skeleton(page);
 	_load_data(page);

@@ -85,7 +85,10 @@ add_to_apps_screen = [
 # ------------
 
 # before_install = "tnt_seal_management.install.before_install"
-# after_install = "tnt_seal_management.install.after_install"
+after_install = "tnt_seal_management.install.after_install"
+
+# Re-pin the TNT landing page after every migrate so it survives schema syncs.
+after_migrate = "tnt_seal_management.install.after_migrate"
 
 # Uninstallation
 # ------------

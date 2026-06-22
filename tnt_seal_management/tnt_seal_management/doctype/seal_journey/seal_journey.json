@@ -12,6 +12,12 @@
   "customer",
   "tagging_booking",
   "sales_order_reference",
+  "pcb_job_order",
+  "pcb_assignment",
+  "journey_request",
+  "contact_person_name",
+  "contact_person_phone",
+  "scheduled_date_time",
   "journey_status",
   "workflow_state",
   "client_and_transport_details_tab",
@@ -44,6 +50,11 @@
   "tagging_status",
   "tagging_date_time",
   "tagging_remarks",
+  "tagging_location",
+  "customer_care_section",
+  "customer_care_approver",
+  "customer_care_approval_date_time",
+  "customer_care_remarks",
   "photo_evidence_tab",
   "photos",
   "post_tagging_tab",
@@ -78,6 +89,8 @@
   "transit_row_5b_column",
   "api_sync_error",
   "transit_row_6_section",
+  "control_room_approver",
+  "control_room_approval_date_time",
   "control_room_remarks",
   "arrival_tab",
   "arrival_row_1_section",
@@ -94,13 +107,28 @@
   "untagging_confirmation",
   "arrival_row_4_section",
   "seal_unlocked_confirmation",
+  "arrival_row_4_column",
+  "days_taken",
   "arrival_row_5_section",
   "arrival_remarks",
   "seal_return_tab",
   "seal_condition_after_journey",
   "completion_date_time",
   "billing_tab",
+  "billing_rule",
   "billing_status",
+  "billing_dates_column_break",
+  "billing_start_date",
+  "billing_return_date",
+  "billable_days",
+  "billing_breakdown_section",
+  "first_period_days",
+  "first_period_amount",
+  "billing_breakdown_column_break",
+  "extra_days",
+  "extra_day_rate",
+  "extra_day_amount",
+  "billing_total_section",
   "total_charge",
   "logs_attachments_tab",
   "api_raw_response",
@@ -118,7 +146,8 @@
    "in_list_view": 1,
    "label": "Customer",
    "options": "Customer",
-   "reqd": 1
+   "reqd": 1,
+   "read_only": 1
   },
   {
    "fieldname": "tagging_booking",
@@ -130,7 +159,8 @@
   {
    "fieldname": "sales_order_reference",
    "fieldtype": "Data",
-   "label": "PCB Job Order"
+   "label": "PCB Job Order",
+   "read_only": 1
   },
   {
    "default": "Draft",
@@ -138,7 +168,8 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Journey Status",
-   "options": "Draft\nPending Finance PCB Approval\nFinance PCB Approved\nFinance PCB Rejected\nTeam Lead Assigned\nTechnician Assigned\nPre-Tagging\nTagging Request Booked\nTagging In Progress\nTagged\nPost-Tagging\nReady for Journey\nIn Transit\nArrived\nUntagging In Progress\nUntagged\nCompleted\nCancelled"
+   "options": "Draft\nPending Finance PCB Approval\nFinance PCB Approved\nFinance PCB Rejected\nTeam Lead Assigned\nTechnician Assigned\nPre-Tagging\nTagging Request Booked\nTagging In Progress\nTagged\nPost-Tagging\nReady for Journey\nIn Transit\nArrived\nUntagging In Progress\nUntagged\nCompleted\nCancelled",
+   "read_only": 1
   },
   {
    "fieldname": "workflow_state",
@@ -155,23 +186,27 @@
    "fieldname": "vehicle_plate_number",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Vehicle Plate Number"
+   "label": "Vehicle Plate Number",
+   "read_only": 1
   },
   {
    "fieldname": "container_number",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Container Number"
+   "label": "Container Number",
+   "read_only": 1
   },
   {
    "fieldname": "origin",
    "fieldtype": "Data",
-   "label": "Origin"
+   "label": "Origin",
+   "read_only": 1
   },
   {
    "fieldname": "destination",
    "fieldtype": "Data",
-   "label": "Destination"
+   "label": "Destination",
+   "read_only": 1
   },
   {
    "fieldname": "approval_tab",
@@ -183,7 +218,8 @@
    "fieldname": "finance_pcb_approval_status",
    "fieldtype": "Select",
    "label": "Finance PCB Approval Status",
-   "options": "Pending\nApproved\nRejected"
+   "options": "Pending\nApproved\nRejected",
+   "read_only": 1
   },
   {
    "fieldname": "finance_pcb_approver",
@@ -201,7 +237,8 @@
   {
    "fieldname": "finance_pcb_remarks",
    "fieldtype": "Small Text",
-   "label": "Finance PCB Remarks"
+   "label": "Finance PCB Remarks",
+   "read_only": 1
   },
   {
    "fieldname": "assignment_tab",
@@ -212,29 +249,34 @@
    "fieldname": "assigned_team_lead",
    "fieldtype": "Link",
    "label": "Assigned Team Lead",
-   "options": "User"
+   "options": "User",
+   "read_only": 1
   },
   {
    "fieldname": "team_lead_assignment_date_time",
    "fieldtype": "Datetime",
-   "label": "Team Lead Assignment Date and Time"
+   "label": "Team Lead Assignment Date and Time",
+   "read_only": 1
   },
   {
    "fieldname": "assigned_technician",
    "fieldtype": "Link",
    "label": "Assigned Technician",
-   "options": "User"
+   "options": "User",
+   "read_only": 1
   },
   {
    "fieldname": "technician_assignment_date_time",
    "fieldtype": "Datetime",
-   "label": "Technician Assignment Date and Time"
+   "label": "Technician Assignment Date and Time",
+   "read_only": 1
   },
   {
    "fieldname": "technician_status",
    "fieldtype": "Select",
    "label": "Technician Status",
-   "options": "Available\nOccupied"
+   "options": "Available\nOccupied",
+   "read_only": 1
   },
   {
    "fieldname": "pre_tagging_tab",
@@ -245,17 +287,20 @@
    "fieldname": "proposed_seal",
    "fieldtype": "Link",
    "label": "Proposed Seal",
-   "options": "Seal Device"
+   "options": "Seal Device",
+   "read_only": 1
   },
   {
    "fieldname": "expected_tagging_location",
    "fieldtype": "Data",
-   "label": "Expected Tagging Location"
+   "label": "Expected Tagging Location",
+   "read_only": 1
   },
   {
    "fieldname": "expected_tagging_date_time",
    "fieldtype": "Datetime",
-   "label": "Expected Tagging Date and Time"
+   "label": "Expected Tagging Date and Time",
+   "read_only": 1
   },
   {
    "cannot_add_rows": 1,
@@ -263,19 +308,22 @@
    "fieldname": "pre_tagging_checklist",
    "fieldtype": "Table",
    "label": "Pre-Tagging Checklist",
-   "options": "Pre Tagging Checklist Item"
+   "options": "Pre Tagging Checklist Item",
+   "read_only": 1
   },
   {
    "default": "Pending",
    "fieldname": "pre_tagging_status",
    "fieldtype": "Select",
    "label": "Pre-Tagging Status",
-   "options": "Pending\nCompleted"
+   "options": "Pending\nCompleted",
+   "read_only": 1
   },
   {
    "fieldname": "pre_tagging_remarks",
    "fieldtype": "Small Text",
-   "label": "Pre-Tagging Remarks"
+   "label": "Pre-Tagging Remarks",
+   "read_only": 1
   },
   {
    "fieldname": "seals_tab",
@@ -286,13 +334,17 @@
    "fieldname": "journey_seals",
    "fieldtype": "Table",
    "label": "Journey Seals",
-   "options": "Journey Request Seal"
+   "options": "Journey Request Seal",
+   "read_only": 1,
+   "cannot_add_rows": 1,
+   "cannot_delete_rows": 1
   },
   {
    "fieldname": "assigned_seal",
    "fieldtype": "Link",
    "label": "Assigned Seal (Primary)",
-   "options": "Seal Device"
+   "options": "Seal Device",
+   "read_only": 1
   },
   {
    "fieldname": "tagging_details_tab",
@@ -304,17 +356,20 @@
    "fieldname": "tagging_status",
    "fieldtype": "Select",
    "label": "Tagging Status",
-   "options": "Pending\nIn Progress\nCompleted"
+   "options": "Pending\nIn Progress\nCompleted",
+   "read_only": 1
   },
   {
    "fieldname": "tagging_date_time",
    "fieldtype": "Datetime",
-   "label": "Tagging Date and Time"
+   "label": "Tagging Date and Time",
+   "read_only": 1
   },
   {
    "fieldname": "tagging_remarks",
    "fieldtype": "Small Text",
-   "label": "Tagging Remarks"
+   "label": "Tagging Remarks",
+   "read_only": 1
   },
   {
    "fieldname": "photo_evidence_tab",
@@ -325,7 +380,10 @@
    "fieldname": "photos",
    "fieldtype": "Table",
    "label": "Seal Trip Photos",
-   "options": "Seal Trip Photo"
+   "options": "Seal Trip Photo",
+   "read_only": 1,
+   "cannot_add_rows": 1,
+   "cannot_delete_rows": 1
   },
   {
    "fieldname": "post_tagging_tab",
@@ -336,30 +394,35 @@
    "default": "0",
    "fieldname": "seal_attached_confirmation",
    "fieldtype": "Check",
-   "label": "Seal Attached Confirmation"
+   "label": "Seal Attached Confirmation",
+   "read_only": 1
   },
   {
    "default": "Pending",
    "fieldname": "post_tagging_status",
    "fieldtype": "Select",
    "label": "Post-Tagging Status",
-   "options": "Pending\nCompleted"
+   "options": "Pending\nCompleted",
+   "read_only": 1
   },
   {
    "fieldname": "post_tagging_date_time",
    "fieldtype": "Datetime",
-   "label": "Post-Tagging Date and Time"
+   "label": "Post-Tagging Date and Time",
+   "read_only": 1
   },
   {
    "default": "0",
    "fieldname": "journey_readiness",
    "fieldtype": "Check",
-   "label": "Journey Readiness"
+   "label": "Journey Readiness",
+   "read_only": 1
   },
   {
    "fieldname": "departure_readiness_remarks",
    "fieldtype": "Small Text",
-   "label": "Departure Readiness Remarks"
+   "label": "Departure Readiness Remarks",
+   "read_only": 1
   },
   {
    "fieldname": "transit_tracking_tab",
@@ -373,7 +436,8 @@
   {
    "fieldname": "journey_start_date_time",
    "fieldtype": "Datetime",
-   "label": "Journey Start Date and Time"
+   "label": "Journey Start Date and Time",
+   "read_only": 1
   },
   {
    "fieldname": "transit_row_1_column",
@@ -383,7 +447,8 @@
    "default": "0",
    "fieldname": "departure_confirmation",
    "fieldtype": "Check",
-   "label": "Departure Confirmation"
+   "label": "Departure Confirmation",
+   "read_only": 1
   },
   {
    "fieldname": "transit_row_2_section",
@@ -392,7 +457,8 @@
   {
    "fieldname": "in_transit_status",
    "fieldtype": "Data",
-   "label": "In Transit Status"
+   "label": "In Transit Status",
+   "read_only": 1
   },
   {
    "fieldname": "transit_row_2_column",
@@ -401,7 +467,8 @@
   {
    "fieldname": "current_seal_status",
    "fieldtype": "Data",
-   "label": "Current Seal Status"
+   "label": "Current Seal Status",
+   "read_only": 1
   },
   {
    "fieldname": "transit_row_3_section",
@@ -490,7 +557,8 @@
   {
    "fieldname": "control_room_remarks",
    "fieldtype": "Small Text",
-   "label": "Control Room Remarks"
+   "label": "Control Room Remarks",
+   "read_only": 1
   },
   {
    "fieldname": "arrival_tab",
@@ -504,7 +572,8 @@
   {
    "fieldname": "arrival_date_time",
    "fieldtype": "Datetime",
-   "label": "Arrival Date and Time"
+   "label": "Arrival Date and Time",
+   "read_only": 1
   },
   {
    "fieldname": "arrival_row_1_column",
@@ -513,7 +582,8 @@
   {
    "fieldname": "arrival_location",
    "fieldtype": "Data",
-   "label": "Arrival Location"
+   "label": "Arrival Location",
+   "read_only": 1
   },
   {
    "fieldname": "arrival_row_2_section",
@@ -522,7 +592,8 @@
   {
    "fieldname": "untagging_started_date_time",
    "fieldtype": "Datetime",
-   "label": "Untagging Started Date and Time"
+   "label": "Untagging Started Date and Time",
+   "read_only": 1
   },
   {
    "fieldname": "arrival_row_2_column",
@@ -533,7 +604,8 @@
    "fieldname": "untagging_status",
    "fieldtype": "Select",
    "label": "Untagging Status",
-   "options": "Pending\nIn Progress\nCompleted"
+   "options": "Pending\nIn Progress\nCompleted",
+   "read_only": 1
   },
   {
    "fieldname": "arrival_row_3_section",
@@ -542,7 +614,8 @@
   {
    "fieldname": "untagging_completed_date_time",
    "fieldtype": "Datetime",
-   "label": "Untagging Completed Date and Time"
+   "label": "Untagging Completed Date and Time",
+   "read_only": 1
   },
   {
    "fieldname": "arrival_row_3_column",
@@ -552,7 +625,8 @@
    "default": "0",
    "fieldname": "untagging_confirmation",
    "fieldtype": "Check",
-   "label": "Untagging Confirmation"
+   "label": "Untagging Confirmation",
+   "read_only": 1
   },
   {
    "fieldname": "arrival_row_4_section",
@@ -562,7 +636,19 @@
    "default": "0",
    "fieldname": "seal_unlocked_confirmation",
    "fieldtype": "Check",
-   "label": "Seal Unlocked Confirmation"
+   "label": "Seal Unlocked Confirmation",
+   "read_only": 1
+  },
+  {
+   "fieldname": "arrival_row_4_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "days_taken",
+   "fieldtype": "Float",
+   "label": "Days Taken",
+   "precision": "2",
+   "read_only": 1
   },
   {
    "fieldname": "arrival_row_5_section",
@@ -571,7 +657,8 @@
   {
    "fieldname": "arrival_remarks",
    "fieldtype": "Small Text",
-   "label": "Arrival Remarks"
+   "label": "Arrival Remarks",
+   "read_only": 1
   },
   {
    "fieldname": "seal_return_tab",
@@ -582,12 +669,14 @@
    "fieldname": "seal_condition_after_journey",
    "fieldtype": "Select",
    "label": "Seal Condition After Journey",
-   "options": "Good\nDamaged\nLost"
+   "options": "Good\nDamaged\nLost",
+   "read_only": 1
   },
   {
    "fieldname": "completion_date_time",
    "fieldtype": "Datetime",
-   "label": "Completion Date and Time"
+   "label": "Completion Date and Time",
+   "read_only": 1
   },
   {
    "fieldname": "billing_tab",
@@ -595,15 +684,90 @@
    "label": "Billing"
   },
   {
+   "fieldname": "billing_rule",
+   "fieldtype": "Link",
+   "label": "Billing Rule",
+   "options": "Seal Billing Rate",
+   "read_only": 1
+  },
+  {
    "fieldname": "billing_status",
    "fieldtype": "Select",
    "label": "Billing Status",
-   "options": "Not Billed\nPending Billing\nBilled\nCancelled"
+   "options": "Not Billed\nPending Billing\nBilled\nCancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "billing_dates_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Defaults from the journey start date when left blank.",
+   "fieldname": "billing_start_date",
+   "fieldtype": "Date",
+   "label": "Billing Start Date"
+  },
+  {
+   "description": "Defaults from the completion date. Required for final billing.",
+   "fieldname": "billing_return_date",
+   "fieldtype": "Date",
+   "label": "Billing Return Date"
+  },
+  {
+   "description": "Inclusive whole days between start and return.",
+   "fieldname": "billable_days",
+   "fieldtype": "Int",
+   "label": "Billable Days",
+   "read_only": 1
+  },
+  {
+   "fieldname": "billing_breakdown_section",
+   "fieldtype": "Section Break",
+   "label": "Billing Breakdown"
+  },
+  {
+   "fieldname": "first_period_days",
+   "fieldtype": "Int",
+   "label": "First Period Days",
+   "read_only": 1
+  },
+  {
+   "fieldname": "first_period_amount",
+   "fieldtype": "Currency",
+   "label": "First Period Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "billing_breakdown_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "extra_days",
+   "fieldtype": "Int",
+   "label": "Extra Days",
+   "read_only": 1
+  },
+  {
+   "fieldname": "extra_day_rate",
+   "fieldtype": "Currency",
+   "label": "Extra Day Rate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "extra_day_amount",
+   "fieldtype": "Currency",
+   "label": "Extra Day Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "billing_total_section",
+   "fieldtype": "Section Break"
   },
   {
    "fieldname": "total_charge",
    "fieldtype": "Currency",
-   "label": "Total Charge"
+   "label": "Total Charge",
+   "read_only": 1
   },
   {
    "fieldname": "logs_attachments_tab",
@@ -619,7 +783,90 @@
   {
    "fieldname": "remarks",
    "fieldtype": "Text",
-   "label": "Remarks"
+   "label": "Remarks",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pcb_job_order",
+   "fieldtype": "Link",
+   "label": "PCB Job Order",
+   "options": "PCB Job Order",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pcb_assignment",
+   "fieldtype": "Link",
+   "label": "PCB Assignment",
+   "options": "PCB Assignment",
+   "read_only": 1
+  },
+  {
+   "fieldname": "journey_request",
+   "fieldtype": "Link",
+   "label": "Journey Request",
+   "options": "Journey Request",
+   "read_only": 1
+  },
+  {
+   "fieldname": "contact_person_name",
+   "fieldtype": "Data",
+   "label": "Contact Person Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "contact_person_phone",
+   "fieldtype": "Phone",
+   "label": "Contact Person Phone",
+   "read_only": 1
+  },
+  {
+   "fieldname": "scheduled_date_time",
+   "fieldtype": "Datetime",
+   "label": "Scheduled Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "control_room_approver",
+   "fieldtype": "Link",
+   "label": "Control Room Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "control_room_approval_date_time",
+   "fieldtype": "Datetime",
+   "label": "Control Room Approval Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tagging_location",
+   "fieldtype": "Data",
+   "label": "Tagging Location",
+   "read_only": 1
+  },
+  {
+   "fieldname": "customer_care_section",
+   "fieldtype": "Section Break",
+   "label": "Customer Care Approval"
+  },
+  {
+   "fieldname": "customer_care_approver",
+   "fieldtype": "Link",
+   "label": "Customer Care Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "customer_care_approval_date_time",
+   "fieldtype": "Datetime",
+   "label": "Customer Care Approval Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "customer_care_remarks",
+   "fieldtype": "Small Text",
+   "label": "Customer Care Remarks",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

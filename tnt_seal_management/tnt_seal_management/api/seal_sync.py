@@ -794,6 +794,56 @@ def _apply_to_device(device_name, rec):
 	frappe.db.set_value("Seal Device", device_name, upd)
 	frappe.db.commit()
 
+	_auto_detect_warehouse_custody(device_name, rec)
+
+
+# Seal statuses where the seal is "resting" and not actively held by a
+# technician/customer on a live journey. Only in these states do we let a GPS
+# geofence match auto-assign the seal to a physical warehouse (custody stages
+# 1 and 7). Mid-journey, the custodian is driven by workflow events instead.
+_RESTING_STATUSES = {"Available", "Returned", "Quality Check", "Untagged"}
+
+
+def _auto_detect_warehouse_custody(device_name, rec):
+	"""If an idle seal's GPS reading lands inside a known warehouse geofence,
+	set its current custody to that warehouse. No-ops when the seal is mid-journey."""
+	lat, lng = rec.get("latitude"), rec.get("longitude")
+	if lat is None or lng is None or (lat == 0 and lng == 0):
+		return
+
+	info = frappe.db.get_value(
+		"Seal Device",
+		device_name,
+		["current_status", "current_journey", "current_custody_type", "current_custodian"],
+		as_dict=True,
+	)
+	if not info:
+		return
+	if info.current_journey or info.current_status not in _RESTING_STATUSES:
+		return
+
+	from tnt_seal_management.tnt_seal_management.doctype.custody_point.custody_point import (
+		find_nearest_custody_point,
+	)
+	from tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device import (
+		set_seal_custody,
+	)
+
+	match = find_nearest_custody_point(lat, lng)
+	if not match:
+		return
+
+	warehouse = match["custody_point"]
+	if info.current_custody_type == "Custody Point" and info.current_custodian == warehouse:
+		return  # already attributed to this warehouse
+
+	set_seal_custody(
+		device_name,
+		"Custody Point",
+		warehouse,
+		remarks=f"Auto-detected at {warehouse} ({match['distance_meters']} m from GPS).",
+	)
+
 
 def _apply_to_journey(journey_name, rec):
 	"""Write normalised API record fields to a Seal Journey."""

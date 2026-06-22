@@ -67,7 +67,7 @@
    "fieldname": "assignment_status",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Assignment Status",
+   "label": "Actions",
    "options": "Pending\nAssigned\nCancelled",
    "read_only": 1,
    "reqd": 1

@@ -18,7 +18,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Action",
-   "options": "Submitted\nApproved\nRejected",
+   "options": "Submitted\nSubmitted to Control Room\nControl Room Approved\nControl Room Rejected\nTagging Completed\nApproved\nRejected",
    "read_only": 1
   },
   {

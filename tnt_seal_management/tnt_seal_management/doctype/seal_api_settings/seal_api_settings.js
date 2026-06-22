@@ -4,6 +4,9 @@
 frappe.ui.form.on("Seal API Settings", {
 	refresh(frm) {
 		frm.page.set_title(__("Seal Settings"));
+		frm.add_custom_button(__("Back"), () => {
+			frappe.set_route("tnt-seal-management");
+		});
 		_configure_checklist_template(frm);
 		_add_test_connection_button(frm);
 	},

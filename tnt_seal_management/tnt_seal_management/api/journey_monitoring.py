@@ -13,6 +13,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, get_datetime, now_datetime
 
+from tnt_seal_management.tnt_seal_management.billing import get_applicable_billing_rule
 from tnt_seal_management.tnt_seal_management.api.seal_sync import (
 	_require_dashboard_permission,
 	normalize_api_status,
@@ -37,7 +38,7 @@ _FIELDS = [
 	"assigned_seal", "current_seal_status",
 	"api_device_status", "api_device_location",
 	"api_latitude", "api_longitude", "api_speed", "api_battery_level",
-	"api_last_update_time", "api_sync_error", "creation",
+	"api_last_update_time", "api_sync_error", "creation", "days_taken"
 ]
 
 
@@ -58,19 +59,38 @@ def get_journey_monitoring_data(
 	filters = _build_filters(view, from_date, to_date)
 	or_filters = _build_or_filters(search)
 
-	total = frappe.db.count("Seal Journey", filters=_count_filters(filters, or_filters))
+	if view == "alerts":
+		# Alerts are derived dynamically, so we must fetch all matching active rows
+		# and filter in Python, then manually paginate.
+		active_filters = _build_filters("active", from_date, to_date)
+		all_active = frappe.db.get_all(
+			"Seal Journey",
+			filters=active_filters,
+			or_filters=or_filters or None,
+			fields=_FIELDS,
+			order_by="creation desc",
+		)
+		_attach_seals(all_active)
+		journeys_with_alerts = [j for j in all_active if j.get("alert_level")]
+		
+		total = len(journeys_with_alerts)
+		start = (page - 1) * page_length
+		journeys = journeys_with_alerts[start : start + page_length]
+		_attach_longer_in_journey(journeys)
+	else:
+		total = frappe.db.count("Seal Journey", filters=_count_filters(filters, or_filters))
 
-	journeys = frappe.db.get_all(
-		"Seal Journey",
-		filters=filters,
-		or_filters=or_filters or None,
-		fields=_FIELDS,
-		order_by="creation desc",
-		limit_start=(page - 1) * page_length,
-		limit_page_length=page_length,
-	)
-
-	_attach_seals(journeys)
+		journeys = frappe.db.get_all(
+			"Seal Journey",
+			filters=filters,
+			or_filters=or_filters or None,
+			fields=_FIELDS,
+			order_by="creation desc",
+			limit_start=(page - 1) * page_length,
+			limit_page_length=page_length,
+		)
+		_attach_seals(journeys)
+		_attach_longer_in_journey(journeys)
 
 	return {
 		"journeys": [dict(j) for j in journeys],
@@ -148,6 +168,56 @@ def _attach_seals(journeys):
 		j["alert_level"] = _roll_up_level(all_alerts)
 
 
+def _attach_longer_in_journey(journeys):
+	"""Calculate longer_in_journey extra days based on customer billing rate."""
+	if not journeys:
+		return
+
+	for j in journeys:
+		j["longer_in_journey"] = 0
+
+	customer_names = list({j["customer"] for j in journeys if j.get("customer")})
+	if not customer_names:
+		return
+
+	# Resolve each customer's applicable rule through the assignment hierarchy
+	# (customer -> customer group -> global default), then read its grace period.
+	allowed_days_by_customer = {}
+	rule_days_cache = {}
+	for customer in customer_names:
+		rule_name = get_applicable_billing_rule(customer)
+		if not rule_name:
+			allowed_days_by_customer[customer] = 0
+			continue
+		if rule_name not in rule_days_cache:
+			rule_days_cache[rule_name] = flt(
+				frappe.db.get_value("Seal Billing Rate", rule_name, "first_period_days")
+			)
+		allowed_days_by_customer[customer] = rule_days_cache[rule_name]
+
+	now = now_datetime()
+	for j in journeys:
+		allowed_days = allowed_days_by_customer.get(j["customer"], 0)
+
+		j["longer_in_journey"] = 0
+
+		if allowed_days > 0:
+			total_days = 0
+			if j.get("days_taken"):
+				total_days = flt(j["days_taken"])
+			elif j.get("journey_start_date_time") and j.get("journey_status") not in (
+				"Cancelled", "Draft", "Pre-Tagging", "Tagging Request Booked",
+				"Tagging In Progress", "Tagged", "Post-Tagging", "Ready for Journey",
+				"Pending Finance PCB Approval", "Finance PCB Approved",
+				"Finance PCB Rejected", "Team Lead Assigned", "Technician Assigned"
+			):
+				start_dt = get_datetime(j["journey_start_date_time"])
+				total_days = (now - start_dt).total_seconds() / 86400.0
+
+			if total_days > allowed_days:
+				j["longer_in_journey"] = total_days - allowed_days
+
+
 def _device_lock_map(rows, journeys):
 	seal_names = {r.get("seal_device") for r in rows if r.get("seal_device")}
 	seal_names |= {j.get("assigned_seal") for j in journeys if j.get("assigned_seal")}
@@ -201,6 +271,8 @@ def _build_filters(view, from_date, to_date):
 		filters.append(["journey_status", "not in", _TERMINAL_STATUSES])
 	elif view == "completed":
 		filters.append(["journey_status", "=", "Completed"])
+	elif view == "in_transit":
+		filters.append(["journey_status", "=", "In Transit"])
 
 	if from_date:
 		filters.append(["creation", ">=", f"{from_date} 00:00:00"])

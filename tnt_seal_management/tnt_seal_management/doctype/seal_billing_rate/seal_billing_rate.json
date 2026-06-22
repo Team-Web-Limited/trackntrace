@@ -7,23 +7,48 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "rule_details_section",
   "billing_rule_name",
+  "billing_type",
   "active",
+  "rule_details_column_break",
+  "currency",
+  "billing_period_type",
+  "is_global_default",
+  "pricing_section",
+  "period_from_date",
+  "period_to_date",
   "first_period_days",
   "first_period_amount",
+  "pricing_column_break",
   "extra_day_rate",
-  "currency",
+  "validity_section",
   "effective_from",
+  "validity_column_break",
   "effective_to",
+  "remarks_section",
   "remarks"
  ],
  "fields": [
+  {
+   "fieldname": "rule_details_section",
+   "fieldtype": "Section Break",
+   "label": "Rule Details"
+  },
   {
    "fieldname": "billing_rule_name",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Billing Rule Name",
    "reqd": 1
+  },
+  {
+   "default": "Default",
+   "fieldname": "billing_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Billing Type",
+   "options": "Default\nSpecial"
   },
   {
    "default": "1",
@@ -33,7 +58,53 @@
    "label": "Active"
   },
   {
+   "fieldname": "rule_details_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "KES",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
+  },
+  {
+   "default": "Monthly",
+   "fieldname": "billing_period_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Billing Period Type",
+   "options": "Weekly\nMonthly\nQuarterly\nSemi-Annually\nAnnually\nDate Range"
+  },
+  {
+   "default": "0",
+   "description": "Mark exactly one rule as the system-wide fallback used when no customer or customer-group assignment matches.",
+   "fieldname": "is_global_default",
+   "fieldtype": "Check",
+   "label": "Is Global Default"
+  },
+  {
+   "fieldname": "pricing_section",
+   "fieldtype": "Section Break",
+   "label": "Pricing"
+  },
+  {
+   "depends_on": "eval:doc.billing_period_type=='Date Range'",
+   "fieldname": "period_from_date",
+   "fieldtype": "Date",
+   "label": "Period From Date",
+   "mandatory_depends_on": "eval:doc.billing_period_type=='Date Range'"
+  },
+  {
+   "depends_on": "eval:doc.billing_period_type=='Date Range'",
+   "fieldname": "period_to_date",
+   "fieldtype": "Date",
+   "label": "Period To Date",
+   "mandatory_depends_on": "eval:doc.billing_period_type=='Date Range'"
+  },
+  {
    "default": "5",
+   "description": "Derived from the date range when the period type is Date Range.",
    "fieldname": "first_period_days",
    "fieldtype": "Int",
    "label": "First Period Days"
@@ -45,17 +116,19 @@
    "label": "First Period Amount"
   },
   {
+   "fieldname": "pricing_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
    "default": "500",
    "fieldname": "extra_day_rate",
    "fieldtype": "Currency",
    "label": "Extra Day Rate"
   },
   {
-   "default": "KES",
-   "fieldname": "currency",
-   "fieldtype": "Link",
-   "label": "Currency",
-   "options": "Currency"
+   "fieldname": "validity_section",
+   "fieldtype": "Section Break",
+   "label": "Validity"
   },
   {
    "fieldname": "effective_from",
@@ -63,9 +136,18 @@
    "label": "Effective From Date"
   },
   {
+   "fieldname": "validity_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "effective_to",
    "fieldtype": "Date",
    "label": "Effective To Date"
+  },
+  {
+   "fieldname": "remarks_section",
+   "fieldtype": "Section Break",
+   "label": "Remarks"
   },
   {
    "fieldname": "remarks",

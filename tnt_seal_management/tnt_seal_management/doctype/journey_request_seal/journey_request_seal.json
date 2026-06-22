@@ -50,32 +50,42 @@
    "options": "Pending\nTagged\nUntagged"
   },
   {
+   "fetch_from": "seal_device.lock_status",
    "fieldname": "lock_status",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "Lock Status",
    "read_only": 1
   },
   {
+   "fetch_from": "seal_device.last_api_status",
    "fieldname": "api_device_status",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "API Device Status",
    "read_only": 1
   },
   {
+   "fetch_from": "seal_device.current_location",
    "fieldname": "api_location",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "API Device Location",
    "read_only": 1
   },
   {
+   "fetch_from": "seal_device.battery_level",
    "fieldname": "battery_level",
    "fieldtype": "Data",
+   "in_list_view": 1,
    "label": "Battery Level",
    "read_only": 1
   },
   {
+   "fetch_from": "seal_device.last_api_sync_time",
    "fieldname": "api_last_update_time",
    "fieldtype": "Datetime",
+   "in_list_view": 1,
    "label": "API Last Update Time",
    "read_only": 1
   }

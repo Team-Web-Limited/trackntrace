@@ -8,6 +8,11 @@ from frappe.utils import cint, getdate, now_datetime
 
 from tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment import (
 	_ensure_journey_request,
+	_seal_journey_for_job_order,
+)
+from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey import (
+	set_journey_status,
+	sync_seal_journey_mirror,
 )
 
 
@@ -15,6 +20,23 @@ class PCBJobOrder(Document):
 	def validate(self):
 		self._validate_team_leader()
 		self._sync_assignment()
+
+	def on_update(self):
+		self._mirror_to_seal_journey()
+
+	def _mirror_to_seal_journey(self):
+		"""Keep the Seal Journey mirror in step when a PCB Team Leader is assigned
+		on the job order. Advances the journey to "Team Lead Assigned" only from
+		the immediately preceding stage so re-saving a job order never regresses a
+		journey that is already further along."""
+		seal_journey = _seal_journey_for_job_order(self.name)
+		if not seal_journey:
+			return
+		if self.assigned_pcb_team_leader and self.job_order_status == "Team Leader Assigned":
+			current = frappe.db.get_value("Seal Journey", seal_journey, "journey_status")
+			if current == "Finance PCB Approved":
+				set_journey_status(seal_journey, "Team Lead Assigned")
+		sync_seal_journey_mirror(seal_journey)
 
 	def _validate_team_leader(self):
 		if not self.assigned_pcb_team_leader:
@@ -292,7 +314,7 @@ def get_job_order_list(
 
 	total_rows = frappe.get_list(
 		"PCB Job Order",
-		fields=[{"COUNT": "*", "as": "count"}],
+		fields=["count(*) as count"],
 		filters=filters,
 		or_filters=or_filters,
 		limit_page_length=1,
@@ -308,7 +330,7 @@ def get_job_order_list(
 	}
 	summary_rows = frappe.get_list(
 		"PCB Job Order",
-		fields=["job_order_status", {"COUNT": "*", "as": "count"}],
+		fields=["job_order_status", "count(*) as count"],
 		filters=base_filters,
 		or_filters=or_filters,
 		group_by="job_order_status",

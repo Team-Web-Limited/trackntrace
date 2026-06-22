@@ -9,7 +9,7 @@ frappe.ui.form.on("Tagging Booking", {
 		}
 	},
 	refresh(frm) {
-		frm.add_custom_button(__("Tagging Bookings"), () => {
+		frm.add_custom_button(__("Back"), () => {
 			frappe.set_route("tagging-booking-list");
 		});
 
@@ -38,52 +38,60 @@ frappe.ui.form.on("Tagging Booking", {
 			frm.doc.booking_status === "Pending Finance PCB Approval" &&
 			frappe.user.has_role("Finance PCB")
 		) {
-			frm.add_custom_button(__("Approve"), () => {
-				frappe.call({
-					method:
-						"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.approve_booking",
-					args: { docname: frm.doc.name },
-					callback: (r) => {
-						const jobOrder = r.message && r.message.pcb_job_order;
-						frm.reload_doc();
-						if (jobOrder) {
-							frappe.show_alert(
-								{
-									message: __("PCB Job Order {0} created", [jobOrder]),
-									indicator: "green",
-								},
-								5
-							);
-						}
-					},
-				});
-			});
-
-			frm.add_custom_button(__("Reject"), () => {
-				frappe.prompt(
-					[
-						{
-							fieldname: "remarks",
-							fieldtype: "Small Text",
-							label: __("Rejection Reason"),
-							reqd: 1,
+			frm.add_custom_button(
+				__("Approve"),
+				() => {
+					frappe.call({
+						method:
+							"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.approve_booking",
+						args: { docname: frm.doc.name },
+						callback: (r) => {
+							const jobOrder = r.message && r.message.pcb_job_order;
+							frm.reload_doc();
+							if (jobOrder) {
+								frappe.show_alert(
+									{
+										message: __("PCB Job Order {0} created", [jobOrder]),
+										indicator: "green",
+									},
+									5
+								);
+							}
 						},
-					],
-					(values) => {
-						frappe.call({
-							method:
-								"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.reject_booking",
-							args: {
-								docname: frm.doc.name,
-								remarks: values.remarks,
+					});
+				},
+				__("Actions")
+			);
+
+			frm.add_custom_button(
+				__("Reject"),
+				() => {
+					frappe.prompt(
+						[
+							{
+								fieldname: "remarks",
+								fieldtype: "Small Text",
+								label: __("Rejection Reason"),
+								reqd: 1,
 							},
-							callback: () => frm.reload_doc(),
-						});
-					},
-					__("Reject Tagging Booking"),
-					__("Reject")
-				);
-			});
+						],
+						(values) => {
+							frappe.call({
+								method:
+									"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.reject_booking",
+								args: {
+									docname: frm.doc.name,
+									remarks: values.remarks,
+								},
+								callback: () => frm.reload_doc(),
+							});
+						},
+						__("Reject Tagging Booking"),
+						__("Reject")
+					);
+				},
+				__("Actions")
+			);
 		}
 	},
 });

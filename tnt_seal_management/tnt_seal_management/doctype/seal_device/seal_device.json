@@ -22,6 +22,12 @@
   "current_technician",
   "current_vehicle",
   "current_container",
+  "custody_section",
+  "current_custody_type",
+  "current_custodian",
+  "custody_col",
+  "current_custody_label",
+  "current_custody_since",
   "warehouse_location",
   "api_tab",
   "current_location",
@@ -140,9 +146,46 @@
    "label": "Current Container"
   },
   {
+   "fieldname": "custody_section",
+   "fieldtype": "Section Break",
+   "label": "Current Custody (Warehouse)"
+  },
+  {
+   "description": "Which kind of holder currently has the seal. The \"warehouse\" at this point in the journey.",
+   "fieldname": "current_custody_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Current Custody Type",
+   "options": "\nCustody Point\nPCB Job Order\nUser\nCustomer"
+  },
+  {
+   "description": "The actual record holding the seal right now (warehouse, job order, technician/team leader, or customer).",
+   "fieldname": "current_custodian",
+   "fieldtype": "Dynamic Link",
+   "label": "Current Custodian",
+   "options": "current_custody_type"
+  },
+  {
+   "fieldname": "custody_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "current_custody_label",
+   "fieldtype": "Data",
+   "label": "Current Custody",
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_custody_since",
+   "fieldtype": "Datetime",
+   "label": "In Custody Since",
+   "read_only": 1
+  },
+  {
+   "description": "Legacy free-text location. Superseded by Current Custodian above.",
    "fieldname": "warehouse_location",
    "fieldtype": "Data",
-   "label": "Warehouse/Location"
+   "label": "Warehouse/Location (legacy)"
   },
   {
    "fieldname": "api_tab",

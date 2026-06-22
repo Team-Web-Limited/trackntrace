@@ -194,8 +194,9 @@
   },
   {
    "fieldname": "entry_document",
-   "fieldtype": "Attach",
-   "label": "Entry Document"
+   "fieldtype": "Table",
+   "label": "Entry Pictures",
+   "options": "Seal Trip Photo"
   },
   {
    "fieldname": "jr_row_7_column",

@@ -16,6 +16,12 @@ def _apply_workspace_items(workspace):
         "doc_view": "List",
     })
     workspace.append("shortcuts", {
+        "label": "Control Room",
+        "type": "Page",
+        "link_to": "control-room",
+        "color": "#0284c7",
+    })
+    workspace.append("shortcuts", {
         "label": "Tagging Request",
         "type": "DocType",
         "link_to": "Tagging Request",
@@ -73,6 +79,14 @@ def execute():
             "type": "shortcut",
             "data": {
                 "shortcut_name": "Seal Journey",
+                "col": 4
+            }
+        },
+        {
+            "id": "sc_control_room",
+            "type": "shortcut",
+            "data": {
+                "shortcut_name": "Control Room",
                 "col": 4
             }
         },

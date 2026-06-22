@@ -17,9 +17,15 @@ frappe.pages["journey-request-list"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Refresh"), () => _jrl_load(page));
 	page
 		.add_inner_button(__("+ Journey Request"), () => frappe.new_doc("Journey Request"))
 		.addClass("jrl-new-request-btn");
+
+	const $statsBar = $('<div class="jrl-header-stats"></div>');
+	$(wrapper).find('.page-head .page-actions').before($statsBar);
+	page.jrl_stats_bar = $statsBar;
+
 	_jrl_inject_styles();
 	_jrl_build_page(page);
 	_jrl_load(page);
@@ -42,24 +48,26 @@ function _jrl_build_page(page) {
 			<section class="jrl-panel">
 				<div class="jrl-toolbar">
 					<div class="jrl-toolbar-top">
-						<div class="jrl-status-filters">
-						${statuses
-							.map(
-								([value, label]) => `
-									<button class="jrl-status-btn ${value === "All" ? "active" : ""}" data-status="${frappe.utils.escape_html(value)}">
-										${frappe.utils.escape_html(label)}
-									</button>
-								`
-							)
-							.join("")}
-						</div>
-						<section class="jrl-stats"></section>
-					</div>
-					<div class="jrl-filter-grid">
-						<label class="jrl-field">
-							<span>${__("Search")}</span>
+						<label class="jrl-field jrl-search-inline">
 							<input class="jrl-search" type="search" placeholder="${__("Journey request, client, entry, container or vehicle")}">
 						</label>
+
+						<div class="jrl-filter-dropdown">
+							<button class="jrl-filter-btn">
+								<span class="jrl-filter-btn-label">${__("All")}</span>
+								<span class="jrl-filter-btn-count">0</span>
+								<span class="jrl-filter-arrow">&#9662;</span>
+							</button>
+							<div class="jrl-filter-menu">
+								${statuses.map(([val, lbl]) => `
+									<div class="jrl-filter-item ${val === "All" ? "active" : ""}" data-status="${frappe.utils.escape_html(val)}" data-label="${frappe.utils.escape_html(lbl)}">
+										${frappe.utils.escape_html(lbl)}
+										<span class="jrl-fcount" data-fcount="${frappe.utils.escape_html(val)}">0</span>
+									</div>
+								`).join("")}
+							</div>
+						</div>
+
 						<label class="jrl-field">
 							<span>${__("From")}</span>
 							<input class="jrl-from-date" type="date">
@@ -68,15 +76,19 @@ function _jrl_build_page(page) {
 							<span>${__("To")}</span>
 							<input class="jrl-to-date" type="date">
 						</label>
+
 						<div class="jrl-actions">
 							<button class="jrl-clear-btn">${__("Clear filters")}</button>
-							<button class="jrl-refresh-btn">${__("Refresh")}</button>
 						</div>
 					</div>
 				</div>
+			</section>
+
+			<section class="jrl-table-panel">
 				<div class="jrl-table-scroll"><div class="jrl-table-wrap"></div></div>
 				<div class="jrl-pagination"></div>
 			</section>
+
 			<div class="jrl-loading" style="display:none"><div class="jrl-spinner"></div></div>
 		</div>
 	`);
@@ -94,14 +106,30 @@ function _jrl_build_page(page) {
 		page.jrl_state.page = 1;
 		_jrl_load(page);
 	});
-	$(page.body).on("click", ".jrl-status-btn", function () {
-		$(page.body).find(".jrl-status-btn").removeClass("active");
-		$(this).addClass("active");
+	$(page.body).on("click", ".jrl-filter-btn", function (e) {
+		e.stopPropagation();
+		const $menu = $(page.body).find(".jrl-filter-menu");
+		const isOpen = $menu.hasClass("open");
+		if (!isOpen) {
+			const rect = this.getBoundingClientRect();
+			$menu.css({ top: rect.bottom + 6, left: rect.left });
+		}
+		$menu.toggleClass("open");
+	});
+
+	$(page.body).on("click", ".jrl-filter-item", function () {
 		page.jrl_state.status = $(this).data("status");
 		page.jrl_state.page = 1;
+		$(page.body).find(".jrl-filter-item").removeClass("active");
+		$(this).addClass("active");
+		$(page.body).find(".jrl-filter-btn-label").text($(this).data("label"));
+		$(page.body).find(".jrl-filter-menu").removeClass("open");
 		_jrl_load(page);
 	});
-	$(page.body).on("click", ".jrl-refresh-btn", () => _jrl_load(page));
+
+	$(document).on("click.jrl-dropdown", function () {
+		$(page.body).find(".jrl-filter-menu").removeClass("open");
+	});
 	$(page.body).on("click", ".jrl-clear-btn", () => _jrl_clear_filters(page));
 	$(page.body).on("click", ".jrl-row", function (event) {
 		if ($(event.target).closest(".jrl-action-btn, .jrl-action-group").length) return;
@@ -174,20 +202,38 @@ function _jrl_load(page) {
 }
 
 function _jrl_render_stats(page, summary) {
-	const stats = [
-		[__("All Journey Requests"), summary.All || 0, "all"],
-		[__("Pending Control Room"), summary["Pending Control Room Approval"] || 0, "pending"],
-		[__("Pending Customer Care"), summary["Pending Customer Care Approval"] || 0, "pending"],
-		[__("Approved"), summary.Approved || 0, "approved"],
-		[__("Rejected"), summary.Rejected || 0, "rejected"],
-	];
-	$(page.body).find(".jrl-stats").html(
-		stats.map(([label, value, variant]) => `
-			<div class="jrl-stat jrl-stat--${variant}">
-				<span>${frappe.utils.escape_html(label)}</span><strong>${value}</strong>
-			</div>
-		`).join("")
-	);
+	const html = `
+		<div class="jrl-stat-card">
+			<div class="jrl-stat-label">${__("All")}</div>
+			<div class="jrl-stat-value">${summary.All || 0}</div>
+		</div>
+		<div class="jrl-stat-card jrl-stat--pending">
+			<div class="jrl-stat-label">${__("Pending CR")}</div>
+			<div class="jrl-stat-value">${summary["Pending Control Room Approval"] || 0}</div>
+		</div>
+		<div class="jrl-stat-card jrl-stat--pending">
+			<div class="jrl-stat-label">${__("Pending CC")}</div>
+			<div class="jrl-stat-value">${summary["Pending Customer Care Approval"] || 0}</div>
+		</div>
+		<div class="jrl-stat-card jrl-stat--approved">
+			<div class="jrl-stat-label">${__("Approved")}</div>
+			<div class="jrl-stat-value">${summary.Approved || 0}</div>
+		</div>
+		<div class="jrl-stat-card jrl-stat--rejected">
+			<div class="jrl-stat-label">${__("Rejected")}</div>
+			<div class="jrl-stat-value">${summary.Rejected || 0}</div>
+		</div>
+	`;
+	if (page.jrl_stats_bar) {
+		page.jrl_stats_bar.html(html);
+	}
+
+	$(page.body).find(".jrl-fcount").each(function () {
+		const key = $(this).data("fcount");
+		$(this).text(summary[key] ?? 0);
+	});
+	const currentCount = summary[page.jrl_state.status] ?? 0;
+	$(page.body).find(".jrl-filter-btn-count").text(currentCount);
 }
 
 function _jrl_render_table(page, requests) {
@@ -387,16 +433,17 @@ function _jrl_render_pagination(page) {
 }
 
 function _jrl_clear_filters(page) {
-	Object.assign(page.jrl_state, {
-		search: "",
-		status: "All",
-		from_date: "",
-		to_date: "",
-		page: 1,
-	});
+	page.jrl_state.search = "";
+	page.jrl_state.status = "All";
+	page.jrl_state.from_date = "";
+	page.jrl_state.to_date = "";
+	page.jrl_state.page = 1;
+
 	$(page.body).find(".jrl-search, .jrl-from-date, .jrl-to-date").val("");
-	$(page.body).find(".jrl-status-btn").removeClass("active");
-	$(page.body).find('.jrl-status-btn[data-status="All"]').addClass("active");
+	$(page.body).find(".jrl-filter-item").removeClass("active");
+	$(page.body).find('.jrl-filter-item[data-status="All"]').addClass("active");
+	$(page.body).find(".jrl-filter-btn-label").text(__("All"));
+	
 	_jrl_load(page);
 }
 
@@ -420,75 +467,214 @@ function _jrl_inject_styles() {
 		.jrl-page {
 			--jrl-blue: #0284c7;
 			--jrl-dark: #075985;
-			max-width: 1480px;
+			max-width: 1580px;
 			margin: 0 auto;
 			padding: 32px 24px 48px;
 			position: relative;
 			font-family: var(--font-stack);
 		}
-		.jrl-stats {
-			display: grid;
-			grid-template-columns: repeat(4, minmax(0, 1fr));
-			gap: 14px;
-			min-width: 0;
-		}
-		.jrl-stat {
+
+		/* ---- header stats bar ---- */
+		.jrl-header-stats {
 			display: flex;
-			align-items: flex-end;
-			justify-content: space-between;
-			min-height: 78px;
-			padding: 16px 18px;
+			align-items: center;
+			gap: 8px;
+			flex: 1;
+			padding: 0 20px;
+			overflow-x: auto;
+		}
+		.jrl-header-stats .jrl-stat-card {
+			display: flex;
+			min-height: unset;
+			padding: 6px 14px;
+			flex-direction: row;
+			align-items: center;
+			gap: 8px;
+			border-radius: 999px;
 			border: 1px solid rgba(14, 165, 233, .2);
-			border-top: 4px solid #38bdf8;
-			border-radius: 20px;
+			border-top: 1px solid #075985;
 			background: var(--card-bg, #fff);
-			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
+			white-space: nowrap;
 		}
-		.jrl-stat--all { border-top-color: #075985; }
-		.jrl-stat--pending { border-top-color: #f59e0b; }
-		.jrl-stat--approved { border-top-color: #16a34a; }
-		.jrl-stat--rejected { border-top-color: #dc2626; }
-		.jrl-stat span {
-			max-width: 130px;
+		.jrl-header-stats .jrl-stat--pending { border-top-color: #f59e0b; }
+		.jrl-header-stats .jrl-stat--approved { border-top-color: #16a34a; }
+		.jrl-header-stats .jrl-stat--rejected { border-top-color: #dc2626; }
+		.jrl-header-stats .jrl-stat-label {
 			color: #0369a1;
-			font-size: 12px;
 			font-weight: 800;
-			letter-spacing: .05em;
 			text-transform: uppercase;
+			max-width: none;
+			font-size: 10px;
+			letter-spacing: .04em;
 		}
-		.jrl-stat strong { color: #0c4a6e; font-size: 34px; line-height: 1; }
+		.jrl-header-stats .jrl-stat-value {
+			color: #0c4a6e;
+			font-size: 18px;
+			font-weight: 900;
+			line-height: 1;
+		}
+
+		/* ---- layout panels ---- */
 		.jrl-panel {
+			width: 100%;
 			overflow: hidden;
 			border: 1px solid rgba(14, 165, 233, .2);
 			border-radius: 22px;
 			background: var(--card-bg, #fff);
 			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
+			margin-bottom: 20px;
 		}
+		.jrl-table-panel {
+			position: sticky;
+			top: 60px;
+			border: 1px solid rgba(14, 165, 233, .2);
+			border-radius: 22px;
+			background: var(--card-bg, #fff);
+			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
+			overflow: hidden;
+		}
+		.jrl-table-scroll { overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 200px); }
+
+		/* ---- toolbar ---- */
 		.jrl-toolbar { padding: 18px; border-bottom: 1px solid #e0f2fe; background: #f0f9ff; }
 		.jrl-toolbar-top {
-			display: grid;
-			grid-template-columns: minmax(0, auto) minmax(720px, 1fr);
-			align-items: start;
-			gap: 18px;
-			margin-bottom: 14px;
+			display: flex;
+			align-items: center;
+			gap: 12px;
 		}
-		.jrl-status-filters { display: flex; gap: 8px; overflow-x: auto; }
-		.jrl-status-btn,
-		.jrl-clear-btn,
-		.jrl-refresh-btn,
-		.jrl-page-btn {
+		.jrl-search-inline {
+			flex: 1;
+			display: flex;
+			align-items: center;
+		}
+		.jrl-search-inline input {
+			width: 100%;
+			height: 38px;
+			padding: 8px 12px;
 			border: 1px solid #bae6fd;
-			border-radius: 999px;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			color: var(--text-color, #0c4a6e);
+			font-size: 14px;
+		}
+		.jrl-search-inline input:focus {
+			outline: none;
+			border-color: var(--jrl-blue);
+			box-shadow: 0 0 0 3px rgba(14, 165, 233, .12);
+		}
+
+		/* ---- filter dropdown ---- */
+		.jrl-filter-dropdown { position: relative; }
+		.jrl-filter-btn {
+			display: inline-flex;
+			align-items: center;
+			gap: 7px;
+			height: 38px;
+			padding: 0 14px;
+			border: 1px solid #bae6fd;
+			border-radius: 10px;
 			background: var(--card-bg, #fff);
 			color: #075985;
-			padding: 9px 15px;
 			font-size: 13px;
 			font-weight: 700;
 			white-space: nowrap;
 			cursor: pointer;
+			transition: border-color .15s;
 		}
-		.jrl-status-btn.active,
-		.jrl-refresh-btn { border-color: var(--jrl-blue); background: var(--jrl-blue); color: #fff; }
+		.jrl-filter-btn:hover { border-color: var(--jrl-blue); }
+		.jrl-filter-btn-count {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 20px;
+			padding: 1px 6px;
+			border-radius: 999px;
+			background: #e0f2fe;
+			color: #075985;
+			font-size: 11px;
+			font-weight: 800;
+		}
+		.jrl-filter-arrow { color: #94a3b8; font-size: 11px; }
+		.jrl-filter-menu {
+			display: none;
+			position: fixed;
+			min-width: 240px;
+			border: 1px solid #bae6fd;
+			border-radius: 12px;
+			background: var(--card-bg, #fff);
+			box-shadow: 0 8px 24px rgba(14, 165, 233, .12);
+			z-index: 1000;
+			overflow: hidden;
+		}
+		.jrl-filter-menu.open { display: block; }
+		.jrl-filter-item {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			padding: 10px 16px;
+			font-size: 13px;
+			font-weight: 600;
+			color: #334155;
+			cursor: pointer;
+			transition: background .12s;
+		}
+		.jrl-filter-item:hover { background: #f0f9ff; }
+		.jrl-filter-item.active { background: #e0f2fe; color: var(--jrl-blue); }
+		.jrl-fcount {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 22px;
+			padding: 1px 6px;
+			border-radius: 999px;
+			background: #e0f2fe;
+			color: #075985;
+			font-size: 11px;
+			font-weight: 800;
+		}
+		.jrl-filter-item.active .jrl-fcount { background: var(--jrl-blue); color: #fff; }
+
+		/* ---- regular fields ---- */
+		.jrl-field { display: flex; flex-direction: column; gap: 5px; margin: 0; }
+		.jrl-field > span {
+			color: #0369a1;
+			font-size: 11px;
+			font-weight: 700;
+			letter-spacing: .05em;
+			text-transform: uppercase;
+		}
+		.jrl-field input[type="date"] {
+			width: 150px;
+			height: 38px;
+			border: 1px solid #bae6fd;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			color: var(--text-color, #0c4a6e);
+			padding: 0 10px;
+			font-size: 13px;
+		}
+		.jrl-field input[type="date"]:focus {
+			outline: none;
+			border-color: var(--jrl-blue);
+			box-shadow: 0 0 0 3px rgba(14, 165, 233, .12);
+		}
+
+		/* ---- actions ---- */
+		.jrl-actions { display: flex; gap: 8px; padding-top: 20px; }
+		.jrl-clear-btn {
+			padding: 9px 16px;
+			border: 1px solid #cbd5e1;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			color: #475569;
+			font-size: 13px;
+			font-weight: 700;
+			cursor: pointer;
+			height: 38px;
+			transition: background .12s, border-color .12s;
+		}
+		.jrl-clear-btn:hover { background: #f8fafc; border-color: #94a3b8; }
+
 		.jrl-new-request-btn {
 			background: #111827 !important;
 			border-color: #111827 !important;
@@ -538,6 +724,9 @@ function _jrl_inject_styles() {
 			line-height: 1.45;
 		}
 		.jrl-table th {
+			position: sticky;
+			top: 0;
+			z-index: 10;
 			background: #f0f9ff;
 			color: #0369a1;
 			font-size: 11px;
@@ -607,19 +796,26 @@ function _jrl_inject_styles() {
 			animation: jrl-spin .7s linear infinite;
 		}
 		@keyframes jrl-spin { to { transform: rotate(360deg); } }
-		[data-theme="dark"] .jrl-stat,
+		[data-theme="dark"] .jrl-stat-card {
+			background: rgba(14, 116, 144, .18);
+			border-color: rgba(14, 116, 144, .3);
+		}
 		[data-theme="dark"] .jrl-panel,
-		[data-theme="dark"] .jrl-status-btn,
-		[data-theme="dark"] .jrl-clear-btn,
-		[data-theme="dark"] .jrl-page-btn,
-		[data-theme="dark"] .jrl-field input {
+		[data-theme="dark"] .jrl-page-btn {
 			background: #1e293b;
 			border-color: #334155;
 			color: #f1f5f9;
 		}
-		[data-theme="dark"] .jrl-stat span,
+		[data-theme="dark"] .jrl-search-inline input,
+		[data-theme="dark"] .jrl-field input[type="date"],
+		[data-theme="dark"] .jrl-filter-btn,
+		[data-theme="dark"] .jrl-filter-menu,
+		[data-theme="dark"] .jrl-clear-btn {
+			background: #1e293b;
+			border-color: #334155;
+			color: #cbd5e1;
+		}
 		[data-theme="dark"] .jrl-field > span { color: #7dd3fc; }
-		[data-theme="dark"] .jrl-stat strong { color: #f8fafc; }
 		[data-theme="dark"] .jrl-toolbar,
 		[data-theme="dark"] .jrl-table th,
 		[data-theme="dark"] .jrl-pagination { background: #0f172a; border-color: #334155; color: #7dd3fc; }
@@ -639,16 +835,10 @@ function _jrl_inject_styles() {
 		}
 		[data-theme="dark"] .jrl-loading { background: rgba(15, 23, 42, .62); }
 		@media (max-width: 1100px) {
-			.jrl-toolbar-top { grid-template-columns: 1fr; }
-			.jrl-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-			.jrl-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-			.jrl-actions { grid-column: 1 / -1; }
+			.jrl-toolbar-top { flex-direction: column; align-items: stretch; }
 		}
 		@media (max-width: 720px) {
 			.jrl-page { padding: 10px 8px 32px; }
-			.jrl-stats { grid-template-columns: 1fr; }
-			.jrl-filter-grid { grid-template-columns: 1fr; }
-			.jrl-actions { grid-column: auto; }
 			.jrl-pagination { align-items: flex-start; flex-direction: column; }
 		}
 	`;

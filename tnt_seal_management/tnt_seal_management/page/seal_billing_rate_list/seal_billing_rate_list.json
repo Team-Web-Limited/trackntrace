@@ -1,0 +1,29 @@
+{
+ "content": null,
+ "creation": "2026-06-20 19:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-06-20 19:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "seal-billing-rate-list",
+ "owner": "Administrator",
+ "page_name": "seal-billing-rate-list",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Finance PCB"
+  },
+  {
+   "role": "Management"
+  }
+ ],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "Seal Billing Rates"
+}

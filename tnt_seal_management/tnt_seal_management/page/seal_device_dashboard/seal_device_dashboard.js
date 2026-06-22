@@ -13,7 +13,7 @@ frappe.pages["seal-device-dashboard"].on_page_load = function (wrapper) {
 		page_size: 30,
 	};
 
-	page.add_inner_button("← Dashboard", () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button("Dashboard", () => frappe.set_route("tnt-seal-management"));
 	_inject_seal_device_styles();
 	_build_seal_device_page(page);
 	_load_seal_devices(page);
@@ -47,13 +47,20 @@ function _build_seal_device_page(page) {
 					<button class="sd-filter-btn" data-filter="available">${__("Available")}</button>
 					<button class="sd-filter-btn" data-filter="assigned">${__("Assigned")}</button>
 					<button class="sd-filter-btn" data-filter="issues">${__("Issues")}</button>
-					<button class="sd-filter-btn" data-filter="excluded">${__("Sync Excluded")}</button>
+					<button class="sd-filter-btn" data-filter="excluded">${__("deassigned")}</button>
 				</div>
 				<div class="sd-actions">
 					<input class="sd-search" type="search" placeholder="${__("Search seal devices...")}">
-					<button class="sd-btn sd-btn-sync-active">${__("Sync Active")}</button>
-					<button class="sd-btn sd-btn-sync-all">${__("Sync All Devices")}</button>
-					<button class="sd-btn sd-btn-refresh">${__("Refresh")}</button>
+					<div class="sd-action-dropdown">
+						<button class="sd-btn sd-btn-actions" type="button">${__("Actions")} <span class="sd-caret">&#9662;</span></button>
+						<div class="sd-action-menu">
+							<button class="sd-action-item" data-action="sync-active">${__("Sync Active")}</button>
+							<button class="sd-action-item" data-action="sync-all">${__("Sync All Devices")}</button>
+							<button class="sd-action-item" data-action="fetch-seals">${__("Fetch Seals")}</button>
+							<div class="sd-action-divider"></div>
+							<button class="sd-action-item" data-action="refresh">${__("Refresh")}</button>
+						</div>
+					</div>
 				</div>
 			</div>
 			<div class="sd-stat-row"></div>
@@ -83,9 +90,19 @@ function _build_seal_device_page(page) {
 		_render_seal_device_table(page);
 	});
 
-	$(page.body).on("click", ".sd-btn-refresh", () => _load_seal_devices(page));
-	$(page.body).on("click", ".sd-btn-sync-active", () => _sync_active_journeys(page));
-	$(page.body).on("click", ".sd-btn-sync-all", () => _sync_all_devices(page));
+	$(page.body).on("click", ".sd-btn-actions", function (e) {
+		e.stopPropagation();
+		$(page.body).find(".sd-action-dropdown").toggleClass("open");
+	});
+	$(page.body).on("click", ".sd-action-item", function () {
+		const action = $(this).data("action");
+		$(page.body).find(".sd-action-dropdown").removeClass("open");
+		if (action === "sync-active") _sync_active_journeys(page);
+		else if (action === "sync-all") _sync_all_devices(page);
+		else if (action === "fetch-seals") _fetch_seals(page);
+		else if (action === "refresh") _load_seal_devices(page);
+	});
+	$(document).on("click", () => $(page.body).find(".sd-action-dropdown").removeClass("open"));
 	$(page.body).on("click", ".sd-device-row", function () {
 		const name = $(this).data("name");
 		if (name) frappe.set_route("Form", "Seal Device", name);
@@ -101,27 +118,51 @@ function _build_seal_device_page(page) {
 
 function _sync_active_journeys(page) {
 	_run_sync(page, {
-		btnClass: ".sd-btn-sync-active",
-		idleLabel: __("Sync Active"),
+		busyLabel: __("Syncing Active…"),
 		method: "tnt_seal_management.tnt_seal_management.api.seal_sync.trigger_sync_all",
 	});
 }
 
 function _sync_all_devices(page) {
 	_run_sync(page, {
-		btnClass: ".sd-btn-sync-all",
-		idleLabel: __("Sync All Devices"),
+		busyLabel: __("Syncing All Devices…"),
 		method: "tnt_seal_management.tnt_seal_management.api.seal_sync.trigger_sync_all_devices",
 	});
 }
 
-function _run_sync(page, { btnClass, idleLabel, method }) {
-	const $btn = $(page.body).find(btnClass);
-	$btn.prop("disabled", true).text(__("Syncing…"));
+function _fetch_seals(page) {
+	const $toggle = $(page.body).find(".sd-btn-actions");
+	const originalHtml = $toggle.html();
+	$toggle.prop("disabled", true).text(__("Fetching Seals…"));
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.seal_sync.import_devices_from_api",
+		freeze: true,
+		freeze_message: __("Fetching seals from Uffizio…"),
+		callback(r) {
+			$toggle.prop("disabled", false).html(originalHtml);
+			const res = r.message || {};
+			const indicator = res.errors ? "orange" : "green";
+			frappe.show_alert({
+				message: __("{0} created, {1} skipped, {2} failed.", [res.created || 0, res.skipped || 0, res.errors || 0]),
+				indicator,
+			}, 7);
+			_load_seal_devices(page);
+		},
+		error() {
+			$toggle.prop("disabled", false).html(originalHtml);
+			frappe.show_alert({ message: __("Fetch seals request failed"), indicator: "red" }, 7);
+		},
+	});
+}
+
+function _run_sync(page, { busyLabel, method }) {
+	const $toggle = $(page.body).find(".sd-btn-actions");
+	const originalHtml = $toggle.html();
+	$toggle.prop("disabled", true).text(busyLabel);
 	frappe.call({
 		method,
 		callback(r) {
-			$btn.prop("disabled", false).text(idleLabel);
+			$toggle.prop("disabled", false).html(originalHtml);
 			const res = r.message || {};
 			if (res.status === "success") {
 				frappe.show_alert({ message: res.message || __("Sync complete"), indicator: "green" }, 5);
@@ -131,7 +172,7 @@ function _run_sync(page, { btnClass, idleLabel, method }) {
 			}
 		},
 		error() {
-			$btn.prop("disabled", false).text(idleLabel);
+			$toggle.prop("disabled", false).html(originalHtml);
 			frappe.show_alert({ message: __("Sync request failed"), indicator: "red" }, 7);
 		},
 	});
@@ -343,39 +384,62 @@ function _inject_seal_device_styles() {
 			border-color: var(--primary, #2490ef);
 			color: #fff;
 		}
-		.sd-btn-refresh {
-			background: #111111;
-			border-color: #111111;
-			color: #ffffff;
+		.sd-action-dropdown {
+			position: relative;
 		}
-		.sd-btn-refresh:hover {
-			background: #000000;
-			border-color: #000000;
-			color: #ffffff;
-		}
-		.sd-btn-sync-active {
+		.sd-btn-actions {
 			background: var(--primary, #2490ef);
 			border-color: var(--primary, #2490ef);
 			color: #ffffff;
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
 		}
-		.sd-btn-sync-active:hover:not(:disabled) {
+		.sd-btn-actions:hover:not(:disabled) {
 			filter: brightness(0.9);
 		}
-		.sd-btn-sync-active:disabled {
+		.sd-btn-actions:disabled {
 			opacity: .6;
 			cursor: default;
 		}
-		.sd-btn-sync-all {
-			background: #0e7490;
-			border-color: #0e7490;
-			color: #ffffff;
+		.sd-caret {
+			font-size: 10px;
 		}
-		.sd-btn-sync-all:hover:not(:disabled) {
-			filter: brightness(0.9);
+		.sd-action-menu {
+			display: none;
+			position: absolute;
+			right: 0;
+			top: calc(100% + 4px);
+			min-width: 180px;
+			background: var(--card-bg, #fff);
+			border: 1px solid var(--border-color, #d1d5db);
+			border-radius: 6px;
+			box-shadow: 0 4px 12px rgba(0, 0, 0, .12);
+			padding: 4px;
+			z-index: 20;
 		}
-		.sd-btn-sync-all:disabled {
-			opacity: .6;
-			cursor: default;
+		.sd-action-dropdown.open .sd-action-menu {
+			display: block;
+		}
+		.sd-action-item {
+			display: block;
+			width: 100%;
+			text-align: left;
+			background: none;
+			border: none;
+			padding: 7px 10px;
+			font-size: 13px;
+			color: var(--text-color, #374151);
+			border-radius: 4px;
+			cursor: pointer;
+		}
+		.sd-action-item:hover {
+			background: var(--subtle-bg, #f3f4f6);
+		}
+		.sd-action-divider {
+			height: 1px;
+			margin: 4px 0;
+			background: var(--border-color, #eef2f7);
 		}
 		.sd-search {
 			width: 280px;
@@ -536,10 +600,15 @@ function _inject_seal_device_styles() {
 			border-color: #334155;
 			color: #f1f5f9;
 		}
-		[data-theme="dark"] .sd-btn-refresh {
-			background: #f8fafc;
-			border-color: #f8fafc;
-			color: #0f172a;
+		[data-theme="dark"] .sd-action-menu {
+			background: #1e293b;
+			border-color: #334155;
+		}
+		[data-theme="dark"] .sd-action-item {
+			color: #f1f5f9;
+		}
+		[data-theme="dark"] .sd-action-item:hover {
+			background: #334155;
 		}
 		[data-theme="dark"] .sd-table th,
 		[data-theme="dark"] .sd-pagination {

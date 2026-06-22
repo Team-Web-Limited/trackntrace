@@ -17,6 +17,13 @@ frappe.pages["journey-monitoring"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Refresh"), () => _load_data(page));
+
+	// Inject compact stats bar into the Frappe page header
+	const $statsBar = $('<div class="jm-header-stats"></div>');
+	$(wrapper).find('.page-head .page-actions').before($statsBar);
+	page.jm_stats_bar = $statsBar;
+
 	_inject_styles();
 	_build_skeleton(page);
 	_load_data(page);
@@ -76,20 +83,26 @@ function _build_skeleton(page) {
 			<section class="jm-panel">
 				<div class="jm-toolbar">
 					<div class="jm-toolbar-top">
-						<div class="jm-tabs">
-							<button class="jm-tab active" data-view="all">${__("All Journeys")} <span class="jm-tab-count" data-count="all">0</span></button>
-							<button class="jm-tab" data-view="active">${__("Active")} <span class="jm-tab-count" data-count="active">0</span></button>
-							<button class="jm-tab" data-view="completed">${__("Completed")} <span class="jm-tab-count" data-count="completed">0</span></button>
-						</div>
-						<div class="jm-summary-row"></div>
-					</div>
-
-					<div class="jm-filter-grid">
-						<label class="jm-field jm-search-wrap">
-							<span>${__("Search")}</span>
+						<label class="jm-field jm-search-inline">
 							<input type="search" class="jm-search-input"
 								placeholder="${__("Journey, client, vehicle, container, seal or location")}" />
 						</label>
+
+						<div class="jm-filter-dropdown">
+							<button class="jm-filter-btn">
+								<span class="jm-filter-btn-label">${__("All Journeys")}</span>
+								<span class="jm-filter-btn-count">0</span>
+								<span class="jm-filter-arrow">&#9662;</span>
+							</button>
+							<div class="jm-filter-menu">
+								<div class="jm-filter-item active" data-view="all" data-label="${__("All Journeys")}">${__("All Journeys")} <span class="jm-fcount" data-fcount="all">0</span></div>
+								<div class="jm-filter-item" data-view="active" data-label="${__("Active")}">${__("Active")} <span class="jm-fcount" data-fcount="active">0</span></div>
+								<div class="jm-filter-item" data-view="in_transit" data-label="${__("In Transit")}">${__("In Transit")} <span class="jm-fcount" data-fcount="in_transit">0</span></div>
+								<div class="jm-filter-item" data-view="completed" data-label="${__("Completed")}">${__("Completed")} <span class="jm-fcount" data-fcount="completed">0</span></div>
+								<div class="jm-filter-item" data-view="alerts" data-label="${__("With Alerts")}">${__("With Alerts")} <span class="jm-fcount" data-fcount="alerts">0</span></div>
+							</div>
+						</div>
+
 						<label class="jm-field">
 							<span>${__("From")}</span>
 							<input type="date" class="jm-from-date" />
@@ -99,34 +112,51 @@ function _build_skeleton(page) {
 							<input type="date" class="jm-to-date" />
 						</label>
 						<div class="jm-actions">
-							<span class="jm-refresh-label"></span>
 							<button class="jm-btn jm-btn-clear">${__("Clear filters")}</button>
-							<button class="jm-btn jm-btn-refresh">${__("Refresh")}</button>
 						</div>
 					</div>
 				</div>
+			</section>
 
+			<section class="jm-table-panel">
 				<div class="jm-table-scroll">
 					<div class="jm-table-wrap"></div>
 				</div>
 				<div class="jm-pagination"></div>
 			</section>
+
 			<div class="jm-loading" style="display:none">
 				<div class="jm-spinner"></div>
 			</div>
 		</div>
 	`);
 
-	// Tab clicks
-	$(page.body).on("click", ".jm-tab", function () {
-		$(page.body).find(".jm-tab").removeClass("active");
-		$(this).addClass("active");
-		page.jm_state.view = $(this).data("view");
+	// Filter dropdown
+	$(page.body).on("click", ".jm-filter-btn", function (e) {
+		e.stopPropagation();
+		const $menu = $(page.body).find(".jm-filter-menu");
+		const isOpen = $menu.hasClass("open");
+		if (!isOpen) {
+			const rect = this.getBoundingClientRect();
+			$menu.css({ top: rect.bottom + 6, left: rect.left });
+		}
+		$menu.toggleClass("open");
+	});
+	$(page.body).on("click", ".jm-filter-item", function () {
+		const view = $(this).data("view");
+		const label = $(this).data("label");
+		page.jm_state.view = view;
 		page.jm_state.page = 1;
+		$(page.body).find(".jm-filter-item").removeClass("active");
+		$(this).addClass("active");
+		$(page.body).find(".jm-filter-btn-label").text(label);
+		$(page.body).find(".jm-filter-menu").removeClass("open");
 		_load_data(page);
 	});
+	$(document).on("click.jm-dropdown", function () {
+		$(page.body).find(".jm-filter-menu").removeClass("open");
+	});
 
-	$(page.body).on("click", ".jm-btn-refresh", () => _load_data(page));
 	$(page.body).on("click", ".jm-btn-clear", () => _clear_filters(page));
 
 	$(page.body).on("change", ".jm-from-date", function () {
@@ -175,13 +205,14 @@ function _clear_filters(page) {
 		page: 1,
 	});
 	$(page.body).find(".jm-search-input, .jm-from-date, .jm-to-date").val("");
-	$(page.body).find(".jm-tab").removeClass("active");
-	$(page.body).find('.jm-tab[data-view="all"]').addClass("active");
+	$(page.body).find(".jm-filter-item").removeClass("active");
+	$(page.body).find('.jm-filter-item[data-view="all"]').addClass("active");
+	$(page.body).find(".jm-filter-btn-label").text(__("All Journeys"));
 	_load_data(page);
 }
 
 function _render_summary(page, s) {
-	$(page.body).find(".jm-summary-row").html(`
+	const html = `
 		<div class="jm-stat-card">
 			<div class="jm-stat-label">${__("Total Journeys")}</div>
 			<div class="jm-stat-value">${s.all || 0}</div>
@@ -202,7 +233,28 @@ function _render_summary(page, s) {
 			<div class="jm-stat-label">${__("With Alerts")}</div>
 			<div class="jm-stat-value">${s.alerts || 0}</div>
 		</div>
-	`);
+	`;
+	if (page.jm_stats_bar) {
+		page.jm_stats_bar.html(html);
+	} else {
+		$(page.body).find(".jm-summary-row").html(html);
+	}
+
+	// Update dropdown counts
+	const countMap = {
+		all: s.all || 0,
+		active: s.active || 0,
+		in_transit: s.in_transit || 0,
+		completed: s.completed || 0,
+		alerts: s.alerts || 0,
+	};
+	$(page.body).find(".jm-fcount").each(function () {
+		const key = $(this).data("fcount");
+		$(this).text(countMap[key] ?? 0);
+	});
+	// Sync button count to current view
+	const currentCount = countMap[page.jm_state.view] ?? 0;
+	$(page.body).find(".jm-filter-btn-count").text(currentCount);
 }
 
 function _render_tab_badges(page, s) {
@@ -231,6 +283,7 @@ function _render_journeys(page, journeys) {
 					<th>${__("Origin")}</th>
 					<th>${__("Destination")}</th>
 					<th>${__("Status")}</th>
+					<th>${__("Longer in Journey")}</th>
 					<th>${__("Seal")}</th>
 					<th>${__("Lock")}</th>
 					<th>${__("Battery")}</th>
@@ -253,7 +306,9 @@ function _row_html(j, seal, idx, sealCount) {
 	const dash = `<span class="jm-cell-muted">—</span>`;
 	const isFirst = idx === 0;
 
-	const client = j.customer ? esc(j.customer) : dash;
+	const client = j.customer
+		? `<span class="jm-truncate-chip" title="${esc(j.customer)}">${esc(_truncate_words(j.customer, 2))}</span>`
+		: dash;
 	const vehicle = j.vehicle_plate_number ? esc(j.vehicle_plate_number) : dash;
 	const container = j.container_number ? esc(j.container_number) : dash;
 	const origin = j.origin ? esc(j.origin) : dash;
@@ -261,6 +316,10 @@ function _row_html(j, seal, idx, sealCount) {
 
 	const status = j.journey_status || __("Unknown");
 	const statusClass = _status_class(status);
+
+	const longer = j.longer_in_journey && j.longer_in_journey > 0
+		? `<span class="jm-badge jm-badge--warning">${Math.ceil(j.longer_in_journey)} ${__("Days")}</span>`
+		: dash;
 
 	// Journey-level cells render only on the first seal row and span the group.
 	const span = sealCount > 1 ? ` rowspan="${sealCount}"` : "";
@@ -273,6 +332,7 @@ function _row_html(j, seal, idx, sealCount) {
 			<td${span} class="jm-cell-place">${origin}</td>
 			<td${span} class="jm-cell-place">${destination}</td>
 			<td${span}><span class="jm-badge jm-badge--${statusClass}">${esc(status)}</span></td>
+			<td${span}>${longer}</td>
 		`
 		: "";
 
@@ -283,7 +343,10 @@ function _row_html(j, seal, idx, sealCount) {
 		: dash;
 	const battery = seal && (seal.battery_level || seal.battery_level === 0)
 		? esc(String(seal.battery_level)) : dash;
-	const location = seal && seal.api_location ? esc(String(seal.api_location)) : dash;
+	const locationRaw = seal && seal.api_location ? String(seal.api_location) : null;
+	const location = locationRaw
+		? `<span class="jm-location-truncated" title="${esc(locationRaw)}">${esc(_truncate_words(locationRaw, 3))}</span>`
+		: dash;
 	const alertsHtml = _alerts_html((seal && seal.alerts) || []);
 
 	return `
@@ -296,6 +359,13 @@ function _row_html(j, seal, idx, sealCount) {
 			<td class="jm-cell-alerts">${alertsHtml}</td>
 		</tr>
 	`;
+}
+
+function _truncate_words(value, wordLimit) {
+	if (!value) return "";
+	const words = String(value).trim().split(/\s+/);
+	if (words.length <= wordLimit) return String(value).trim();
+	return `${words.slice(0, wordLimit).join(" ")}...`;
 }
 
 function _alerts_html(alerts) {
@@ -376,12 +446,54 @@ function _inject_styles() {
 			font-family: var(--font-stack);
 			position: relative;
 		}
+		/* ---- header stats bar (injected into Frappe page-head) ---- */
+		.jm-header-stats {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			flex: 1;
+			padding: 0 20px;
+			overflow-x: auto;
+		}
+		.jm-header-stats .jm-stat-card {
+			min-height: unset;
+			padding: 6px 14px;
+			flex-direction: row;
+			align-items: center;
+			gap: 8px;
+			border-radius: 999px;
+			border-top-width: 1px;
+			border-top-style: solid;
+			box-shadow: none;
+			white-space: nowrap;
+		}
+		.jm-header-stats .jm-stat-label {
+			max-width: none;
+			font-size: 10px;
+			letter-spacing: .04em;
+		}
+		.jm-header-stats .jm-stat-value {
+			font-size: 18px;
+			font-weight: 900;
+			line-height: 1;
+		}
+
 		.jm-panel {
 			overflow: hidden;
 			border: 1px solid rgba(14, 165, 233, .2);
 			border-radius: 22px;
 			background: var(--card-bg, #fff);
 			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
+			margin-bottom: 20px;
+		}
+		.jm-table-panel {
+			position: sticky;
+			top: 60px;
+			border: 1px solid rgba(14, 165, 233, .2);
+			border-radius: 22px;
+			background: var(--card-bg, #fff);
+			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
+			overflow: hidden;
 		}
 		.jm-toolbar {
 			padding: 18px;
@@ -389,12 +501,112 @@ function _inject_styles() {
 			background: #f0f9ff;
 		}
 		.jm-toolbar-top {
-			display: grid;
-			grid-template-columns: minmax(0, auto) minmax(760px, 1fr);
-			align-items: start;
-			gap: 18px;
-			margin-bottom: 14px;
+			display: flex;
+			align-items: center;
+			gap: 12px;
 		}
+		.jm-search-inline {
+			flex: 1;
+			display: flex;
+			align-items: center;
+		}
+		.jm-search-inline input {
+			width: 320px;
+			height: 38px;
+			padding: 8px 12px;
+			border: 1px solid #bae6fd;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			color: var(--text-color, #0c4a6e);
+			font-size: 14px;
+		}
+		.jm-search-inline input:focus {
+			outline: none;
+			border-color: var(--jm-blue);
+			box-shadow: 0 0 0 3px rgba(14, 165, 233, .12);
+		}
+		/* ---- filter dropdown ---- */
+		.jm-filter-dropdown {
+			position: relative;
+		}
+		.jm-filter-btn {
+			display: inline-flex;
+			align-items: center;
+			gap: 7px;
+			height: 38px;
+			padding: 0 14px;
+			border: 1px solid #bae6fd;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			color: var(--jm-dark);
+			font-size: 13px;
+			font-weight: 700;
+			white-space: nowrap;
+			cursor: pointer;
+			transition: border-color .15s;
+		}
+		.jm-filter-btn:hover { border-color: var(--jm-blue); }
+		.jm-filter-btn-count {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 20px;
+			padding: 1px 6px;
+			border-radius: 999px;
+			background: #e0f2fe;
+			color: #075985;
+			font-size: 11px;
+			font-weight: 800;
+		}
+		.jm-filter-arrow {
+			color: #94a3b8;
+			font-size: 11px;
+		}
+		.jm-filter-menu {
+			display: none;
+			position: fixed;
+			min-width: 200px;
+			border: 1px solid #bae6fd;
+			border-radius: 12px;
+			background: var(--card-bg, #fff);
+			box-shadow: 0 8px 24px rgba(14, 165, 233, .12);
+			z-index: 1000;
+			overflow: hidden;
+		}
+		.jm-filter-menu.open { display: block; }
+		.jm-filter-item {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			padding: 10px 16px;
+			font-size: 13px;
+			font-weight: 600;
+			color: #334155;
+			cursor: pointer;
+			transition: background .12s;
+		}
+		.jm-filter-item:hover { background: #f0f9ff; }
+		.jm-filter-item.active {
+			background: #e0f2fe;
+			color: var(--jm-blue);
+		}
+		.jm-fcount {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			min-width: 22px;
+			padding: 1px 6px;
+			border-radius: 999px;
+			background: #e0f2fe;
+			color: #075985;
+			font-size: 11px;
+			font-weight: 800;
+		}
+		.jm-filter-item.active .jm-fcount {
+			background: var(--jm-blue);
+			color: #fff;
+		}
+
 		.jm-tabs {
 			display: flex;
 			gap: 8px;
@@ -470,12 +682,7 @@ function _inject_styles() {
 			line-height: 1;
 			white-space: nowrap;
 		}
-		.jm-filter-grid {
-			display: grid;
-			grid-template-columns: minmax(300px, 1.6fr) 170px 170px auto;
-			align-items: end;
-			gap: 12px;
-		}
+
 		.jm-field {
 			display: flex;
 			flex-direction: column;
@@ -533,10 +740,13 @@ function _inject_styles() {
 			background: var(--jm-blue);
 			color: #fff;
 		}
-		.jm-table-scroll { overflow-x: auto; }
+		.jm-table-scroll {
+			max-height: calc(100vh - 60px - 56px);
+			overflow: auto;
+		}
 		.jm-table {
 			width: 100%;
-			min-width: 1420px;
+			min-width: 1560px;
 			border-collapse: collapse;
 		}
 		.jm-table th,
@@ -548,8 +758,12 @@ function _inject_styles() {
 			color: var(--text-color, #334155);
 			font-size: 14px;
 			line-height: 1.45;
+			white-space: nowrap;
 		}
 		.jm-table th {
+			position: sticky;
+			top: 0;
+			z-index: 2;
 			background: #f0f9ff;
 			color: #0369a1;
 			font-size: 11px;
@@ -581,15 +795,26 @@ function _inject_styles() {
 			word-break: break-word;
 		}
 		.jm-cell-location {
-			min-width: 210px;
-			max-width: 270px;
-			white-space: normal;
-			word-break: break-word;
+			white-space: nowrap;
+		}
+		.jm-location-truncated {
+			cursor: help;
+			border-bottom: 1px dashed #94a3b8;
+			white-space: nowrap;
+		}
 		}
 		.jm-cell-alerts {
 			min-width: 170px;
 			max-width: 280px;
 			white-space: normal;
+		}
+		.jm-truncate-chip {
+			display: inline-block;
+			max-width: 100%;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			vertical-align: bottom;
+			white-space: nowrap;
 		}
 		.jm-badge {
 			display: inline-flex;
@@ -658,6 +883,7 @@ function _inject_styles() {
 		}
 		@keyframes jm-spin { to { transform: rotate(360deg); } }
 		[data-theme="dark"] .jm-panel,
+		[data-theme="dark"] .jm-table-panel,
 		[data-theme="dark"] .jm-stat-card,
 		[data-theme="dark"] .jm-tab,
 		[data-theme="dark"] .jm-btn,

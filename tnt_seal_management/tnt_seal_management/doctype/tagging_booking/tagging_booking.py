@@ -8,6 +8,7 @@ from frappe.utils import cint, getdate, now_datetime
 
 from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey import (
 	set_journey_status,
+	sync_seal_journey_mirror,
 )
 
 
@@ -36,6 +37,7 @@ class TaggingBooking(Document):
 		).insert(ignore_permissions=True, ignore_mandatory=True)
 
 		self.db_set("seal_journey_reference", journey.name)
+		sync_seal_journey_mirror(journey.name)
 
 	def _sync_approval_status(self):
 		status_map = {
@@ -153,7 +155,7 @@ def get_booking_list(
 
 	total_result = frappe.get_list(
 		"Tagging Booking",
-		fields=[{"COUNT": "*", "as": "count"}],
+		fields=["count(*) as count"],
 		filters=filters,
 		or_filters=or_filters,
 		limit_page_length=1,
@@ -169,7 +171,7 @@ def get_booking_list(
 	}
 	summary_rows = frappe.get_list(
 		"Tagging Booking",
-		fields=["booking_status", {"COUNT": "*", "as": "count"}],
+		fields=["booking_status", "count(*) as count"],
 		filters=base_filters,
 		or_filters=or_filters,
 		group_by="booking_status",
@@ -220,6 +222,7 @@ def submit_to_finance(docname):
 	doc.booking_status = "Pending Finance PCB Approval"
 	doc.save()
 	set_journey_status(doc.seal_journey_reference, "Pending Finance PCB Approval")
+	sync_seal_journey_mirror(doc.seal_journey_reference)
 	frappe.db.commit()
 
 
@@ -240,11 +243,8 @@ def approve_booking(docname, remarks=None):
 	job_order = _get_or_create_pcb_job_order(doc)
 	doc.pcb_job_order_reference = job_order.name
 	doc.save()
-	set_journey_status(
-		doc.seal_journey_reference,
-		"Finance PCB Approved",
-		{"sales_order_reference": job_order.name},
-	)
+	set_journey_status(doc.seal_journey_reference, "Finance PCB Approved")
+	sync_seal_journey_mirror(doc.seal_journey_reference)
 	frappe.db.commit()
 	return {"pcb_job_order": job_order.name}
 
@@ -265,6 +265,7 @@ def reject_booking(docname, remarks=None):
 	doc.finance_pcb_remarks = remarks or doc.finance_pcb_remarks
 	doc.save()
 	set_journey_status(doc.seal_journey_reference, "Finance PCB Rejected")
+	sync_seal_journey_mirror(doc.seal_journey_reference)
 	frappe.db.commit()
 
 

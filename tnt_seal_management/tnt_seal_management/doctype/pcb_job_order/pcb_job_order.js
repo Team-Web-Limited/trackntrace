@@ -7,7 +7,7 @@ frappe.ui.form.on("PCB Job Order", {
 	},
 
 	refresh(frm) {
-		frm.add_custom_button(__("PCB Job Orders"), () => {
+		frm.add_custom_button(__("Back"), () => {
 			frappe.set_route("pcb-job-order-list");
 		});
 
@@ -26,7 +26,7 @@ frappe.ui.form.on("PCB Job Order", {
 				frm.add_custom_button(
 					__("Mark as Completed"),
 					() => _pjo_update_status(frm, "Completed"),
-					__("Status")
+					__("Actions")
 				);
 			}
 			frm.add_custom_button(
@@ -36,7 +36,7 @@ frappe.ui.form.on("PCB Job Order", {
 						_pjo_update_status(frm, "Cancelled")
 					);
 				},
-				__("Status")
+				__("Actions")
 			);
 		}
 	},
