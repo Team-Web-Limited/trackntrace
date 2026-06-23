@@ -25,7 +25,7 @@ add_to_apps_screen = [
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/tnt_seal_management/css/tnt_seal_management.css"
-# app_include_js = "/assets/tnt_seal_management/js/tnt_seal_management.js"
+app_include_js = "/assets/tnt_seal_management/js/tnt_seal_management.js"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/tnt_seal_management/css/tnt_seal_management.css"

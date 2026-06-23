@@ -18,8 +18,23 @@ from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey i
 
 class PCBJobOrder(Document):
 	def validate(self):
+		self._auto_assign_team_leader()
 		self._validate_team_leader()
 		self._sync_assignment()
+
+	def _auto_assign_team_leader(self):
+		"""Auto-fill the PCB Team Leader when none is set. The business currently
+		has a single team leader, so every new (Unassigned) job order is assigned
+		to them automatically; a manual selection still takes precedence, and a
+		Cancelled/Completed job order is never auto-assigned."""
+		if self.assigned_pcb_team_leader:
+			return
+		if self.job_order_status and self.job_order_status != "Unassigned":
+			return
+
+		team_leader = _get_sole_team_leader()
+		if team_leader:
+			self.assigned_pcb_team_leader = team_leader
 
 	def on_update(self):
 		self._mirror_to_seal_journey()
@@ -91,6 +106,25 @@ class PCBJobOrder(Document):
 			}
 		)
 		assignment.save(ignore_permissions=True)
+
+
+def _get_sole_team_leader():
+	"""Return the single enabled PCB Team Leader user, or None when there isn't
+	exactly one. This will be revisited once the team-leader identification rule
+	is finalised; for now a lone team leader is auto-assigned to job orders."""
+	users = frappe.get_all(
+		"Has Role",
+		filters={"role": "PCB Team Leader", "parenttype": "User"},
+		pluck="parent",
+		distinct=True,
+	)
+	enabled = [
+		user
+		for user in users
+		if user not in ("Administrator", "Guest")
+		and frappe.db.get_value("User", user, "enabled")
+	]
+	return enabled[0] if len(enabled) == 1 else None
 
 
 def _ensure_assignment_permission(job_order):

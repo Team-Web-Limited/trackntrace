@@ -151,6 +151,40 @@ function _build_tagging_booking_page(page) {
 
 	$(page.body).on("click", ".tb-clear-btn", () => _clear_tagging_booking_filters(page));
 
+	$(page.body).on("click", ".tb-reopen-btn", function (e) {
+		e.stopPropagation();
+		const name = $(this).data("name");
+		if (!name) return;
+		frappe.prompt(
+			[
+				{
+					fieldname: "reason",
+					fieldtype: "Small Text",
+					label: __("Reason for Amendment"),
+					reqd: 1,
+				},
+			],
+			(values) => {
+				frappe.call({
+					method:
+						"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.reopen_booking",
+					args: { docname: name, reason: values.reason },
+					freeze: true,
+					freeze_message: __("Reopening booking…"),
+					callback: () => {
+						frappe.show_alert(
+							{ message: __("Booking {0} reopened", [name]), indicator: "blue" },
+							5
+						);
+						_load_tagging_bookings(page);
+					},
+				});
+			},
+			__("Reopen Approved Booking"),
+			__("Reopen")
+		);
+	});
+
 	$(page.body).on("click", ".tb-booking-row", function () {
 		const name = $(this).data("name");
 		if (name) frappe.set_route("Form", "Tagging Booking", name);
@@ -253,6 +287,7 @@ function _render_tagging_booking_table(page, bookings) {
 					<th>${__("Contact Person")}</th>
 					<th>${__("Phone")}</th>
 					<th>${__("Booking Status")}</th>
+					<th>${__("Actions")}</th>
 				</tr>
 			</thead>
 			<tbody>${bookings.map(_tagging_booking_row_html).join("")}</tbody>
@@ -267,6 +302,15 @@ function _tagging_booking_row_html(booking) {
 		? frappe.datetime.str_to_user(booking.booking_date_time)
 		: "—";
 
+	const canReopen =
+		booking.booking_status === "Finance PCB Approved" &&
+		frappe.user.has_role("Finance PCB");
+	const actionCell = canReopen
+		? `<button class="tb-reopen-btn" data-name="${frappe.utils.escape_html(
+				booking.name
+		  )}">${__("Reopen")}</button>`
+		: "—";
+
 	return `
 		<tr class="tb-booking-row" data-name="${frappe.utils.escape_html(booking.name)}">
 			<td>
@@ -278,6 +322,7 @@ function _tagging_booking_row_html(booking) {
 			<td>${frappe.utils.escape_html(booking.contact_person_name || "—")}</td>
 			<td>${frappe.utils.escape_html(booking.contact_person_phone || "—")}</td>
 			<td><span class="tb-badge tb-badge--${statusClass}">${frappe.utils.escape_html(status)}</span></td>
+			<td class="tb-action-cell">${actionCell}</td>
 		</tr>
 	`;
 }
@@ -561,6 +606,20 @@ function _inject_tagging_booking_styles() {
 		.tb-customer-filter .form-group { margin: 0; }
 		.tb-customer-filter .control-label,
 		.tb-customer-filter .help-box { display: none; }
+
+		/* ---- row reopen action ---- */
+		.tb-action-cell { white-space: nowrap; }
+		.tb-reopen-btn {
+			padding: 5px 12px;
+			border: 1px solid #f59e0b;
+			border-radius: 8px;
+			background: #fffbeb;
+			color: #b45309;
+			font-size: 12px;
+			font-weight: 700;
+			cursor: pointer;
+		}
+		.tb-reopen-btn:hover { background: #fef3c7; }
 
 		/* ---- actions ---- */
 		.tb-actions { display: flex; gap: 8px; padding-top: 20px; }

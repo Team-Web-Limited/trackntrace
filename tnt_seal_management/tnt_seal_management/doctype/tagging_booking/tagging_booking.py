@@ -240,10 +240,15 @@ def approve_booking(docname, remarks=None):
 	doc.finance_pcb_approver = frappe.session.user
 	doc.finance_pcb_approval_date_time = now_datetime()
 	doc.finance_pcb_remarks = remarks or doc.finance_pcb_remarks
+
+	# Mark the journey approved BEFORE (re)creating the job order: the job order
+	# auto-assigns the team leader on save, and its mirror only advances the
+	# journey to "Team Lead Assigned" from "Finance PCB Approved". Setting the
+	# status afterwards would regress that auto-advance.
+	set_journey_status(doc.seal_journey_reference, "Finance PCB Approved")
 	job_order = _get_or_create_pcb_job_order(doc)
 	doc.pcb_job_order_reference = job_order.name
 	doc.save()
-	set_journey_status(doc.seal_journey_reference, "Finance PCB Approved")
 	sync_seal_journey_mirror(doc.seal_journey_reference)
 	frappe.db.commit()
 	return {"pcb_job_order": job_order.name}
@@ -269,6 +274,122 @@ def reject_booking(docname, remarks=None):
 	frappe.db.commit()
 
 
+# Seal Journey statuses up to (and including) the auto-assigned team leader
+# stage. Beyond these a tag operator/journey work has begun and an approved
+# booking can no longer be safely reopened. "Team Lead Assigned" is included
+# because the lone team leader is auto-assigned on approval — that alone is not
+# operational work (a tag operator being assigned is, and is guarded separately).
+_REOPENABLE_JOURNEY_STATUSES = {
+	"Draft",
+	"Pending Finance PCB Approval",
+	"Finance PCB Approved",
+	"Finance PCB Rejected",
+	"Team Lead Assigned",
+}
+
+
+@frappe.whitelist()
+def reopen_booking(docname, reason=None):
+	"""Revert an approved tagging booking to Draft so Finance can amend it.
+
+	Only allowed while no operational work has started: no tag operator may be
+	assigned and the Seal Journey must not have advanced past the (auto-assigned)
+	team-leader stage. The PCB Job Order is parked as Cancelled (keeping its
+	number) and the Seal Journey mirror is reset to Draft."""
+	_ensure_finance_role()
+	doc = _get_tagging_booking(docname)
+	if doc.booking_status != "Finance PCB Approved":
+		frappe.throw(
+			_("Only approved tagging bookings can be reopened for amendment."),
+			title=_("Invalid Status"),
+		)
+
+	_guard_no_downstream_work(doc)
+	_reset_pcb_job_order(doc)
+
+	doc.booking_status = "Draft"
+	doc.finance_pcb_approver = None
+	doc.finance_pcb_approval_date_time = None
+	if reason:
+		doc.finance_pcb_remarks = reason
+	doc.save()
+
+	set_journey_status(doc.seal_journey_reference, "Draft")
+	sync_seal_journey_mirror(doc.seal_journey_reference)
+	frappe.db.commit()
+
+
+def _guard_no_downstream_work(booking):
+	job_order_name = booking.pcb_job_order_reference or frappe.db.get_value(
+		"PCB Job Order", {"tagging_booking": booking.name}, "name"
+	)
+	if job_order_name:
+		status = frappe.db.get_value("PCB Job Order", job_order_name, "job_order_status")
+		# Unassigned and the auto-assigned "Team Leader Assigned" are still safe;
+		# Completed/Cancelled are not.
+		if status not in ("Unassigned", "Team Leader Assigned"):
+			frappe.throw(
+				_(
+					"This booking cannot be reopened — its PCB Job Order is already '{0}'."
+				).format(status),
+				title=_("Work Already Started"),
+			)
+
+		# A tag operator (field technician) on the assignment means real work has
+		# started — the auto-assigned team leader alone does not.
+		if frappe.db.exists(
+			"PCB Assignment",
+			{
+				"pcb_job_order": job_order_name,
+				"assigned_field_technician": ["is", "set"],
+			},
+		):
+			frappe.throw(
+				_(
+					"This booking cannot be reopened — a tag operator is already assigned."
+				),
+				title=_("Work Already Started"),
+			)
+
+	journey = booking.seal_journey_reference
+	if journey:
+		journey_status = frappe.db.get_value("Seal Journey", journey, "journey_status")
+		if journey_status and journey_status not in _REOPENABLE_JOURNEY_STATUSES:
+			frappe.throw(
+				_(
+					"This booking cannot be reopened — its Seal Journey has progressed to '{0}'."
+				).format(journey_status),
+				title=_("Work Already Started"),
+			)
+
+
+def _reset_pcb_job_order(booking):
+	"""Cancel the booking's PCB Job Order but keep it linked, so re-approval
+	reuses the same job order number instead of creating a new one. A job order
+	must not be actionable while its booking is unapproved, so it is parked as
+	'Cancelled' (inert — cannot be assigned) rather than left 'Unassigned'.
+	Safe because the reopen guard already ensures no team leader is assigned."""
+	job_order_name = booking.pcb_job_order_reference or frappe.db.get_value(
+		"PCB Job Order", {"tagging_booking": booking.name}, "name"
+	)
+	if not job_order_name:
+		return
+
+	# An Unassigned job order has no team leader, so any PCB Assignment is a
+	# stray placeholder — clear it to avoid a dangling link.
+	for assignment in frappe.get_all(
+		"PCB Assignment", filters={"pcb_job_order": job_order_name}, pluck="name"
+	):
+		frappe.delete_doc("PCB Assignment", assignment, ignore_permissions=True, force=True)
+
+	job_order = frappe.get_doc("PCB Job Order", job_order_name)
+	job_order.assigned_pcb_team_leader = None
+	job_order.team_leader_assignment_date_time = None
+	job_order.assignment_reference = None
+	job_order.job_order_status = "Cancelled"
+	job_order.save(ignore_permissions=True)
+
+
 def _get_or_create_pcb_job_order(booking):
 	existing = booking.pcb_job_order_reference or frappe.db.get_value(
 		"PCB Job Order",
@@ -276,7 +397,22 @@ def _get_or_create_pcb_job_order(booking):
 		"name",
 	)
 	if existing:
-		return frappe.get_doc("PCB Job Order", existing)
+		# Reusing a job order from a reopened/amended booking — refresh the
+		# mirrored details so any edits made while in Draft flow through.
+		job_order = frappe.get_doc("PCB Job Order", existing)
+		job_order.update(
+			{
+				"client_name": booking.client_name,
+				"location": booking.location,
+				"scheduled_date_time": booking.booking_date_time,
+				"contact_person_name": booking.contact_person_name,
+				"contact_person_phone": booking.contact_person_phone,
+				# Revive a job order parked as Cancelled by a prior reopen.
+				"job_order_status": "Unassigned",
+			}
+		)
+		job_order.save(ignore_permissions=True)
+		return job_order
 
 	return frappe.get_doc(
 		{

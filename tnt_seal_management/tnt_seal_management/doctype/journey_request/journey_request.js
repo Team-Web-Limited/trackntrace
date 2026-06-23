@@ -8,6 +8,7 @@ frappe.ui.form.on("Journey Request", {
 
 		_journey_request_apply_locks(frm);
 		_journey_request_add_list_button(frm);
+		_journey_request_add_seals_grid_button(frm);
 
 		frm.set_query("seal_device", "seals", () => ({
 			query:
@@ -51,11 +52,8 @@ function _journey_request_add_buttons(frm) {
 	const isControlRoom = frappe.user.has_role("Operations Control Room") || isAdmin;
 	const isCustomerCare = frappe.user.has_role("Customer Care") || isAdmin;
 
-	if (status === "Draft" && isTech) {
-		frm.add_custom_button(__("Submit to Control Room"), () =>
-			_jr_call(frm, "submit_to_control_room")
-		).addClass("btn-primary");
-	}
+	// "Submit to Control Room" lives on the Seals grid toolbar instead — see
+	// _journey_request_add_seals_grid_button.
 
 	if (status === "Pending Control Room Approval" && isControlRoom) {
 		frm.add_custom_button(__("Refresh Seal Status"), () => _jr_refresh_seals(frm), __("Seals"));
@@ -70,7 +68,7 @@ function _journey_request_add_buttons(frm) {
 		);
 	}
 
-	if (status === "Pending Tagging" && isTech) {
+	if (status === "Tagging" && isTech) {
 		frm.add_custom_button(__("Complete Tagging"), () => {
 			frappe.warn(
 				__("Complete Tagging"),
@@ -83,7 +81,7 @@ function _journey_request_add_buttons(frm) {
 		}).addClass("btn-primary");
 	}
 
-	if (status === "Pending Customer Care Approval" && isCustomerCare) {
+	if (status === "Pending CC Approval" && isCustomerCare) {
 		frm.add_custom_button(__("Approve"), () =>
 			_jr_call(frm, "approve_journey_request", { remarks: frm.doc.customer_care_remarks })
 		).addClass("btn-primary");
@@ -190,6 +188,31 @@ function _journey_request_add_list_button(frm) {
 		.addClass("btn-primary");
 }
 
+function _journey_request_add_seals_grid_button(frm) {
+	const grid = frm.fields_dict.seals?.grid;
+	if (!grid) return;
+
+	// refresh() re-runs on every reload/status change — hide any button left
+	// over from a previous render before deciding whether to show it again.
+	grid.clear_custom_buttons();
+
+	if (frm.is_new() || frm.doc.journey_request_status !== "Draft") {
+		return;
+	}
+
+	const isAdmin = frappe.user.has_role("System Manager");
+	const isTech = frappe.user.has_role("Field Technician") || isAdmin;
+	if (!isTech) return;
+
+	// "bottom" puts it in the grid footer next to "Add Row" — guaranteed
+	// visible, unlike "top" which sits in a thin strip above the table.
+	grid
+		.add_custom_button(__("Submit to Control Room"), () =>
+			_jr_call(frm, "submit_to_control_room")
+		)
+		.addClass("btn-primary");
+}
+
 const JR_CONTENT_FIELDS = [
 	"vehicle",
 	"entry_number",
@@ -224,7 +247,7 @@ function _journey_request_apply_locks(frm) {
 	if (isTech && (isNew || status === "Draft")) {
 		lockedContent = false;
 		lockedTagging = false;
-	} else if (isTech && status === "Pending Tagging") {
+	} else if (isTech && status === "Tagging") {
 		lockedContent = true;
 		lockedTagging = false;
 	}
@@ -237,7 +260,15 @@ function _journey_request_apply_locks(frm) {
 	}
 
 	frm.set_df_property("job_order", "read_only", 1);
-	frm.fields_dict.seals?.grid?.toggle_enable(!lockedContent);
-	frm.fields_dict.entry_document?.grid?.toggle_enable(!lockedContent);
-	frm.fields_dict.tagging_photos?.grid?.toggle_enable(!lockedTagging);
+	// set_df_property(fieldname, "read_only", ...) above already disables
+	// Add/Delete Row on these Table fields — Grid.toggle_enable() takes a
+	// (column_fieldname, enable) pair for a single column, not a whole-grid
+	// toggle, so calling it with one boolean argument threw "field true not
+	// found" and aborted the rest of refresh(frm).
 }
+
+// While the request is still Draft, every section past Seals (documents/photos,
+// control room approval, tagging, customer care approval, approval history,
+// journey reference, remarks) is hidden via `depends_on` on those section breaks
+// in journey_request.json — Frappe hides whole sections natively there, which is
+// more reliable than toggling field visibility from JS.

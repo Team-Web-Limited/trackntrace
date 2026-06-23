@@ -17,7 +17,13 @@ frappe.ui.form.on("Tagging Booking", {
 			return;
 		}
 
-		if (frm.doc.pcb_job_order_reference) {
+		// The job order reference is kept across a reopen/amend (for a stable
+		// number), but the job order is only live once the booking is approved —
+		// don't expose it while the booking is Draft/Pending/Rejected.
+		if (
+			frm.doc.pcb_job_order_reference &&
+			frm.doc.booking_status === "Finance PCB Approved"
+		) {
 			frm.add_custom_button(__("Open PCB Job Order"), () => {
 				frappe.set_route("Form", "PCB Job Order", frm.doc.pcb_job_order_reference);
 			});
@@ -32,6 +38,52 @@ frappe.ui.form.on("Tagging Booking", {
 					callback: () => frm.reload_doc(),
 				});
 			});
+		}
+
+		if (
+			frm.doc.booking_status === "Finance PCB Approved" &&
+			frappe.user.has_role("Finance PCB")
+		) {
+			frm.add_custom_button(
+				__("Reopen / Amend"),
+				() => {
+					frappe.prompt(
+						[
+							{
+								fieldname: "reason",
+								fieldtype: "Small Text",
+								label: __("Reason for Amendment"),
+								reqd: 1,
+							},
+						],
+						(values) => {
+							frappe.call({
+								method:
+									"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.reopen_booking",
+								args: {
+									docname: frm.doc.name,
+									reason: values.reason,
+								},
+								freeze: true,
+								freeze_message: __("Reopening booking…"),
+								callback: () => {
+									frappe.show_alert(
+										{
+											message: __("Booking reopened for amendment"),
+											indicator: "blue",
+										},
+										5
+									);
+									frm.reload_doc();
+								},
+							});
+						},
+						__("Reopen Approved Booking"),
+						__("Reopen")
+					);
+				},
+				__("Actions")
+			);
 		}
 
 		if (

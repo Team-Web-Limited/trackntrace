@@ -20,7 +20,7 @@ frappe.ui.form.on("PCB Assignment", {
 
 		if (frm.doc.assignment_status === "Pending" && frm.doc.assigned_field_technician) {
 			frm.add_custom_button(
-				__("Mark as Assigned"),
+				__("Assign"),
 				() => _asg_update_status(frm, "Assigned"),
 				__("Actions")
 			);

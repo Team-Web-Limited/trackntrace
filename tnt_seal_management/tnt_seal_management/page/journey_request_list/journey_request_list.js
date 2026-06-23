@@ -36,9 +36,9 @@ function _jrl_build_page(page) {
 		["All", __("All")],
 		["Draft", __("Draft")],
 		["Pending Control Room Approval", __("Pending Control Room")],
-		["Pending Tagging", __("Pending Tagging")],
-		["Pending Customer Care Approval", __("Pending Customer Care")],
-		["Approved", __("Approved")],
+		["Tagging", __("Tagging")],
+		["Pending CC Approval", __("Pending CC Approval")],
+		["Journey Ready", __("Journey Ready")],
 		["Rejected", __("Rejected")],
 		["Cancelled", __("Cancelled")],
 	];
@@ -213,11 +213,11 @@ function _jrl_render_stats(page, summary) {
 		</div>
 		<div class="jrl-stat-card jrl-stat--pending">
 			<div class="jrl-stat-label">${__("Pending CC")}</div>
-			<div class="jrl-stat-value">${summary["Pending Customer Care Approval"] || 0}</div>
+			<div class="jrl-stat-value">${summary["Pending CC Approval"] || 0}</div>
 		</div>
 		<div class="jrl-stat-card jrl-stat--approved">
-			<div class="jrl-stat-label">${__("Approved")}</div>
-			<div class="jrl-stat-value">${summary.Approved || 0}</div>
+			<div class="jrl-stat-label">${__("Journey Ready")}</div>
+			<div class="jrl-stat-value">${summary["Journey Ready"] || 0}</div>
 		</div>
 		<div class="jrl-stat-card jrl-stat--rejected">
 			<div class="jrl-stat-label">${__("Rejected")}</div>
@@ -267,9 +267,18 @@ function _jrl_render_table(page, requests) {
 }
 
 function _jrl_row_html(request) {
+	let clientHtml = frappe.utils.escape_html(request.client_name || "—");
+	if (request.client_name) {
+		const words = request.client_name.split(" ");
+		if (words.length > 3) {
+			const truncated = words.slice(0, 3).join(" ") + "...";
+			clientHtml = `<span title="${frappe.utils.escape_html(request.client_name)}">${frappe.utils.escape_html(truncated)}</span>`;
+		}
+	}
+
 	return `
 		<tr class="jrl-row" data-name="${frappe.utils.escape_html(request.name)}">
-			<td>${frappe.utils.escape_html(request.client_name || "—")}</td>
+			<td>${clientHtml}</td>
 			<td>${frappe.utils.escape_html(request.vehicle || "—")}</td>
 			<td>${frappe.utils.escape_html(request.entry_number || "—")}</td>
 			<td>${frappe.utils.escape_html(request.container_number || "—")}</td>
@@ -292,7 +301,7 @@ function _jrl_action_html(request) {
 		status === "Pending Control Room Approval";
 	const canCustomerCare =
 		frappe.user.has_role("Customer Care") &&
-		status === "Pending Customer Care Approval";
+		status === "Pending CC Approval";
 
 	if (canControlRoom) {
 		return `
@@ -775,8 +784,37 @@ function _jrl_inject_styles() {
 			color: #0369a1;
 			font-size: 13px;
 		}
-		.jrl-pagination div { display: flex; align-items: center; gap: 9px; }
-		.jrl-page-btn:disabled { cursor: default; opacity: .45; }
+		.jrl-page-btn {
+			padding: 8px 16px;
+			border: 1px solid #bae6fd;
+			border-radius: 8px;
+			background: var(--card-bg, #fff);
+			color: #0369a1;
+			font-size: 13px;
+			font-weight: 700;
+			cursor: pointer;
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			box-shadow: 0 1px 2px rgba(14, 165, 233, .05);
+		}
+		.jrl-page-btn:not([disabled]):hover {
+			background: #f0f9ff;
+			border-color: var(--jrl-blue);
+			color: var(--jrl-blue);
+			box-shadow: 0 4px 6px rgba(14, 165, 233, .1);
+		}
+		.jrl-page-btn:not([disabled]):active {
+			box-shadow: 0 1px 2px rgba(14, 165, 233, .05);
+		}
+		.jrl-page-btn[disabled] {
+			opacity: .6;
+			cursor: not-allowed;
+			background: #f8fafc;
+			border-color: #e2e8f0;
+			color: #94a3b8;
+			box-shadow: none;
+		}
 		.jrl-loading {
 			position: absolute;
 			inset: 0;

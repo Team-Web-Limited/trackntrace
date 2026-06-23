@@ -13,7 +13,11 @@ frappe.ui.form.on("PCB Job Order", {
 
 		if (frm.is_new()) return;
 
-		if (frm.doc.assignment_reference) {
+		// Finance PCB doesn't act on assignments — hide the shortcut from them,
+		// but keep it for System Managers (who may also hold the Finance PCB role).
+		const hide_open_assignment =
+			frappe.user.has_role("Finance PCB") && !frappe.user.has_role("System Manager");
+		if (frm.doc.assignment_reference && !hide_open_assignment) {
 			frm.add_custom_button(__("Open Assignment"), () => {
 				frappe.set_route("Form", "PCB Assignment", frm.doc.assignment_reference);
 			});
@@ -24,7 +28,7 @@ frappe.ui.form.on("PCB Job Order", {
 		if (can_update_status && !["Completed", "Cancelled"].includes(frm.doc.job_order_status)) {
 			if (frm.doc.assigned_pcb_team_leader) {
 				frm.add_custom_button(
-					__("Mark as Completed"),
+					__("Approve"),
 					() => _pjo_update_status(frm, "Completed"),
 					__("Actions")
 				);

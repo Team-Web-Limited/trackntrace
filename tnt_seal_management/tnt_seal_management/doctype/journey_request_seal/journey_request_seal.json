@@ -21,7 +21,7 @@
   {
    "fieldname": "seal_device",
    "fieldtype": "Link",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Seal Device",
    "options": "Seal Device",
    "reqd": 1
@@ -32,14 +32,16 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Seal Serial Number",
-   "read_only": 1
+   "read_only": 1,
+   "columns": 2
   },
   {
    "fetch_from": "seal_device.serial_number",
    "fieldname": "serial_number",
    "fieldtype": "Data",
    "label": "Device Serial Number",
-   "read_only": 1
+   "read_only": 1,
+   "in_list_view": 0
   },
   {
    "default": "Pending",
@@ -47,7 +49,8 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Tag Status",
-   "options": "Pending\nTagged\nUntagged"
+   "options": "Pending\nTagged\nUntagged",
+   "columns": 2
   },
   {
    "fetch_from": "seal_device.lock_status",
@@ -55,7 +58,8 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Lock Status",
-   "read_only": 1
+   "read_only": 1,
+   "columns": 2
   },
   {
    "fetch_from": "seal_device.last_api_status",
@@ -63,7 +67,8 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "API Device Status",
-   "read_only": 1
+   "read_only": 1,
+   "columns": 2
   },
   {
    "fetch_from": "seal_device.current_location",
@@ -71,13 +76,14 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "API Device Location",
-   "read_only": 1
+   "read_only": 1,
+   "columns": 2
   },
   {
    "fetch_from": "seal_device.battery_level",
    "fieldname": "battery_level",
    "fieldtype": "Data",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Battery Level",
    "read_only": 1
   },
@@ -85,7 +91,7 @@
    "fetch_from": "seal_device.last_api_sync_time",
    "fieldname": "api_last_update_time",
    "fieldtype": "Datetime",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "API Last Update Time",
    "read_only": 1
   }

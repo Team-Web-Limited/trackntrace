@@ -63,10 +63,6 @@ function _pjo_build_page(page) {
 							</div>
 						</div>
 
-						<label class="pjo-field pjo-team-leader-field">
-							<span>${__("PCB Team Leader")}</span>
-							<div class="pjo-team-leader-filter"></div>
-						</label>
 
 						<label class="pjo-field pjo-date-field">
 							<span>${__("From")}</span>
@@ -92,21 +88,6 @@ function _pjo_build_page(page) {
 		</div>
 	`);
 
-	page.pjo_team_leader_control = frappe.ui.form.make_control({
-		parent: $(page.body).find(".pjo-team-leader-filter"),
-		df: {
-			fieldname: "team_leader",
-			fieldtype: "Link",
-			options: "User",
-			placeholder: __("All team leaders"),
-			get_query: () => ({
-				query:
-					"tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey.pcb_team_leader_query",
-			}),
-		},
-		render_input: true,
-	});
-
 	const delayedSearch = _pjo_debounce(() => {
 		page.pjo_state.search = ($(page.body).find(".pjo-search").val() || "").trim();
 		page.pjo_state.page = 1;
@@ -114,12 +95,6 @@ function _pjo_build_page(page) {
 	}, 350);
 
 	$(page.body).on("input", ".pjo-search", delayedSearch);
-
-	page.pjo_team_leader_control.$input.on("change", () => {
-		page.pjo_state.team_leader = page.pjo_team_leader_control.get_value() || "";
-		page.pjo_state.page = 1;
-		_pjo_load(page);
-	});
 
 	$(page.body).on("change", ".pjo-from-date, .pjo-to-date", () => {
 		page.pjo_state.from_date = $(page.body).find(".pjo-from-date").val() || "";
@@ -285,17 +260,26 @@ function _pjo_row_html(order) {
 		(frappe.user.has_role("System Manager") ||
 			order.assigned_pcb_team_leader === frappe.session.user);
 	const assignLabel = order.assignment_reference ? __("Reassign") : __("Assign");
+	const displayStatus = status === "Completed" ? __("Assignment Completed") : status;
+
+	const rawClient = order.client_name || "";
+	const clientWords = rawClient.split(" ");
+	let displayClient = rawClient;
+	if (clientWords.length > 3) {
+		displayClient = clientWords.slice(0, 3).join(" ") + "...";
+	}
+
 	return `
 		<tr class="pjo-row" data-name="${frappe.utils.escape_html(order.name)}">
 			<td><span class="pjo-name">${frappe.utils.escape_html(order.name)}</span></td>
 			<td>${frappe.utils.escape_html(order.tagging_booking || "—")}</td>
-			<td>${frappe.utils.escape_html(order.client_name || "—")}</td>
+			<td title="${frappe.utils.escape_html(rawClient)}">${frappe.utils.escape_html(displayClient || "—")}</td>
 			<td>${frappe.utils.escape_html(order.location || "—")}</td>
 			<td>${frappe.utils.escape_html(scheduled)}</td>
 			<td>${frappe.utils.escape_html(order.contact_person_name || "—")}</td>
 			<td>${frappe.utils.escape_html(order.contact_person_phone || "—")}</td>
 			<td>${frappe.utils.escape_html(order.assigned_pcb_team_leader || __("Not assigned"))}</td>
-			<td><span class="pjo-badge pjo-badge--${statusClass}">${frappe.utils.escape_html(status)}</span></td>
+			<td><span class="pjo-badge pjo-badge--${statusClass}">${frappe.utils.escape_html(displayStatus)}</span></td>
 			<td>
 				${canAssign ? `<button class="pjo-assign-btn" data-name="${frappe.utils.escape_html(order.name)}">${assignLabel}</button>` : "—"}
 			</td>
@@ -378,7 +362,6 @@ function _pjo_clear_filters(page) {
 	$(page.body).find(".pjo-filter-item").removeClass("active");
 	$(page.body).find('.pjo-filter-item[data-status="All"]').addClass("active");
 	$(page.body).find(".pjo-filter-btn-label").text(__("All Job Orders"));
-	page.pjo_team_leader_control.set_value("");
 	_pjo_load(page);
 }
 

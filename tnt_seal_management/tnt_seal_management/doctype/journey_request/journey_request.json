@@ -8,6 +8,7 @@
  "engine": "InnoDB",
  "field_order": [
   "jr_row_1_section",
+  "journey_request_status",
   "job_order",
   "jr_row_1_column",
   "client_name",
@@ -15,19 +16,19 @@
   "vehicle",
   "jr_row_2_column",
   "assigned_technician",
+  "driver_contact",
+  "jr_row_5_section",
+  "origin",
+  "jr_row_5_column",
+  "destination",
   "jr_row_3_section",
   "entry_number",
   "jr_row_3_column",
   "container_number",
   "jr_row_4_section",
   "number_of_seals",
+  "pre_tagging_checklist",
   "seals",
-  "jr_row_5_section",
-  "origin",
-  "jr_row_5_column",
-  "destination",
-  "jr_row_6_section",
-  "driver_contact",
   "jr_row_7_section",
   "entry_document",
   "jr_row_7_column",
@@ -47,7 +48,6 @@
   "jr_tagging_row2_column",
   "tagging_remarks",
   "jr_row_8_section",
-  "journey_request_status",
   "jr_row_8_column",
   "customer_care_approver",
   "jr_row_9_section",
@@ -66,6 +66,15 @@
    "fieldname": "jr_row_1_section",
    "fieldtype": "Section Break",
    "label": "Job Order"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "journey_request_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nPending Control Room Approval\nTagging\nPending CC Approval\nJourney Ready\nRejected\nCancelled",
+   "read_only": 1
   },
   {
    "fieldname": "job_order",
@@ -92,7 +101,7 @@
   {
    "fieldname": "jr_row_2_section",
    "fieldtype": "Section Break",
-   "label": "Vehice only"
+   "label": "Vehicle Details"
   },
   {
    "fieldname": "vehicle",
@@ -148,6 +157,14 @@
    "reqd": 1
   },
   {
+   "fieldname": "pre_tagging_checklist",
+   "fieldtype": "Table",
+   "label": "Pre-Tagging Checklist",
+   "options": "Pre Tagging Checklist Item",
+   "cannot_add_rows": 1,
+   "cannot_delete_rows": 1
+  },
+  {
    "fieldname": "seals",
    "fieldtype": "Table",
    "label": "Seal Serial Number(s)",
@@ -177,17 +194,13 @@
    "reqd": 1
   },
   {
-   "fieldname": "jr_row_6_section",
-   "fieldtype": "Section Break",
-   "label": "Driver"
-  },
-  {
    "fieldname": "driver_contact",
    "fieldtype": "Phone",
    "label": "Driver Contact",
    "reqd": 1
   },
   {
+   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
    "fieldname": "jr_row_7_section",
    "fieldtype": "Section Break",
    "label": "Documents & Photos"
@@ -209,6 +222,7 @@
    "options": "Seal Trip Photo"
   },
   {
+   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
    "fieldname": "jr_cr_section",
    "fieldtype": "Section Break",
    "label": "Control Room Approval"
@@ -231,6 +245,7 @@
    "read_only": 1
   },
   {
+   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
    "fieldname": "jr_cr_remarks_section",
    "fieldtype": "Section Break"
   },
@@ -241,6 +256,7 @@
    "read_only": 1
   },
   {
+   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
    "fieldname": "jr_tagging_section",
    "fieldtype": "Section Break",
    "label": "Actual Tagging"
@@ -260,6 +276,7 @@
    "label": "Tagging Location"
   },
   {
+   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
    "fieldname": "jr_tagging_row2_section",
    "fieldtype": "Section Break"
   },
@@ -279,18 +296,10 @@
    "label": "Tagging Remarks"
   },
   {
+   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
    "fieldname": "jr_row_8_section",
    "fieldtype": "Section Break",
    "label": "Customer Care Approval"
-  },
-  {
-   "default": "Draft",
-   "fieldname": "journey_request_status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "label": "Status",
-   "options": "Draft\nPending Control Room Approval\nPending Tagging\nPending Customer Care Approval\nApproved\nRejected\nCancelled",
-   "read_only": 1
   },
   {
    "fieldname": "jr_row_8_column",
@@ -304,6 +313,7 @@
    "read_only": 1
   },
   {
+   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
    "fieldname": "jr_row_9_section",
    "fieldtype": "Section Break"
   },
@@ -324,6 +334,7 @@
    "read_only": 1
   },
   {
+   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
    "fieldname": "jr_row_10_section",
    "fieldtype": "Section Break",
    "label": "Approval History"
@@ -336,6 +347,7 @@
    "read_only": 1
   },
   {
+   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
    "fieldname": "jr_row_11_section",
    "fieldtype": "Section Break",
    "label": "Journey"
@@ -348,6 +360,7 @@
    "read_only": 1
   },
   {
+   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
    "fieldname": "jr_row_12_section",
    "fieldtype": "Section Break",
    "label": "Remarks"

@@ -122,7 +122,8 @@
   {
    "fieldname": "finance_pcb_remarks",
    "fieldtype": "Small Text",
-   "label": "Finance PCB Remarks"
+   "label": "Finance PCB Remarks",
+   "permlevel": 1
   },
   {
    "fieldname": "pcb_job_order_reference",
@@ -196,6 +197,28 @@
    "role": "Management",
    "share": 1,
    "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Account Manager"
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "write": 1,
+   "role": "System Manager"
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "write": 1,
+   "role": "Finance PCB"
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Management"
   }
  ],
  "row_format": "Dynamic",

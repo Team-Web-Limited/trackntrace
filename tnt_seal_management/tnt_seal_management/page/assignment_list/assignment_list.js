@@ -32,7 +32,7 @@ frappe.pages["assignment-list"].on_page_load = function (wrapper) {
 function _asg_build_page(page) {
 	const statuses = [
 		["All", __("All Assignments")],
-		["Pending", __("Pending")],
+		["Pending", __("TO Assigned")],
 		["Assigned", __("Assigned")],
 		["Cancelled", __("Cancelled")],
 	];
@@ -205,7 +205,7 @@ function _asg_render_stats(page, summary) {
 			<div class="asg-stat-value">${summary.All || 0}</div>
 		</div>
 		<div class="asg-stat-card asg-stat--pending">
-			<div class="asg-stat-label">${__("Pending")}</div>
+			<div class="asg-stat-label">${__("TO Assigned")}</div>
 			<div class="asg-stat-value">${summary.Pending || 0}</div>
 		</div>
 		<div class="asg-stat-card asg-stat--assigned">
@@ -249,7 +249,6 @@ function _asg_render_table(page, assignments) {
 	$(page.body).find(".asg-table-wrap").html(`
 		<table class="asg-table">
 			<thead><tr>
-				<th>${__("Assignment")}</th>
 				<th>${__("PCB Job Order")}</th>
 				<th>${__("Client")}</th>
 				<th>${__("Location")}</th>
@@ -265,17 +264,26 @@ function _asg_render_table(page, assignments) {
 }
 
 function _asg_row_html(assignment) {
-	const status = assignment.assignment_status || __("Pending");
+	const status = assignment.assignment_status || "Pending";
 	const statusClass = status.toLowerCase().replaceAll(" ", "-");
-	const statusLabel = status === "Assigned" ? __("Approved for Assignment") : status;
+	const statusLabel = status === "Pending" ? __("To Assigned") : (status === "Assigned" ? __("Assigned") : status);
 	const scheduled = assignment.scheduled_date_time
 		? frappe.datetime.str_to_user(assignment.scheduled_date_time)
 		: "—";
+
+	let clientHtml = frappe.utils.escape_html(assignment.client_name || "—");
+	if (assignment.client_name) {
+		const words = assignment.client_name.split(" ");
+		if (words.length > 3) {
+			const truncated = words.slice(0, 3).join(" ") + "...";
+			clientHtml = `<span title="${frappe.utils.escape_html(assignment.client_name)}">${frappe.utils.escape_html(truncated)}</span>`;
+		}
+	}
+
 	return `
 		<tr class="asg-row" data-name="${frappe.utils.escape_html(assignment.name)}">
-			<td><span class="asg-name">${frappe.utils.escape_html(assignment.name)}</span></td>
 			<td>${frappe.utils.escape_html(assignment.pcb_job_order || "—")}</td>
-			<td>${frappe.utils.escape_html(assignment.client_name || "—")}</td>
+			<td>${clientHtml}</td>
 			<td>${frappe.utils.escape_html(assignment.location || "—")}</td>
 			<td>${frappe.utils.escape_html(scheduled)}</td>
 			<td>${frappe.utils.escape_html(assignment.contact_person_name || "—")}</td>
@@ -642,16 +650,36 @@ function _asg_inject_styles() {
 		.asg-pagination div { display: flex; align-items: center; gap: 9px; }
 		.asg-pagination b { font-weight: 700; }
 		.asg-page-btn {
-			padding: 6px 12px;
+			padding: 8px 16px;
 			border: 1px solid #bae6fd;
 			border-radius: 8px;
 			background: var(--card-bg, #fff);
-			color: #075985;
+			color: #0369a1;
 			font-size: 13px;
 			font-weight: 700;
 			cursor: pointer;
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			box-shadow: 0 1px 2px rgba(14, 165, 233, .05);
 		}
-		.asg-page-btn:disabled { cursor: default; opacity: .45; }
+		.asg-page-btn:not([disabled]):hover {
+			background: #f0f9ff;
+			border-color: var(--asg-blue);
+			color: var(--asg-blue);
+			box-shadow: 0 4px 6px rgba(14, 165, 233, .1);
+		}
+		.asg-page-btn:not([disabled]):active {
+			box-shadow: 0 1px 2px rgba(14, 165, 233, .05);
+		}
+		.asg-page-btn[disabled] {
+			opacity: .6;
+			cursor: not-allowed;
+			background: #f8fafc;
+			border-color: #e2e8f0;
+			color: #94a3b8;
+			box-shadow: none;
+		}
 
 		/* ---- loading overlay ---- */
 		.asg-loading {

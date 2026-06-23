@@ -227,7 +227,7 @@ def scheduled_sync_active_journeys():
 		inner join `tabJourney Request` jr on jr.name = jrs.parent
 		inner join `tabSeal Device` sd on sd.name = jrs.seal_device
 		where jrs.parenttype = 'Journey Request'
-			and jr.journey_request_status = 'Approved'
+			and jr.journey_request_status = 'Journey Ready'
 			and sd.imei_number is not null and sd.imei_number != ''
 		""",
 		as_dict=True,

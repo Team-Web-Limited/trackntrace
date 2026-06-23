@@ -16,9 +16,9 @@ ASSIGNABLE_SEAL_STATUSES = ("Available",)
 JOURNEY_REQUEST_STATUSES = (
 	"Draft",
 	"Pending Control Room Approval",
-	"Pending Tagging",
-	"Pending Customer Care Approval",
-	"Approved",
+	"Tagging",
+	"Pending CC Approval",
+	"Journey Ready",
 	"Rejected",
 	"Cancelled",
 )
@@ -72,6 +72,16 @@ _ACTIVE_JOURNEY_STATUSES = (
 
 
 class JourneyRequest(Document):
+	def before_insert(self):
+		self.ensure_pre_tagging_checklist()
+
+	def ensure_pre_tagging_checklist(self):
+		if self.pre_tagging_checklist:
+			return
+		from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey import get_pre_tagging_checklist_items
+		for item in get_pre_tagging_checklist_items():
+			self.append("pre_tagging_checklist", {"checklist_item": item, "completed": 0})
+
 	def validate(self):
 		self.enforce_field_locks()
 		self.enforce_tagging_irreversible()
@@ -203,7 +213,7 @@ def _locked_fields_for(roles, status):
 	if "Field Technician" in roles:
 		if status == "Draft":
 			return set()
-		if status == "Pending Tagging":
+		if status == "Tagging":
 			return set(CONTENT_FIELDS)
 		return all_managed
 
@@ -309,7 +319,7 @@ def approve_by_control_room(docname, remarks=None):
 			title=_("Invalid Status"),
 		)
 
-	doc.journey_request_status = "Pending Tagging"
+	doc.journey_request_status = "Tagging"
 	doc.control_room_approver = frappe.session.user
 	doc.control_room_approval_date_time = now_datetime()
 	doc.control_room_remarks = remarks
@@ -430,7 +440,7 @@ def complete_tagging(docname):
 			_("This journey request is assigned to {0}.").format(doc.assigned_technician),
 			title=_("Not Assigned to You"),
 		)
-	if doc.journey_request_status != "Pending Tagging":
+	if doc.journey_request_status != "Tagging":
 		frappe.throw(
 			_("Tagging can only be completed after Control Room approval."),
 			title=_("Invalid Status"),
@@ -451,7 +461,7 @@ def complete_tagging(docname):
 	for row in doc.seals:
 		row.tag_status = "Tagged"
 
-	doc.journey_request_status = "Pending Customer Care Approval"
+	doc.journey_request_status = "Pending CC Approval"
 	_append_approval_log(doc, "Tagging Completed")
 	doc.flags.ignore_field_locks = True
 	doc.save()
@@ -471,13 +481,13 @@ def approve_journey_request(docname, remarks=None):
 		_("Only users with the Customer Care role can perform this action."),
 	)
 	doc = _get_journey_request(docname)
-	if doc.journey_request_status != "Pending Customer Care Approval":
+	if doc.journey_request_status != "Pending CC Approval":
 		frappe.throw(
 			_("Only journey requests pending Customer Care approval can be approved."),
 			title=_("Invalid Status"),
 		)
 
-	doc.journey_request_status = "Approved"
+	doc.journey_request_status = "Journey Ready"
 	doc.customer_care_approver = frappe.session.user
 	doc.approval_date_time = now_datetime()
 	doc.customer_care_remarks = remarks
@@ -515,7 +525,7 @@ def reject_journey_request(docname, remarks=None):
 		_("Only users with the Customer Care role can perform this action."),
 	)
 	doc = _get_journey_request(docname)
-	if doc.journey_request_status != "Pending Customer Care Approval":
+	if doc.journey_request_status != "Pending CC Approval":
 		frappe.throw(
 			_("Only journey requests pending Customer Care approval can be rejected."),
 			title=_("Invalid Status"),
@@ -750,3 +760,78 @@ def _attach_seal_serial_numbers(requests):
 
 	for request in requests:
 		request.seal_serial_numbers = ", ".join(seals_by_request.get(request.name, []))
+
+
+@frappe.whitelist()
+def get_control_room_queue():
+	"""Journey Requests awaiting Control Room approval, with each request's full
+	seal detail, for the Control Room page's Approve tab. Honours Journey Request
+	permissions via get_list, so a Control Room user sees the whole queue."""
+	requests = frappe.get_list(
+		"Journey Request",
+		filters={"journey_request_status": "Pending Control Room Approval"},
+		fields=[
+			"name",
+			"client_name",
+			"job_order",
+			"vehicle",
+			"driver_contact",
+			"origin",
+			"destination",
+			"entry_number",
+			"container_number",
+			"number_of_seals",
+			"assigned_technician",
+			"creation",
+		],
+		order_by="creation asc",
+		limit_page_length=0,
+	)
+	if not requests:
+		return {"requests": []}
+
+	request_names = [r.name for r in requests]
+	seal_rows = frappe.get_all(
+		"Journey Request Seal",
+		filters={"parent": ["in", request_names], "parenttype": "Journey Request"},
+		fields=[
+			"parent",
+			"seal_device",
+			"seal_number",
+			"serial_number",
+			"tag_status",
+			"lock_status",
+			"api_device_status",
+			"api_location",
+			"battery_level",
+			"api_last_update_time",
+		],
+		order_by="parent asc, idx asc",
+	)
+
+	seals_by_request = {}
+	for row in seal_rows:
+		seals_by_request.setdefault(row.parent, []).append(row)
+
+	# Show the technician's display name rather than the raw user id.
+	technician_ids = {r.assigned_technician for r in requests if r.assigned_technician}
+	technician_names = (
+		dict(
+			frappe.get_all(
+				"User",
+				filters={"name": ["in", list(technician_ids)]},
+				fields=["name", "full_name"],
+				as_list=True,
+			)
+		)
+		if technician_ids
+		else {}
+	)
+
+	for request in requests:
+		request.seals = seals_by_request.get(request.name, [])
+		request.assigned_technician_name = technician_names.get(
+			request.assigned_technician, request.assigned_technician
+		)
+
+	return {"requests": requests}

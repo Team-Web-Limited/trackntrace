@@ -9,16 +9,18 @@
  "engine": "InnoDB",
  "field_order": [
   "journey_details_tab",
+  "details_section",
   "customer",
+  "journey_request",
   "tagging_booking",
-  "sales_order_reference",
   "pcb_job_order",
   "pcb_assignment",
-  "journey_request",
+  "sales_order_reference",
+  "details_column_break",
+  "journey_status",
+  "scheduled_date_time",
   "contact_person_name",
   "contact_person_phone",
-  "scheduled_date_time",
-  "journey_status",
   "workflow_state",
   "client_and_transport_details_tab",
   "vehicle_plate_number",
@@ -139,6 +141,15 @@
    "fieldname": "journey_details_tab",
    "fieldtype": "Tab Break",
    "label": "Journey Details"
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "details_column_break",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "customer",

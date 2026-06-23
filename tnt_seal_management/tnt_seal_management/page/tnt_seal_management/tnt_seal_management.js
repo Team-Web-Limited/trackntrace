@@ -5,8 +5,14 @@ frappe.pages["tnt-seal-management"].on_page_load = function (wrapper) {
 		single_column: true,
 	});
 
+	page.set_primary_action(__("Refresh"), () => {
+		load_card_counts(page);
+		frappe.show_alert({ message: __("Dashboard counts refreshed"), indicator: "green" });
+	}, "octicon octicon-sync");
+
 	$(page.body).html(get_landing_page_html());
 	bind_actions(page);
+	load_card_counts(page);
 };
 
 const TNT_DASHBOARD_CARDS = [
@@ -146,13 +152,42 @@ function get_visible_cards() {
 
 function get_card_html(card) {
 	const primaryClass = card.primary ? " tsm-card--primary" : "";
+	const route = frappe.utils.escape_html(card.route);
 
 	return `
-		<div class="tsm-card${primaryClass}" data-route="${frappe.utils.escape_html(card.route)}">
-			<div class="tsm-icon">${card.icon}</div>
+		<div class="tsm-card${primaryClass}" data-route="${route}">
+			<div class="tsm-card__top">
+				<div class="tsm-icon">${card.icon}</div>
+				<span class="tsm-count is-hidden" data-count="${route}"></span>
+			</div>
 			<h3>${__(card.title)}</h3>
+			<p class="tsm-count-label is-hidden" data-count-label="${route}"></p>
 		</div>
 	`;
+}
+
+function load_card_counts(page) {
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.dashboard_cards.get_card_counts",
+		callback(r) {
+			const counts = (r && r.message) || {};
+			Object.keys(counts).forEach((route) => {
+				const { count, label } = counts[route];
+				const $badge = $(page.body).find(`[data-count="${CSS.escape(route)}"]`);
+				const $label = $(page.body).find(
+					`[data-count-label="${CSS.escape(route)}"]`
+				);
+
+				$badge.text(count).removeClass("is-hidden");
+				if (count > 0) {
+					$badge.addClass("tsm-count--active");
+				}
+				if (label) {
+					$label.text(__(label)).removeClass("is-hidden");
+				}
+			});
+		},
+	});
 }
 
 function get_landing_page_html() {
@@ -202,6 +237,13 @@ function get_landing_page_html() {
 				border-color: #bae6fd;
 			}
 
+			.tsm-card__top {
+				display: flex;
+				align-items: flex-start;
+				justify-content: space-between;
+				margin-bottom: 16px;
+			}
+
 			.tsm-icon {
 				width: 54px;
 				height: 54px;
@@ -210,14 +252,48 @@ function get_landing_page_html() {
 				align-items: center;
 				justify-content: center;
 				font-size: 28px;
-				margin-bottom: 16px;
 				background: #e0f2fe;
 				color: #0284c7;
 			}
-			
+
 			.tsm-card--primary .tsm-icon {
 				background: #0284c7;
 				color: #ffffff;
+			}
+
+			.tsm-count {
+				min-width: 28px;
+				height: 28px;
+				padding: 0 9px;
+				border-radius: 14px;
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				font-size: 14px;
+				font-weight: 700;
+				line-height: 1;
+				background: #e2e8f0;
+				color: #475569;
+			}
+
+			.tsm-count--active {
+				background: #0284c7;
+				color: #ffffff;
+			}
+
+			.tsm-card--primary .tsm-count {
+				background: rgba(255, 255, 255, 0.65);
+				color: #0c4a6e;
+			}
+
+			.tsm-card--primary .tsm-count--active {
+				background: #ffffff;
+				color: #0284c7;
+			}
+
+			.tsm-count.is-hidden,
+			.tsm-count-label.is-hidden {
+				display: none;
 			}
 
 			.tsm-card h3 {
@@ -225,6 +301,13 @@ function get_landing_page_html() {
 				font-weight: 700;
 				margin: 0 0 8px;
 				color: #0c4a6e;
+			}
+
+			.tsm-count-label {
+				font-size: 13px;
+				font-weight: 500;
+				margin: 0;
+				color: #64748b;
 			}
 
 			.tsm-empty {
@@ -252,6 +335,17 @@ function get_landing_page_html() {
 			}
 			[data-theme="dark"] .tsm-card h3 {
 				color: #f8fafc;
+			}
+			[data-theme="dark"] .tsm-count {
+				background: #334155;
+				color: #cbd5e1;
+			}
+			[data-theme="dark"] .tsm-count--active {
+				background: #0284c7;
+				color: #ffffff;
+			}
+			[data-theme="dark"] .tsm-count-label {
+				color: #94a3b8;
 			}
 			[data-theme="dark"] .tsm-card--primary {
 				background: linear-gradient(135deg, #075985 0%, #0369a1 100%);
