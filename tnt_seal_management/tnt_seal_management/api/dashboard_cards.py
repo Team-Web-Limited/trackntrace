@@ -277,6 +277,16 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
+	"List/Physical Warehouse/List": {
+		"doctype": "Physical Warehouse",
+		"rules": [
+			{
+				"roles": ["Operations Control Room", "Seal System Administrator", "System Manager", "Management"],
+				"label": "Total warehouses",
+				"filters": {},
+			},
+		],
+	},
 	"seal-device-dashboard": {
 		"doctype": "Seal Device",
 		"rules": [

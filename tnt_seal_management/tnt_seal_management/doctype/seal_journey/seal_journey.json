@@ -37,6 +37,8 @@
   "customer_care_approver",
   "customer_care_approval_date_time",
   "customer_care_remarks",
+  "warehouse_tab",
+  "warehouse_timeline",
   "assignment_tab",
   "assignment_timeline",
   "assigned_team_lead",
@@ -278,6 +280,16 @@
    "fieldtype": "Small Text",
    "label": "Finance PCB Remarks",
    "read_only": 1
+  },
+  {
+   "fieldname": "warehouse_tab",
+   "fieldtype": "Tab Break",
+   "label": "Warehouse"
+  },
+  {
+   "fieldname": "warehouse_timeline",
+   "fieldtype": "HTML",
+   "label": "Warehouse Timeline"
   },
   {
    "fieldname": "assignment_tab",
@@ -708,7 +720,7 @@
    "label": "Days Taken",
    "precision": "2",
    "read_only": 1,
-   "description": "Decimal days — kept for billing/overdue comparisons. See Duration for a human-readable figure."
+   "description": "Decimal days \u2014 kept for billing/overdue comparisons. See Duration for a human-readable figure."
   },
   {
    "fieldname": "days_taken_display",
@@ -1041,7 +1053,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-14 14:00:00.000000",
+ "modified": "2026-06-25 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Journey",

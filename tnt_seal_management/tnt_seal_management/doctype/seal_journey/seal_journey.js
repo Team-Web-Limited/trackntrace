@@ -41,6 +41,7 @@ frappe.ui.form.on("Seal Journey", {
 		_inject_seal_journey_styles();
 		_render_approval_timeline(frm);
 		_render_assignment_timeline(frm);
+		_render_warehouse_timeline(frm);
 		_apply_tab_progress_state(frm);
 	},
 
@@ -297,6 +298,219 @@ function _add_arrival_workflow_buttons(frm) {
 			});
 		});
 	}
+}
+
+
+function _render_warehouse_timeline(frm) {
+	const field = frm.fields_dict.warehouse_timeline;
+	if (!field || !field.$wrapper) return;
+
+	const render = (sealDoc) => {
+		const payload = _build_warehouse_timeline_payload(frm, sealDoc || {});
+		field.$wrapper.html(_warehouse_timeline_html(frm, payload));
+		_inject_approval_timeline_styles();
+		_inject_warehouse_timeline_styles();
+	};
+
+	render(null);
+	if (frm.doc.assigned_seal) {
+		frappe.db.get_doc("Seal Device", frm.doc.assigned_seal).then(render).catch(() => render(null));
+	}
+}
+
+function _build_warehouse_timeline_payload(frm, sealDoc) {
+	const status = frm.doc.journey_status || "Draft";
+	const current = STATUS_TO_MILESTONE[status] != null ? STATUS_TO_MILESTONE[status] : 0;
+	const custodyHistory = (sealDoc.status_history || [])
+		.filter((row) => _warehouse_history_belongs_to_journey(frm, row))
+		.sort((a, b) => String(a.status_date_time || "").localeCompare(String(b.status_date_time || "")));
+
+	const firstWarehouse = _first_warehouse_label(custodyHistory) || _current_warehouse_label(sealDoc);
+	const returnWarehouse = _return_warehouse_label(custodyHistory) || _current_warehouse_label(sealDoc);
+	const assignedAt = _history_time(custodyHistory, "Assigned via Journey Request") || frm.doc.technician_assignment_date_time;
+	const returnedAt = _history_time(custodyHistory, "Returned via Journey Request") || frm.doc.completion_date_time;
+
+	const stages = [
+		{
+			label: __("Warehouse Stock"),
+			description: __("Seal starts in warehouse custody before dispatch"),
+			kind: __("Place"),
+			custodian: firstWarehouse,
+			journey_status: __("Available / Quality Check"),
+			date: sealDoc.date_received || sealDoc.current_custody_since,
+			milestone: 0,
+		},
+		{
+			label: __("PCB Job Order"),
+			description: __("Operational work queue for the seal assignment"),
+			kind: __("Work Queue"),
+			custodian: frm.doc.pcb_job_order || frm.doc.sales_order_reference,
+			journey_status: __("Team Lead Assigned"),
+			date: frm.doc.team_lead_assignment_date_time,
+			milestone: 1,
+		},
+		{
+			label: __("PCB Team Lead"),
+			description: __("Person accountable for assigning field execution"),
+			kind: __("Person"),
+			custodian: frm.doc.assigned_team_lead,
+			journey_status: __("Team Lead Assigned"),
+			date: frm.doc.team_lead_assignment_date_time,
+			milestone: 1,
+		},
+		{
+			label: __("Field Technician"),
+			description: __("Person holding the seal through tagging and return"),
+			kind: __("Person"),
+			custodian: frm.doc.assigned_technician,
+			journey_status: __("Technician Assigned / Tagging / Seal Return"),
+			date: assignedAt,
+			milestone: 2,
+		},
+		{
+			label: __("Customer Journey"),
+			description: __("Seal is attached to the customer movement"),
+			kind: __("Customer / Container"),
+			custodian: frm.doc.customer,
+			place: [frm.doc.vehicle_plate_number, frm.doc.container_number].filter(Boolean).join(" / "),
+			journey_status: __("In Transit"),
+			date: frm.doc.journey_start_date_time,
+			milestone: 4,
+		},
+		{
+			label: __("Return Warehouse"),
+			description: __("Seal returns to warehouse custody after Control Room approval"),
+			kind: __("Place"),
+			custodian: returnWarehouse || frm.doc.return_location,
+			place: frm.doc.return_location,
+			journey_status: __("Completed / Returned"),
+			date: returnedAt,
+			milestone: 6,
+		},
+	];
+
+	stages.forEach((stage) => {
+		if (stage.date || stage.custodian) stage.state = "approved";
+		else if (stage.milestone <= current) stage.state = "current";
+		else stage.state = "upcoming";
+	});
+
+	let latestIndex = stages.findIndex((stage) => stage.state === "current");
+	if (latestIndex < 0) {
+		latestIndex = stages.reduce((latest, stage, index) => (stage.state === "approved" ? index : latest), 0);
+	}
+
+	return { stages, latestIndex, custodyHistory };
+}
+
+function _warehouse_timeline_html(frm, payload) {
+	const escape = (value) => frappe.utils.escape_html(String(value || ""));
+	const stateLabels = {
+		approved: __("Captured"),
+		current: __("Current / pending"),
+		upcoming: __("Not reached"),
+	};
+	const capturedCount = payload.stages.filter((stage) => stage.state === "approved").length;
+	const steps = payload.stages.map((stage, index) => {
+		const icon = stage.state === "approved" ? "✓" : index + 1;
+		const date = stage.date ? frappe.datetime.str_to_user(stage.date) : "";
+		const meta = [
+			stage.kind ? `<span><i class="fa fa-tag"></i>${escape(stage.kind)}</span>` : "",
+			stage.custodian ? `<span><i class="fa fa-user"></i>${escape(stage.custodian)}</span>` : "",
+			stage.place ? `<span><i class="fa fa-map-marker"></i>${escape(stage.place)}</span>` : "",
+			stage.journey_status ? `<span><i class="fa fa-road"></i>${escape(stage.journey_status)}</span>` : "",
+			date ? `<span><i class="fa fa-clock-o"></i>${escape(date)}</span>` : "",
+		].filter(Boolean).join("");
+		const latest = index === payload.latestIndex ? `<span class="sj-approval-latest">${__("Latest")}</span>` : "";
+		return `
+			<div class="sj-approval-step sj-approval-${stage.state} ${index === payload.latestIndex ? "sj-approval-is-latest" : ""}">
+				<div class="sj-approval-rail">
+					<div class="sj-approval-circle">${icon}</div>
+					${index < payload.stages.length - 1 ? `<div class="sj-approval-connector"></div>` : ""}
+				</div>
+				<div class="sj-approval-card">
+					<div class="sj-approval-card-head">
+						<div><strong>${escape(stage.label)}</strong><small>${escape(stage.description)}</small></div>
+						<div>${latest}<span class="sj-approval-state">${escape(stateLabels[stage.state])}</span></div>
+					</div>
+					${meta ? `<div class="sj-approval-meta">${meta}</div>` : ""}
+				</div>
+			</div>`;
+	}).join("");
+
+	const history = _warehouse_history_html(payload.custodyHistory);
+	return `
+		<div class="sj-approval-shell sj-warehouse-shell">
+			<div class="sj-approval-summary">
+				<div><span>${__("Custody path")}</span><strong>${capturedCount} / ${payload.stages.length} ${__("captured")}</strong></div>
+				<div class="sj-approval-current-status">${__("Journey status")}: <b>${escape(frm.doc.journey_status || "Draft")}</b></div>
+			</div>
+			<div class="sj-approval-stepper">${steps}</div>
+			${history}
+		</div>`;
+}
+
+function _warehouse_history_html(rows) {
+	const escape = (value) => frappe.utils.escape_html(String(value || ""));
+	if (!rows.length) {
+		return `<div class="sj-warehouse-history sj-warehouse-empty">${__("No recorded seal custody handoffs found for this journey yet.")}</div>`;
+	}
+	const items = rows.map((row) => {
+		const time = row.status_date_time ? frappe.datetime.str_to_user(row.status_date_time) : "";
+		return `<div class="sj-warehouse-history-row">
+			<div><strong>${escape(row.new_status || row.previous_status || __("Custody update"))}</strong><small>${escape(row.previous_status ? `${__("From")}: ${row.previous_status}` : "")}</small></div>
+			<div class="sj-warehouse-history-meta">
+				${time ? `<span><i class="fa fa-clock-o"></i>${escape(time)}</span>` : ""}
+				${row.updated_by ? `<span><i class="fa fa-user"></i>${escape(row.updated_by)}</span>` : ""}
+				${row.remarks ? `<span><i class="fa fa-comment-o"></i>${escape(row.remarks)}</span>` : ""}
+			</div>
+		</div>`;
+	}).join("");
+	return `<div class="sj-warehouse-history"><h4>${__("Recorded Custody Handoffs")}</h4>${items}</div>`;
+}
+
+function _warehouse_history_belongs_to_journey(frm, row) {
+	const text = `${row.journey || ""} ${row.remarks || ""}`;
+	return !frm.doc.name || text.includes(frm.doc.name) || row.journey === frm.doc.name;
+}
+
+function _first_warehouse_label(rows) {
+	const row = rows.find((item) => String(item.previous_status || "").includes("Warehouse:"));
+	return row ? row.previous_status : "";
+}
+
+function _return_warehouse_label(rows) {
+	const reversed = [...rows].reverse();
+	const row = reversed.find((item) => String(item.new_status || "").includes("Warehouse:"));
+	return row ? row.new_status : "";
+}
+
+function _current_warehouse_label(sealDoc) {
+	return sealDoc.current_custody_type === "Custody Point" ? sealDoc.current_custody_label : "";
+}
+
+function _history_time(rows, marker) {
+	const row = rows.find((item) => String(item.remarks || "").includes(marker));
+	return row && row.status_date_time;
+}
+
+function _inject_warehouse_timeline_styles() {
+	const styleId = "seal-journey-warehouse-timeline-styles";
+	if (document.getElementById(styleId)) return;
+	const style = document.createElement("style");
+	style.id = styleId;
+	style.textContent = `
+		.sj-warehouse-history { margin-top: 18px; padding: 14px 16px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--fg-color); }
+		.sj-warehouse-history h4 { margin: 0 0 12px; color: var(--heading-color); font-size: 14px; font-weight: 800; }
+		.sj-warehouse-history-row { padding: 11px 0; border-top: 1px solid var(--border-color); }
+		.sj-warehouse-history-row:first-of-type { border-top: 0; }
+		.sj-warehouse-history-row strong { display: block; color: var(--heading-color); font-size: 13px; }
+		.sj-warehouse-history-row small { display: block; margin-top: 3px; color: var(--text-muted); font-size: 11px; }
+		.sj-warehouse-history-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 7px; color: var(--text-muted); font-size: 11px; }
+		.sj-warehouse-history-meta span { display: inline-flex; align-items: center; gap: 5px; }
+		.sj-warehouse-empty { color: var(--text-muted); font-size: 12px; }
+	`;
+	document.head.appendChild(style);
 }
 
 
@@ -610,6 +824,7 @@ function _inject_approval_timeline_styles() {
 const TAB_MILESTONES = {
 	client_and_transport_details_tab: 0,
 	approval_tab: 0,
+	warehouse_tab: 0,
 	assignment_tab: 1,
 	pre_tagging_tab: 2,
 	tagging_details_tab: 2,

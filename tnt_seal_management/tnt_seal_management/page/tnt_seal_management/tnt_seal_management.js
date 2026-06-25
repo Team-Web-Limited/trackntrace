@@ -75,6 +75,17 @@ const TNT_DASHBOARD_CARDS = [
 		roles: ["System Manager", "Management"],
 	},
 	{
+		title: "Warehouses",
+		icon: "🏬",
+		route: "List/Physical Warehouse/List",
+		roles: [
+			"System Manager",
+			"Seal System Administrator",
+			"Operations Control Room",
+			"Management",
+		],
+	},
+	{
 		title: "Seal Device",
 		icon: "🔒",
 		route: "seal-device-dashboard",
