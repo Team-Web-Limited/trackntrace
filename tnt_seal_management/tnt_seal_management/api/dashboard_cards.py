@@ -43,30 +43,17 @@ CARD_COUNT_RULES = {
 		"rules": [
 			{
 				"roles": ["Operations Control Room"],
-				"label": "Pending your approval",
+				"label": "Tagging approvals",
 				"filters": {"journey_request_status": "Pending Control Room Approval"},
 			},
 			{
 				"roles": ["Customer Care"],
-				"label": "Pending your approval",
+				"label": "Tagging approvals",
 				"filters": {"journey_request_status": "Pending CC Approval"},
 			},
 			{
 				"roles": ["Field Technician"],
-				"label": "Pending work",
-				# Counts from Draft through Pending CC Approval — any stage before
-				# the journey actually starts. Only "Journey Ready" (journey
-				# started) or a dead end (Rejected/Cancelled) clears the count.
-				"filters": {
-					"journey_request_status": [
-						"not in",
-						["Journey Ready", "Rejected", "Cancelled"],
-					]
-				},
-			},
-			{
-				"roles": ["System Manager", "Management"],
-				"label": "Pending requests",
+				"label": "Tagging work",
 				"filters": {
 					"journey_request_status": [
 						"in",
@@ -77,6 +64,138 @@ CARD_COUNT_RULES = {
 						],
 					]
 				},
+			},
+			{
+				"roles": ["System Manager", "Management"],
+				"label": "Tagging requests",
+				"filters": {
+					"journey_request_status": [
+						"in",
+						[
+							"Pending Control Room Approval",
+							"Tagging",
+							"Pending CC Approval",
+						],
+					]
+				},
+			},
+		],
+	},
+	"journey-request-untagging": {
+		"doctype": "Journey Request",
+		"rules": [
+			{
+				"roles": ["Operations Control Room"],
+				"label": "Untagging approvals",
+				"filters": {"journey_request_status": "Pending Untagging Approval"},
+			},
+			{
+				"roles": ["Field Technician"],
+				"label": "Untagging work",
+				"filters": {"journey_request_status": "Untagging"},
+			},
+			{
+				"roles": ["System Manager", "Management"],
+				"label": "Untagging requests",
+				"filters": {
+					"journey_request_status": [
+						"in",
+						["Untagging", "Pending Untagging Approval"],
+					]
+				},
+			},
+		],
+	},
+	# Second badge on the journey-request card — the seal-return work the FT owns
+	# after untagging is approved (see journey_request.submit_seal_return_to_control_room).
+	"journey-request-seal-return": {
+		"doctype": "Journey Request",
+		"rules": [
+			{
+				"roles": ["Operations Control Room"],
+				"label": "Seal return approvals",
+				"filters": {"journey_request_status": "Pending Seal Return Approval"},
+			},
+			{
+				"roles": ["Field Technician"],
+				"label": "Seal return work",
+				"filters": {
+					"journey_request_status": [
+						"in",
+						["Untagging Approved", "Pending Seal Return Approval"],
+					]
+				},
+			},
+			{
+				"roles": ["System Manager", "Management"],
+				"label": "Seal return requests",
+				"filters": {
+					"journey_request_status": [
+						"in",
+						["Untagging Approved", "Pending Seal Return Approval"],
+					]
+				},
+			},
+		],
+	},
+	"control-room": {
+		"doctype": "Journey Request",
+		"rules": [
+			{
+				"roles": ["Operations Control Room", "System Manager", "Management"],
+				"label": "Pending your approval",
+				# Covers all three gates Control Room owns: the original tagging-stage
+				# approval, the untagging-stage approval and the seal-return approval.
+				"filters": {
+					"journey_request_status": [
+						"in",
+						[
+							"Pending Control Room Approval",
+							"Pending Untagging Approval",
+							"Pending Seal Return Approval",
+						],
+					]
+				},
+			},
+		],
+	},
+	# Not a real route — a second, independent badge rendered on the Control
+	# Room card alongside the approval count above (see tnt_seal_management.js
+	# get_card_html). Kept in this same generic rules system since the count
+	# logic (role match -> doctype count) is identical, just a different
+	# doctype/filter.
+	"control-room-alerts": {
+		"doctype": "Seal Alert Log",
+		"rules": [
+			{
+				"roles": ["Operations Control Room", "System Manager", "Management"],
+				"label": "Open alerts",
+				"filters": {"is_resolved": 0},
+			},
+		],
+	},
+	# Third badge on the Control Room card — Seal Journeys sitting at
+	# "In Transit", i.e. the Arrivals section of the Approve tab
+	# (get_arrival_queue). Same generic rules system, different doctype/filter.
+	"control-room-arrivals": {
+		"doctype": "Seal Journey",
+		"rules": [
+			{
+				"roles": ["Operations Control Room", "System Manager", "Management"],
+				"label": "Awaiting arrival confirmation",
+				"filters": {"journey_status": "In Transit"},
+			},
+		],
+	},
+	# Completed-but-unsettled journeys (billing_status "Pending Billing") for
+	# Finance PCB to follow up on — opens the Billing Follow-up list page.
+	"billing-followup-list": {
+		"doctype": "Seal Journey",
+		"rules": [
+			{
+				"roles": ["Finance PCB", "System Manager", "Management"],
+				"label": "Unsettled bills",
+				"filters": {"billing_status": "Pending Billing"},
 			},
 		],
 	},
@@ -128,24 +247,23 @@ CARD_COUNT_RULES = {
 			{
 				"roles": ["PCB Team Leader", "System Manager", "Management"],
 				"label": "Pending assignments",
-				"filters": {"assignment_status": "Pending"},
+				"filters": {"request_type": "Tagging", "assignment_status": "Pending"},
 			},
 		],
 	},
-	"current-customer-list": {
-		"doctype": "Customer",
+	# Second badge on the Assignments card — untagging requests raised on arrival
+	# (see pcb_assignment.create_untagging_request). Same generic rules system,
+	# scoped to request_type "Untagging".
+	"assignment-untagging": {
+		"doctype": "PCB Assignment",
 		"rules": [
 			{
-				"roles": [
-					"System Manager",
-					"Account Manager",
-					"Customer Care",
-					"Finance PCB",
-					"Management",
-					"Operations Control Room",
-				],
-				"label": "Active customers",
-				"filters": {"disabled": 0},
+				"roles": ["PCB Team Leader", "System Manager", "Management"],
+				"label": "Awaiting untagging assignment",
+				"filters": {
+					"request_type": "Untagging",
+					"assignment_status": "Awaiting Untagging Assignment",
+				},
 			},
 		],
 	},
@@ -171,6 +289,26 @@ CARD_COUNT_RULES = {
 				"roles": ["System Manager", "Management"],
 				"label": "Available devices",
 				"filters": {"current_status": "Available"},
+			},
+		],
+	},
+	"seal-acquisition-list": {
+		"doctype": "Seal Acquisition",
+		"rules": [
+			{
+				"roles": ["Operations Control Room", "Seal System Administrator", "System Manager", "Management"],
+				"label": "Received batches",
+				"filters": {"acquisition_status": "Received"},
+			},
+		],
+	},
+	"seal-stock-transfer-list": {
+		"doctype": "Seal Stock Transfer",
+		"rules": [
+			{
+				"roles": ["Operations Control Room", "Seal System Administrator", "System Manager", "Management"],
+				"label": "Pending receipt",
+				"filters": {"transfer_status": "In Transit"},
 			},
 		],
 	},

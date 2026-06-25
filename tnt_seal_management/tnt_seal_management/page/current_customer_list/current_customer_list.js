@@ -12,11 +12,12 @@ frappe.pages["current-customer-list"].on_page_load = function (wrapper) {
 		page_length: 25,
 		total: 0,
 		request_id: 0,
+		can_create_customer: false,
+		can_edit_billing: false,
 	};
 
 	page.add_inner_button(__("Back"), () => frappe.set_route("tnt-seal-management"));
 	page.add_inner_button(__("Refresh"), () => _customer_load(page));
-	page.set_primary_action(__("New Customer"), () => frappe.new_doc("Customer"));
 
 	const $statsBar = $('<div class="ccl-header-stats"></div>');
 	$(wrapper).find('.page-head .page-actions').before($statsBar);
@@ -135,6 +136,10 @@ function _customer_load(page) {
 			if (requestId !== page.customer_state.request_id) return;
 			_customer_set_loading(page, false);
 			const data = r.message || {};
+			const perms = data.permissions || {};
+			page.customer_state.can_create_customer = !!perms.can_create_customer;
+			page.customer_state.can_edit_billing = !!perms.can_edit_billing;
+			_customer_apply_permissions(page);
 			page.customer_state.total = data.total || 0;
 			_customer_render_stats(page, data.summary || {});
 			_customer_render_table(page, data.customers || [], data.empty_message);
@@ -146,6 +151,15 @@ function _customer_load(page) {
 			frappe.show_alert({ message: __("Could not load customers"), indicator: "red" }, 5);
 		},
 	});
+}
+
+function _customer_apply_permissions(page) {
+	if (page.customer_state.can_create_customer) {
+		page.set_primary_action(__("New Customer"), () => frappe.new_doc("Customer"));
+		return;
+	}
+
+	$(page.wrapper).find(".page-actions .btn-primary").remove();
 }
 
 function _customer_render_stats(page, summary) {
@@ -203,12 +217,12 @@ function _customer_render_table(page, customers, emptyMessage) {
 					<th>${__("Status")}</th>
 				</tr>
 			</thead>
-			<tbody>${customers.map((customer) => _customer_row_html(customer)).join("")}</tbody>
+			<tbody>${customers.map((customer) => _customer_row_html(page, customer)).join("")}</tbody>
 		</table>
 	`);
 }
 
-function _customer_row_html(customer) {
+function _customer_row_html(page, customer) {
 	const status = customer.disabled ? __("Disabled") : __("Active");
 	const statusClass = customer.disabled ? "disabled" : "active";
 	return `
@@ -218,7 +232,7 @@ function _customer_row_html(customer) {
 					<span class="ccl-name">${frappe.utils.escape_html(customer.customer_name || customer.name)}</span>
 				</div>
 			</td>
-			<td>${_customer_billing_button_html(customer)}</td>
+			<td>${_customer_billing_button_html(page, customer)}</td>
 			<td>${frappe.utils.escape_html(customer.mobile_no || "—")}</td>
 			<td>${frappe.utils.escape_html(customer.email_id || "—")}</td>
 			<td><span class="ccl-badge ccl-badge--${statusClass}">${frappe.utils.escape_html(status)}</span></td>
@@ -226,7 +240,7 @@ function _customer_row_html(customer) {
 	`;
 }
 
-function _customer_billing_button_html(customer) {
+function _customer_billing_button_html(page, customer) {
 	const hasRule = !!customer.billing_label;
 	const kind = (customer.billing_kind || "").toLowerCase();
 	const kindClass = hasRule ? ` ccl-billing-btn--set ccl-billing-btn--${kind}` : "";
@@ -236,6 +250,14 @@ function _customer_billing_button_html(customer) {
 	const tag = hasRule && customer.billing_kind
 		? `<span class="ccl-billing-tag">${frappe.utils.escape_html(customer.billing_kind)}</span>`
 		: "";
+
+	if (!page.customer_state.can_edit_billing) {
+		return `
+			<span class="ccl-billing-btn ccl-billing-readonly" title="${frappe.utils.escape_html(customer.billing_label || __("Billing rule"))}">
+				${tag}<span class="ccl-billing-btn__label">${label}</span>
+			</span>
+		`;
+	}
 
 	return `
 		<button class="ccl-billing-btn${kindClass}" data-customer="${frappe.utils.escape_html(customer.name)}" title="${__("Set billing rule")}">
@@ -308,6 +330,11 @@ function _customer_open_billing_modal(page, customer) {
 
 function _customer_show_billing_dialog(page, data) {
 	const cur = data.current || {};
+	const defaultRules = data.default_rules || [];
+	const defaultRuleMap = Object.fromEntries(
+		defaultRules.map((rule) => [rule.billing_rule_name || rule.name, rule.name])
+	);
+	const defaultRuleOptions = defaultRules.map((rule) => rule.billing_rule_name || rule.name);
 
 	const dialog = new frappe.ui.Dialog({
 		title: __("Set Billing — {0}", [data.customer_name]),
@@ -323,14 +350,13 @@ function _customer_show_billing_dialog(page, data) {
 			},
 			{ fieldtype: "Column Break" },
 			{
-				fieldtype: "Link",
-				fieldname: "default_rule",
+				fieldtype: "Select",
+				fieldname: "default_rule_label",
 				label: __("Default Billing Rule"),
-				options: "Seal Billing Rate",
+				options: defaultRuleOptions,
 				depends_on: "eval:doc.billing_type=='Default'",
 				mandatory_depends_on: "eval:doc.billing_type=='Default'",
-				default: cur.default_rule || null,
-				get_query: () => ({ filters: { billing_type: "Default", active: 1 } }),
+				default: cur.default_rule_label || defaultRuleOptions[0] || null,
 			},
 			{
 				fieldtype: "Section Break",
@@ -389,7 +415,13 @@ function _customer_show_billing_dialog(page, data) {
 		],
 		primary_action_label: __("Save Billing"),
 		primary_action(values) {
-			_customer_submit_billing(page, data.customer, values, dialog);
+			const defaultRule = defaultRuleMap[values.default_rule_label] || null;
+			_customer_submit_billing(
+				page,
+				data.customer,
+				{ ...values, default_rule: defaultRule },
+				dialog
+			);
 		},
 	});
 
@@ -707,6 +739,14 @@ function _customer_inject_styles() {
 			text-align: left;
 		}
 		.ccl-billing-btn:hover {
+			transform: translateY(-1px);
+		}
+
+		.ccl-billing-readonly {
+			cursor: default;
+		}
+
+		.ccl-billing-readonly:hover {
 			border-color: var(--ccl-blue);
 			background: #f0f9ff;
 		}

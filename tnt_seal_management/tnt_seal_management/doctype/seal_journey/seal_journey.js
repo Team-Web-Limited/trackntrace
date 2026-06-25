@@ -32,12 +32,15 @@ frappe.ui.form.on("Seal Journey", {
 		_seed_pre_tagging_checklist(frm);
 		_set_assigned_seal_from_proposed(frm);
 		_set_days_taken(frm);
+		_apply_arrival_field_locks(frm);
 		if (!frm.is_new()) {
-			_add_sync_location_button(frm);
+			_add_arrival_workflow_buttons(frm);
 			_render_lifecycle(frm);
 			_add_source_doc_buttons(frm);
 		}
 		_inject_seal_journey_styles();
+		_render_approval_timeline(frm);
+		_render_assignment_timeline(frm);
 		_apply_tab_progress_state(frm);
 	},
 
@@ -46,6 +49,10 @@ frappe.ui.form.on("Seal Journey", {
 	},
 
 	journey_start_date_time(frm) {
+		_set_days_taken(frm);
+	},
+
+	arrival_date_time(frm) {
 		_set_days_taken(frm);
 	},
 
@@ -83,6 +90,8 @@ const STATUS_TO_MILESTONE = {
 	"Arrived": 5,
 	"Untagging In Progress": 5,
 	"Untagged": 5,
+	"Awaiting Seal Return": 5,
+	"Awaiting Control Room Approval": 5,
 	"Completed": 6,
 };
 
@@ -98,7 +107,7 @@ function _render_lifecycle(frm) {
 	if (!document.getElementById(style_id)) {
 		const style = document.createElement("style");
 		style.id = style_id;
-		style.textContent = '.form-headline .close, .form-headline .btn-close { display: none !important; }';
+		style.textContent = '.form-message-container .close-message { display: none !important; }';
 		document.head.appendChild(style);
 	}
 
@@ -167,26 +176,44 @@ function _set_assigned_seal_from_proposed(frm) {
 	}
 }
 
+// Mirrors SealJourney.set_days_taken() server-side so the form doesn't flash
+// back to 0 on every load — falls back to arrival_date_time before
+// completion_date_time is known, and keeps days_taken_display (hours, while
+// the journey hasn't filled a full day yet) in sync alongside the decimal
+// days_taken figure.
 function _set_days_taken(frm) {
 	const start = frm.doc.journey_start_date_time;
-	const completion = frm.doc.completion_date_time;
+	const end = frm.doc.completion_date_time || frm.doc.arrival_date_time;
 
-	if (!start || !completion) {
-		if (frm.doc.days_taken) {
-			frm.set_value("days_taken", 0);
-		}
+	if (!start || !end) {
+		if (frm.doc.days_taken) frm.set_value("days_taken", 0);
+		if (frm.doc.days_taken_display) frm.set_value("days_taken_display", "");
 		return;
 	}
 
 	const startDate = frappe.datetime.str_to_obj(start);
-	const completionDate = frappe.datetime.str_to_obj(completion);
-	if (!startDate || !completionDate || completionDate < startDate) {
+	const endDate = frappe.datetime.str_to_obj(end);
+	if (!startDate || !endDate || endDate < startDate) {
 		frm.set_value("days_taken", 0);
+		frm.set_value("days_taken_display", "");
 		return;
 	}
 
-	const totalDays = (completionDate - startDate) / (1000 * 60 * 60 * 24);
-	frm.set_value("days_taken", Number(totalDays.toFixed(2)));
+	const totalSeconds = (endDate - startDate) / 1000;
+	frm.set_value("days_taken", Number((totalSeconds / 86400).toFixed(2)));
+	frm.set_value("days_taken_display", _format_duration_client(totalSeconds));
+}
+
+function _format_duration_client(totalSeconds) {
+	const hours = totalSeconds / 3600;
+	if (hours < 24) {
+		return `${hours.toFixed(1)} hrs`;
+	}
+
+	const days = Math.floor(hours / 24);
+	const remainingHours = Number((hours % 24).toFixed(1));
+	const dayLabel = days === 1 ? __("day") : __("days");
+	return remainingHours > 0 ? `${days} ${dayLabel} ${remainingHours} hrs` : `${days} ${dayLabel}`;
 }
 
 function _lock_pre_tagging_checklist(frm) {
@@ -231,40 +258,350 @@ function _seed_pre_tagging_checklist(frm) {
 	});
 }
 
-function _add_sync_location_button(frm) {
-	const allowed = ["System Manager", "Seal System Administrator", "Operations Control Room"];
-	if (!allowed.some(r => frappe.user.has_role(r))) return;
-	if (!frm.doc.assigned_seal) return;
+const SJ_METHOD = (name) =>
+	`tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey.${name}`;
 
-	frm.add_custom_button(__("Sync Seal Location"), function () {
-		frappe.show_progress(__("Syncing…"), 0, 100, __("Fetching data from Seal Server API…"));
-		frappe.call({
-			method: "tnt_seal_management.tnt_seal_management.api.seal_sync.manual_sync_seal_journey",
-			args: { seal_journey_name: frm.doc.name },
-			callback(r) {
-				frappe.hide_progress();
-				const res = r.message || {};
-				if (res.status === "success") {
-					frappe.show_alert({ message: __("Seal location updated"), indicator: "green" }, 6);
-					frm.reload_doc();
-				} else {
-					frappe.msgprint({
-						title: __("Sync Failed"),
-						message: res.message || __("Unknown error — check Seal API Sync Log."),
-						indicator: "red",
-					});
-				}
-			},
-			error() {
-				frappe.hide_progress();
-				frappe.msgprint({
-					title: __("Sync Failed"),
-					message: __("Unexpected error — check Seal API Sync Log for details."),
-					indicator: "red",
-				});
-			},
+// Untagging Confirmation / Seal Unlocked Confirmation / Arrival Remarks are
+// only hand-edited by Operations Control Room, and only while untagging is
+// actually in progress — mirrors enforce_arrival_field_locks() server-side.
+const SJ_ARRIVAL_CONFIRMATION_FIELDS = [
+	"untagging_confirmation",
+	"seal_unlocked_confirmation",
+	"arrival_remarks",
+];
+
+function _apply_arrival_field_locks(frm) {
+	const isAdmin = frappe.user.has_role("System Manager");
+	const isControlRoom = frappe.user.has_role("Operations Control Room") || isAdmin;
+	const unlocked = isAdmin || (isControlRoom && frm.doc.journey_status === "Untagging In Progress");
+
+	for (const fieldname of SJ_ARRIVAL_CONFIRMATION_FIELDS) {
+		frm.set_df_property(fieldname, "read_only", unlocked ? 0 : 1);
+	}
+}
+
+function _add_arrival_workflow_buttons(frm) {
+	const isAdmin = frappe.user.has_role("System Manager");
+	const isControlRoom = frappe.user.has_role("Operations Control Room") || isAdmin;
+	if (!isControlRoom) return;
+
+	const status = frm.doc.journey_status;
+
+	if (status === "Arrived") {
+		frm.add_custom_button(__("Start Untagging"), () => {
+			frappe.call({
+				method: SJ_METHOD("start_untagging"),
+				args: { docname: frm.doc.name },
+				freeze: true,
+				callback: () => frm.reload_doc(),
+			});
 		});
-	}, __("Actions"));
+	}
+}
+
+
+function _render_assignment_timeline(frm) {
+	const field = frm.fields_dict.assignment_timeline;
+	if (!field || !field.$wrapper) return;
+
+	const financeApproved = frm.doc.finance_pcb_approval_status === "Approved";
+	const teamLeadState = frm.doc.assigned_team_lead
+		? "approved"
+		: financeApproved
+			? "current"
+			: "upcoming";
+	const technicianState = frm.doc.assigned_technician
+		? "approved"
+		: frm.doc.assigned_team_lead
+			? "current"
+			: "upcoming";
+
+	const stages = [
+		{
+			label: __("PCB Team Lead"),
+			description: __("Finance PCB assigns operational ownership"),
+			state: teamLeadState,
+			assignee: frm.doc.assigned_team_lead,
+			date: frm.doc.team_lead_assignment_date_time,
+		},
+		{
+			label: __("Field Technician"),
+			description: __("Team lead assigns field execution"),
+			state: technicianState,
+			assignee: frm.doc.assigned_technician,
+			date: frm.doc.technician_assignment_date_time,
+			secondary: frm.doc.technician_status
+				? `${__("Technician status")}: ${__(frm.doc.technician_status)}`
+				: "",
+		},
+	];
+
+	let latestIndex = stages.findIndex((stage) => stage.state === "current");
+	if (latestIndex < 0) {
+		latestIndex = stages.reduce(
+			(latest, stage, index) => (stage.state === "approved" ? index : latest),
+			0
+		);
+	}
+
+	const stateLabels = {
+		approved: __("Assigned"),
+		current: __("Awaiting assignment"),
+		upcoming: __("Not reached"),
+	};
+	const escape = (value) => frappe.utils.escape_html(String(value || ""));
+	const assignedCount = stages.filter((stage) => stage.state === "approved").length;
+
+	const steps = stages
+		.map((stage, index) => {
+			const icon = stage.state === "approved" ? "✓" : index + 1;
+			const date = stage.date ? frappe.datetime.str_to_user(stage.date) : "";
+			const meta = [
+				stage.assignee
+					? `<span><i class="fa fa-user"></i>${escape(stage.assignee)}</span>`
+					: "",
+				date ? `<span><i class="fa fa-clock-o"></i>${escape(date)}</span>` : "",
+				stage.secondary
+					? `<span><i class="fa fa-info-circle"></i>${escape(stage.secondary)}</span>`
+					: "",
+			]
+				.filter(Boolean)
+				.join("");
+			const latest = index === latestIndex ? `<span class="sj-approval-latest">${__("Latest")}</span>` : "";
+
+			return `
+				<div class="sj-approval-step sj-approval-${stage.state} ${index === latestIndex ? "sj-approval-is-latest" : ""}">
+					<div class="sj-approval-rail">
+						<div class="sj-approval-circle">${icon}</div>
+						${index < stages.length - 1 ? `<div class="sj-approval-connector"></div>` : ""}
+					</div>
+					<div class="sj-approval-card">
+						<div class="sj-approval-card-head">
+							<div><strong>${escape(stage.label)}</strong><small>${escape(stage.description)}</small></div>
+							<div>${latest}<span class="sj-approval-state">${escape(stateLabels[stage.state])}</span></div>
+						</div>
+						${meta ? `<div class="sj-approval-meta">${meta}</div>` : ""}
+					</div>
+				</div>`;
+		})
+		.join("");
+
+	field.$wrapper.html(`
+		<div class="sj-approval-shell">
+			<div class="sj-approval-summary">
+				<div><span>${__("Assignment path")}</span><strong>${assignedCount} / ${stages.length} ${__("assigned")}</strong></div>
+				<div class="sj-approval-current-status">${__("Journey status")}: <b>${escape(frm.doc.journey_status || "Draft")}</b></div>
+			</div>
+			<div class="sj-approval-stepper">${steps}</div>
+		</div>
+	`);
+
+	[
+		"assigned_team_lead",
+		"team_lead_assignment_date_time",
+		"assigned_technician",
+		"technician_assignment_date_time",
+		"technician_status",
+	].forEach((fieldname) => frm.toggle_display(fieldname, false));
+
+	_inject_approval_timeline_styles();
+}
+
+const CONTROL_ROOM_APPROVED_STATUSES = new Set([
+	"Tagging Request Booked",
+	"Tagging In Progress",
+	"Tagged",
+	"Post-Tagging",
+	"Ready for Journey",
+	"In Transit",
+	"Arrived",
+	"Untagging In Progress",
+	"Untagged",
+	"Completed",
+]);
+
+const CUSTOMER_CARE_APPROVED_STATUSES = new Set([
+	"Ready for Journey",
+	"In Transit",
+	"Arrived",
+	"Untagging In Progress",
+	"Untagged",
+	"Completed",
+]);
+
+function _render_approval_timeline(frm) {
+	const field = frm.fields_dict.approval_timeline;
+	if (!field || !field.$wrapper) return;
+
+	const status = frm.doc.journey_status || "Draft";
+	const financeStatus = frm.doc.finance_pcb_approval_status || "Pending";
+	const financeState =
+		financeStatus === "Approved"
+			? "approved"
+			: financeStatus === "Rejected"
+				? "rejected"
+				: "current";
+
+	const hasControlRoomDecision = Boolean(
+		frm.doc.control_room_approver || frm.doc.control_room_approval_date_time
+	);
+	let controlRoomState = "upcoming";
+	if (financeState === "approved") {
+		if (CONTROL_ROOM_APPROVED_STATUSES.has(status)) controlRoomState = "approved";
+		else if (hasControlRoomDecision) controlRoomState = "rejected";
+		else if (status === "Pre-Tagging") controlRoomState = "current";
+	}
+
+	const hasCustomerCareDecision = Boolean(
+		frm.doc.customer_care_approver || frm.doc.customer_care_approval_date_time
+	);
+	let customerCareState = "upcoming";
+	if (controlRoomState === "approved") {
+		if (CUSTOMER_CARE_APPROVED_STATUSES.has(status)) customerCareState = "approved";
+		else if (hasCustomerCareDecision) customerCareState = "rejected";
+		else if (["Tagged", "Post-Tagging"].includes(status)) customerCareState = "current";
+	}
+
+	const stages = [
+		{
+			label: __("Finance PCB"),
+			description: __("Booking and commercial approval"),
+			state: financeState,
+			approver: frm.doc.finance_pcb_approver,
+			date: frm.doc.finance_pcb_approval_date_time,
+			remarks: frm.doc.finance_pcb_remarks,
+		},
+		{
+			label: __("Operations Control Room"),
+			description: __("Seal readiness and tagging approval"),
+			state: controlRoomState,
+			approver: frm.doc.control_room_approver,
+			date: frm.doc.control_room_approval_date_time,
+			remarks: frm.doc.control_room_remarks,
+		},
+		{
+			label: __("Customer Care"),
+			description: __("Final journey release approval"),
+			state: customerCareState,
+			approver: frm.doc.customer_care_approver,
+			date: frm.doc.customer_care_approval_date_time,
+			remarks: frm.doc.customer_care_remarks,
+		},
+	];
+
+	let latestIndex = stages.findIndex((stage) => ["current", "rejected"].includes(stage.state));
+	if (latestIndex < 0) {
+		latestIndex = stages.reduce(
+			(latest, stage, index) => (stage.state === "approved" ? index : latest),
+			0
+		);
+	}
+
+	const stateLabels = {
+		approved: __("Approved"),
+		rejected: __("Rejected"),
+		current: __("Awaiting approval"),
+		upcoming: __("Not reached"),
+	};
+	const escape = (value) => frappe.utils.escape_html(String(value || ""));
+	const approvedCount = stages.filter((stage) => stage.state === "approved").length;
+
+	const steps = stages
+		.map((stage, index) => {
+			const icon = stage.state === "approved" ? "✓" : stage.state === "rejected" ? "!" : index + 1;
+			const date = stage.date ? frappe.datetime.str_to_user(stage.date) : "";
+			const meta = [
+				stage.approver
+					? `<span><i class="fa fa-user"></i>${escape(stage.approver)}</span>`
+					: "",
+				date ? `<span><i class="fa fa-clock-o"></i>${escape(date)}</span>` : "",
+			]
+				.filter(Boolean)
+				.join("");
+			const remarks = stage.remarks
+				? `<div class="sj-approval-remarks">${escape(stage.remarks)}</div>`
+				: "";
+			const latest = index === latestIndex ? `<span class="sj-approval-latest">${__("Latest")}</span>` : "";
+
+			return `
+				<div class="sj-approval-step sj-approval-${stage.state} ${index === latestIndex ? "sj-approval-is-latest" : ""}">
+					<div class="sj-approval-rail">
+						<div class="sj-approval-circle">${icon}</div>
+						${index < stages.length - 1 ? `<div class="sj-approval-connector"></div>` : ""}
+					</div>
+					<div class="sj-approval-card">
+						<div class="sj-approval-card-head">
+							<div><strong>${escape(stage.label)}</strong><small>${escape(stage.description)}</small></div>
+							<div>${latest}<span class="sj-approval-state">${escape(stateLabels[stage.state])}</span></div>
+						</div>
+						${meta ? `<div class="sj-approval-meta">${meta}</div>` : ""}
+						${remarks}
+					</div>
+				</div>`;
+		})
+		.join("");
+
+	field.$wrapper.html(`
+		<div class="sj-approval-shell">
+			<div class="sj-approval-summary">
+				<div><span>${__("Approval path")}</span><strong>${approvedCount} / ${stages.length} ${__("approved")}</strong></div>
+				<div class="sj-approval-current-status">${__("Journey status")}: <b>${escape(status)}</b></div>
+			</div>
+			<div class="sj-approval-stepper">${steps}</div>
+		</div>
+	`);
+
+	[
+		"finance_pcb_approval_status",
+		"finance_pcb_approver",
+		"finance_pcb_approval_date_time",
+		"finance_pcb_remarks",
+		"customer_care_section",
+		"customer_care_approver",
+		"customer_care_approval_date_time",
+		"customer_care_remarks",
+	].forEach((fieldname) => frm.toggle_display(fieldname, false));
+
+	_inject_approval_timeline_styles();
+}
+
+function _inject_approval_timeline_styles() {
+	const styleId = "seal-journey-approval-timeline-styles";
+	if (document.getElementById(styleId)) return;
+
+	const style = document.createElement("style");
+	style.id = styleId;
+	style.textContent = `
+		.sj-approval-shell { max-width: 920px; padding: 6px 4px 24px; }
+		.sj-approval-summary { display:flex; justify-content:space-between; gap:16px; align-items:center; margin-bottom:20px; padding:16px 18px; border:1px solid var(--border-color); border-radius:14px; background:linear-gradient(135deg, var(--fg-color) 0%, var(--control-bg) 100%); }
+		.sj-approval-summary span { display:block; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:.08em; font-weight:700; }
+		.sj-approval-summary strong { display:block; margin-top:2px; font-size:18px; color:var(--heading-color); }
+		.sj-approval-current-status { color:var(--text-muted); font-size:12px; text-align:right; }
+		.sj-approval-step { display:grid; grid-template-columns:48px minmax(0, 1fr); gap:12px; min-height:116px; }
+		.sj-approval-rail { position:relative; display:flex; justify-content:center; }
+		.sj-approval-circle { position:relative; z-index:2; width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid #cbd5e1; background:var(--fg-color); color:#94a3b8; font-size:14px; font-weight:800; transition:all .2s ease; }
+		.sj-approval-connector { position:absolute; top:38px; bottom:0; width:2px; background:#e2e8f0; }
+		.sj-approval-card { align-self:start; margin-bottom:16px; padding:15px 17px; border:1px solid var(--border-color); border-radius:12px; background:var(--fg-color); box-shadow:0 2px 8px rgba(15, 23, 42, .04); }
+		.sj-approval-card-head { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; }
+		.sj-approval-card-head strong { display:block; color:var(--heading-color); font-size:14px; }
+		.sj-approval-card-head small { display:block; margin-top:3px; color:var(--text-muted); font-size:11px; }
+		.sj-approval-state, .sj-approval-latest { display:inline-block; padding:3px 8px; border-radius:999px; background:var(--control-bg); color:var(--text-muted); font-size:10px; font-weight:700; white-space:nowrap; }
+		.sj-approval-latest { margin-right:6px; background:#dbeafe; color:#1d4ed8; }
+		.sj-approval-meta { display:flex; flex-wrap:wrap; gap:12px; margin-top:11px; color:var(--text-muted); font-size:11px; }
+		.sj-approval-meta span { display:inline-flex; align-items:center; gap:5px; }
+		.sj-approval-remarks { margin-top:10px; padding:8px 10px; border-left:3px solid #cbd5e1; border-radius:4px; background:var(--control-bg); color:var(--text-color); font-size:11px; }
+		.sj-approval-approved .sj-approval-circle { border-color:#16a34a; background:#16a34a; color:#fff; }
+		.sj-approval-approved .sj-approval-connector { background:#86efac; }
+		.sj-approval-approved .sj-approval-state { background:#dcfce7; color:#166534; }
+		.sj-approval-current .sj-approval-circle { border-color:#2563eb; background:#2563eb; color:#fff; box-shadow:0 0 0 5px rgba(37, 99, 235, .13); }
+		.sj-approval-current .sj-approval-card { border-color:#93c5fd; }
+		.sj-approval-current .sj-approval-state { background:#dbeafe; color:#1d4ed8; }
+		.sj-approval-rejected .sj-approval-circle { border-color:#dc2626; background:#dc2626; color:#fff; box-shadow:0 0 0 5px rgba(220, 38, 38, .11); }
+		.sj-approval-rejected .sj-approval-card { border-color:#fca5a5; }
+		.sj-approval-rejected .sj-approval-state { background:#fee2e2; color:#991b1b; }
+		@media (max-width: 600px) { .sj-approval-summary { align-items:flex-start; flex-direction:column; } .sj-approval-current-status { text-align:left; } .sj-approval-card-head { flex-direction:column; } }
+	`;
+	document.head.appendChild(style);
 }
 
 // Minimum lifecycle milestone (see STATUS_TO_MILESTONE) each tab's data depends on.
@@ -275,9 +612,7 @@ const TAB_MILESTONES = {
 	approval_tab: 0,
 	assignment_tab: 1,
 	pre_tagging_tab: 2,
-	seals_tab: 2,
 	tagging_details_tab: 2,
-	photo_evidence_tab: 2,
 	post_tagging_tab: 2,
 	billing_tab: 3,
 	transit_tracking_tab: 4,

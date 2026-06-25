@@ -4,6 +4,7 @@ from frappe.utils import cint, flt
 
 
 CUSTOMER_BILLING_TYPE_FIELD = "custom_billing_type"
+DEFAULT_BILLING_RULE = "sqf2gijhij"
 
 # Standard day counts per fixed contract period. Mirrors the client + Seal
 # Billing Rate definitions; amounts are always per-rule, never derived here.
@@ -201,12 +202,16 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25):
 		customer.billing_label = info[0] if info else None
 		customer.billing_kind = info[1] if info else None
 
+	can_read_billing_rates = frappe.has_permission("Seal Billing Rate", "read")
+	can_edit_billing = can_read_billing_rates and frappe.has_permission("Customer", "write")
+	can_create_customer = frappe.has_permission("Customer", "create")
+
 	billing_rates = frappe.get_list(
 		"Seal Billing Rate",
 		fields=["name", "billing_rule_name"],
 		filters={"active": 1},
 		order_by="billing_rule_name asc, name asc",
-	)
+	) if can_read_billing_rates else []
 
 	total_rows = frappe.get_list(
 		"Customer",
@@ -253,6 +258,10 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25):
 		"page_length": page_length,
 		"summary": summary,
 		"empty_message": _("Add customers to start tracking active TNT accounts."),
+		"permissions": {
+			"can_create_customer": can_create_customer,
+			"can_edit_billing": can_edit_billing,
+		},
 	}
 
 
@@ -359,10 +368,13 @@ def get_customer_billing(customer):
 		],
 		order_by="first_period_days asc, billing_rule_name asc",
 	)
+	default_rule_map = {row.name: row for row in default_rules}
+	target_default = default_rule_map.get(DEFAULT_BILLING_RULE)
 
 	current = {
 		"billing_type": "Default",
-		"default_rule": None,
+		"default_rule": DEFAULT_BILLING_RULE if target_default else None,
+		"default_rule_label": (target_default.billing_rule_name or target_default.name) if target_default else None,
 		"billing_period_type": "Monthly",
 		"first_period_days": 30,
 		"first_period_amount": 0,
@@ -407,6 +419,7 @@ def get_customer_billing(customer):
 			)
 			if (rule.billing_type or "Default") == "Default":
 				current["default_rule"] = rule.name
+				current["default_rule_label"] = rule.billing_rule_name or rule.name
 
 	return {
 		"customer": customer,

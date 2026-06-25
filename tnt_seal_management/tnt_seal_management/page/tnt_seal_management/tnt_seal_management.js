@@ -86,9 +86,38 @@ const TNT_DASHBOARD_CARDS = [
 		],
 	},
 	{
+		title: "Seal Acquisitions",
+		icon: "📦",
+		route: "seal-acquisition-list",
+		roles: [
+			"System Manager",
+			"Seal System Administrator",
+			"Operations Control Room",
+			"Management",
+		],
+	},
+	{
+		title: "Warehouse Transfers",
+		icon: "🔁",
+		route: "seal-stock-transfer-list",
+		roles: [
+			"System Manager",
+			"Seal System Administrator",
+			"Operations Control Room",
+			"Management",
+		],
+	},
+	{
 		title: "Billing Rates",
 		icon: "💰",
 		route: "seal-billing-rate-list",
+		roles: ["System Manager", "Finance PCB", "Management"],
+	},
+	{
+		title: "Billing Follow-up",
+		icon: "💵",
+		route: "billing-followup-list",
+		primary: true,
 		roles: ["System Manager", "Finance PCB", "Management"],
 	},
 	{
@@ -134,6 +163,15 @@ const TNT_DASHBOARD_CARDS = [
 	},
 ];
 
+const CARDS_WITHOUT_COUNT_LABELS = new Set([
+	"seal-journey-list",
+	"tagging-booking-list",
+	"pcb-job-order-list",
+	"vehicle-list",
+	"seal-device-dashboard",
+	"seal-billing-rate-list",
+]);
+
 function bind_actions(page) {
 	$(page.body)
 		.find("[data-route]")
@@ -154,6 +192,88 @@ function get_card_html(card) {
 	const primaryClass = card.primary ? " tsm-card--primary" : "";
 	const route = frappe.utils.escape_html(card.route);
 
+	// The Control Room card carries three independent counts (approvals,
+	// alerts, arrivals — see dashboard_cards.py's "control-room",
+	// "control-room-alerts" and "control-room-arrivals" entries), so each
+	// badge gets its own short label directly underneath it instead of the
+	// single generic label line other cards use below the title — that line
+	// only ever described one of the three counts and went stale/confusing
+	// once Alerts and Arrivals were added alongside Approvals.
+	if (card.route === "control-room") {
+		return `
+			<div class="tsm-card${primaryClass}" data-route="${route}">
+				<div class="tsm-card__top">
+					<div class="tsm-icon">${card.icon}</div>
+					<div class="tsm-badges tsm-badges--labeled">
+						<div class="tsm-badge-stat">
+							<span class="tsm-count is-hidden" data-count="control-room"></span>
+							<span class="tsm-badge-label">${__("Approvals")}</span>
+						</div>
+						<div class="tsm-badge-stat">
+							<span class="tsm-count tsm-count--alert is-hidden" data-count="control-room-alerts"></span>
+							<span class="tsm-badge-label">${__("Alerts")}</span>
+						</div>
+						<div class="tsm-badge-stat">
+							<span class="tsm-count tsm-count--arrival is-hidden" data-count="control-room-arrivals"></span>
+							<span class="tsm-badge-label">${__("Arrivals")}</span>
+						</div>
+					</div>
+				</div>
+				<h3>${__(card.title)}</h3>
+			</div>
+		`;
+	}
+
+	// The Assignments card splits its count into Tagging (Pending Tag-Operator
+	// assignments) and Untagging (untagging requests raised on arrival — see
+	// dashboard_cards.py's "assignment-list" and "assignment-untagging"
+	// entries), each labeled. This is the PCB Team Leader's single workspace.
+	if (card.route === "assignment-list") {
+		return `
+			<div class="tsm-card${primaryClass}" data-route="${route}">
+				<div class="tsm-card__top">
+					<div class="tsm-icon">${card.icon}</div>
+					<div class="tsm-badges tsm-badges--labeled">
+						<div class="tsm-badge-stat">
+							<span class="tsm-count is-hidden" data-count="assignment-list"></span>
+							<span class="tsm-badge-label">${__("Tagging")}</span>
+						</div>
+						<div class="tsm-badge-stat">
+							<span class="tsm-count tsm-count--arrival is-hidden" data-count="assignment-untagging"></span>
+							<span class="tsm-badge-label">${__("Untagging")}</span>
+						</div>
+					</div>
+				</div>
+				<h3>${__(card.title)}</h3>
+			</div>
+		`;
+	}
+
+	if (card.route === "journey-request-list") {
+		return `
+			<div class="tsm-card${primaryClass}" data-route="${route}">
+				<div class="tsm-card__top">
+					<div class="tsm-icon">${card.icon}</div>
+					<div class="tsm-badges tsm-badges--labeled">
+						<div class="tsm-badge-stat">
+							<span class="tsm-count is-hidden" data-count="journey-request-list"></span>
+							<span class="tsm-badge-label">${__("Tagging")}</span>
+						</div>
+						<div class="tsm-badge-stat">
+							<span class="tsm-count tsm-count--arrival is-hidden" data-count="journey-request-untagging"></span>
+							<span class="tsm-badge-label">${__("Untagging")}</span>
+						</div>
+						<div class="tsm-badge-stat">
+							<span class="tsm-count tsm-count--arrival is-hidden" data-count="journey-request-seal-return"></span>
+							<span class="tsm-badge-label">${__("Seal Return")}</span>
+						</div>
+					</div>
+				</div>
+				<h3>${__(card.title)}</h3>
+			</div>
+		`;
+	}
+
 	return `
 		<div class="tsm-card${primaryClass}" data-route="${route}">
 			<div class="tsm-card__top">
@@ -161,7 +281,9 @@ function get_card_html(card) {
 				<span class="tsm-count is-hidden" data-count="${route}"></span>
 			</div>
 			<h3>${__(card.title)}</h3>
-			<p class="tsm-count-label is-hidden" data-count-label="${route}"></p>
+			${CARDS_WITHOUT_COUNT_LABELS.has(card.route)
+				? ""
+				: `<p class="tsm-count-label is-hidden" data-count-label="${route}"></p>`}
 		</div>
 	`;
 }
@@ -182,7 +304,7 @@ function load_card_counts(page) {
 				if (count > 0) {
 					$badge.addClass("tsm-count--active");
 				}
-				if (label) {
+				if (label && $label.length) {
 					$label.text(__(label)).removeClass("is-hidden");
 				}
 			});
@@ -291,6 +413,57 @@ function get_landing_page_html() {
 				color: #0284c7;
 			}
 
+			.tsm-badges {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+			}
+
+			.tsm-badges--labeled {
+				gap: 16px;
+				align-items: flex-start;
+			}
+			.tsm-badge-stat {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 5px;
+			}
+			.tsm-badge-label {
+				font-size: 10px;
+				font-weight: 800;
+				letter-spacing: .04em;
+				text-transform: uppercase;
+				color: #64748b;
+			}
+			.tsm-card--primary .tsm-badge-label { color: #0c4a6e; }
+
+			/* Open-alerts badge always reads red, regardless of card variant —
+			   placed after the .tsm-card--primary rules above so it wins the
+			   specificity tie and isn't repainted blue/white on Control Room. */
+			.tsm-count--alert {
+				background: #fee2e2;
+				color: #b91c1c;
+			}
+
+			.tsm-count--alert.tsm-count--active {
+				background: #dc2626;
+				color: #ffffff;
+			}
+
+			/* Arrivals-awaiting-confirmation badge — amber, matching the Arrivals
+			   card color in control_room.js. Same specificity-tie reasoning as
+			   .tsm-count--alert above. */
+			.tsm-count--arrival {
+				background: #fef3c7;
+				color: #92400e;
+			}
+
+			.tsm-count--arrival.tsm-count--active {
+				background: #d97706;
+				color: #ffffff;
+			}
+
 			.tsm-count.is-hidden,
 			.tsm-count-label.is-hidden {
 				display: none;
@@ -347,9 +520,31 @@ function get_landing_page_html() {
 			[data-theme="dark"] .tsm-count-label {
 				color: #94a3b8;
 			}
+			[data-theme="dark"] .tsm-badge-label {
+				color: #94a3b8;
+			}
+			[data-theme="dark"] .tsm-card--primary .tsm-badge-label {
+				color: #e0f2fe;
+			}
 			[data-theme="dark"] .tsm-card--primary {
 				background: linear-gradient(135deg, #075985 0%, #0369a1 100%);
 				border-color: #0284c7;
+			}
+			[data-theme="dark"] .tsm-count--alert {
+				background: #7f1d1d;
+				color: #fecaca;
+			}
+			[data-theme="dark"] .tsm-count--alert.tsm-count--active {
+				background: #dc2626;
+				color: #ffffff;
+			}
+			[data-theme="dark"] .tsm-count--arrival {
+				background: #78350f;
+				color: #fde68a;
+			}
+			[data-theme="dark"] .tsm-count--arrival.tsm-count--active {
+				background: #d97706;
+				color: #ffffff;
 			}
 
 			@media (max-width: 991px) {

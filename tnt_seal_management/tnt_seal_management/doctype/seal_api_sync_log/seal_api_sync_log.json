@@ -46,7 +46,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Sync Type",
-   "options": "Manual Device Sync\nManual Journey Sync\nScheduled Sync\nScheduled Full Fleet Sync\nToken Generation\nTest Connection"
+   "options": "Manual Device Sync\nManual Journey Sync\nScheduled Sync\nScheduled Full Fleet Sync\nAlert Data Sync\nToken Generation\nTest Connection"
   },
   {
    "fieldname": "sync_col",

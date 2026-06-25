@@ -27,6 +27,7 @@ class SealBillingRate(Document):
 		"""Derive first_period_days from the period type. For Date Range, use the
 		inclusive span between the two dates — the dates are only a calculator for
 		the day count, the billing engine still consumes first_period_days alone.
+		For Days, keep the user-entered value.
 		For other period types, use the standard day count for that period."""
 		if self.billing_period_type == "Date Range":
 			if not self.period_from_date or not self.period_to_date:
@@ -34,6 +35,9 @@ class SealBillingRate(Document):
 			if getdate(self.period_to_date) < getdate(self.period_from_date):
 				frappe.throw(_("Period To Date cannot be before Period From Date."))
 			self.first_period_days = date_diff(self.period_to_date, self.period_from_date) + 1
+			return
+
+		if self.billing_period_type == "Days":
 			return
 
 		mapped = PERIOD_TYPE_DAYS.get(self.billing_period_type)

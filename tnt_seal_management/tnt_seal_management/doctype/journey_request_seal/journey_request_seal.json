@@ -13,6 +13,7 @@
   "tag_status",
   "lock_status",
   "api_device_status",
+  "api_branch",
   "api_location",
   "battery_level",
   "api_last_update_time"
@@ -67,6 +68,15 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "API Device Status",
+   "read_only": 1,
+   "columns": 2
+  },
+  {
+   "fetch_from": "seal_device.api_branch",
+   "fieldname": "api_branch",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "API Branch",
    "read_only": 1,
    "columns": 2
   },

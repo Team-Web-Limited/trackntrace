@@ -283,6 +283,7 @@ function _render_journeys(page, journeys) {
 					<th>${__("Origin")}</th>
 					<th>${__("Destination")}</th>
 					<th>${__("Status")}</th>
+					<th>${__("Warehouse")}</th>
 					<th>${__("Longer in Journey")}</th>
 					<th>${__("Seal")}</th>
 					<th>${__("Lock")}</th>
@@ -321,6 +322,8 @@ function _row_html(j, seal, idx, sealCount) {
 		? `<span class="jm-badge jm-badge--warning">${Math.ceil(j.longer_in_journey)} ${__("Days")}</span>`
 		: dash;
 
+	const warehouse = _warehouse_html(j, dash);
+
 	// Journey-level cells render only on the first seal row and span the group.
 	const span = sealCount > 1 ? ` rowspan="${sealCount}"` : "";
 	const journeyCells = isFirst
@@ -332,6 +335,7 @@ function _row_html(j, seal, idx, sealCount) {
 			<td${span} class="jm-cell-place">${origin}</td>
 			<td${span} class="jm-cell-place">${destination}</td>
 			<td${span}><span class="jm-badge jm-badge--${statusClass}">${esc(status)}</span></td>
+			<td${span}>${warehouse}</td>
 			<td${span}>${longer}</td>
 		`
 		: "";
@@ -361,6 +365,26 @@ function _row_html(j, seal, idx, sealCount) {
 	`;
 }
 
+// Maps the custodian_type from the API to a badge colour + short role tag.
+const JM_CUSTODY_BADGE = {
+	"Warehouse": { cls: "offline", tag: __("Warehouse") },
+	"Team Lead": { cls: "info", tag: __("Team Lead") },
+	"Field Technician": { cls: "info", tag: __("Field Tech") },
+	"Customer": { cls: "active", tag: __("Customer") },
+};
+
+function _warehouse_html(j, dash) {
+	const esc = frappe.utils.escape_html;
+	const holder = j.current_warehouse;
+	if (!holder) return dash;
+
+	const meta = JM_CUSTODY_BADGE[j.custodian_type] || { cls: "offline", tag: j.custodian_type || "" };
+	const label = meta.tag ? `${meta.tag} - ${holder}` : holder;
+	return `
+		<span class="jm-custodian-inline" title="${esc(label)}">${esc(label)}</span>
+	`;
+}
+
 function _truncate_words(value, wordLimit) {
 	if (!value) return "";
 	const words = String(value).trim().split(/\s+/);
@@ -370,9 +394,10 @@ function _truncate_words(value, wordLimit) {
 
 function _alerts_html(alerts) {
 	if (!alerts.length) return `<span class="jm-cell-muted">—</span>`;
-	return alerts.map(a =>
-		`<span class="jm-badge jm-badge--${a.level}" title="${frappe.utils.escape_html(a.message)}">${frappe.utils.escape_html(a.message)}</span>`
-	).join(" ");
+	return alerts.map((a) => {
+		const title = a.type ? `${a.type}: ${a.message}` : a.message;
+		return `<span class="jm-badge jm-badge--${a.level}" title="${frappe.utils.escape_html(title)}">${frappe.utils.escape_html(a.message)}</span>`;
+	}).join(" ");
 }
 
 function _render_pagination(page, totalRecords) {
@@ -809,6 +834,14 @@ function _inject_styles() {
 			white-space: normal;
 		}
 		.jm-truncate-chip {
+			display: inline-block;
+			max-width: 100%;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			vertical-align: bottom;
+			white-space: nowrap;
+		}
+		.jm-custodian-inline {
 			display: inline-block;
 			max-width: 100%;
 			overflow: hidden;

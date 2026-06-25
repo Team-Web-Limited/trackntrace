@@ -20,7 +20,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Photo Type",
-   "options": "Pre-Tagging\nTagging\nPost-Tagging\nArrival\nUntagging\nDamage\nOther",
+   "options": "Pre-Tagging\nTagging\nPost-Tagging\nArrival\nUntagging\nSeal Return\nDamage\nOther",
    "reqd": 1
   },
   {

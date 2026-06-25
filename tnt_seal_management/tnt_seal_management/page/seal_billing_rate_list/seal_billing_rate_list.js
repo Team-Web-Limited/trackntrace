@@ -280,14 +280,13 @@ function _sbr_row_html(rate) {
 	return `
 		<tr class="sbr-row" data-name="${frappe.utils.escape_html(rate.name)}">
 			<td>
-				<div class="sbr-cell-primary">${frappe.utils.escape_html(rate.billing_rule_name || rate.name)}${isGlobal ? ' <span class="sbr-global-badge">${__("Global Default")}</span>' : ""}</div>
-				<div class="sbr-cell-secondary">${frappe.utils.escape_html(rate.name)}</div>
+				<div class="sbr-cell-primary">${frappe.utils.escape_html(rate.billing_rule_name || rate.name)}${isGlobal ? ` <span class="sbr-global-badge">${__("Global Default")}</span>` : ""}</div>
 			</td>
 			<td><span class="sbr-type-badge sbr-type--${typeClass}">${frappe.utils.escape_html(rate.billing_type || "—")}</span></td>
 			<td>${frappe.utils.escape_html(rate.billing_period_type || "—")}</td>
 			<td>${frappe.utils.escape_html(String(rate.first_period_days || "—"))}</td>
-			<td>${frappe.utils.escape_html(firstAmt)}</td>
-			<td>${frappe.utils.escape_html(extraRate)}</td>
+			<td>${firstAmt}</td>
+			<td>${extraRate}</td>
 			<td>${frappe.utils.escape_html(rate.currency || "—")}</td>
 			<td>${frappe.utils.escape_html(effFrom)}</td>
 			<td>${frappe.utils.escape_html(effTo)}</td>

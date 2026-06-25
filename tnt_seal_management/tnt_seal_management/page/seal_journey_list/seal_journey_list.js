@@ -46,6 +46,7 @@ function _sjl_build_page(page) {
 							<div class="sjl-filter-menu">
 								<div class="sjl-filter-item active" data-status="All" data-label="${__("All Journeys")}">${__("All Journeys")} <span class="sjl-fcount" data-fcount="All">0</span></div>
 								<div class="sjl-filter-item" data-status="Active" data-label="${__("Active")}">${__("Active")} <span class="sjl-fcount" data-fcount="Active">0</span></div>
+								<div class="sjl-filter-item" data-status="Pending Billing" data-label="${__("Pending Billing")}">${__("Pending Billing")} <span class="sjl-fcount" data-fcount="Pending Billing">0</span></div>
 								<div class="sjl-filter-item" data-status="Completed" data-label="${__("Completed")}">${__("Completed")} <span class="sjl-fcount" data-fcount="Completed">0</span></div>
 								<div class="sjl-filter-item" data-status="Cancelled" data-label="${__("Cancelled")}">${__("Cancelled")} <span class="sjl-fcount" data-fcount="Cancelled">0</span></div>
 							</div>
@@ -154,6 +155,10 @@ function _sjl_render_stats(page, summary) {
 			<div class="sjl-stat-label">${__("Active")}</div>
 			<div class="sjl-stat-value">${summary.Active || 0}</div>
 		</div>
+		<div class="sjl-stat-card sjl-stat--billing">
+			<div class="sjl-stat-label">${__("Pending Billing")}</div>
+			<div class="sjl-stat-value">${summary["Pending Billing"] || 0}</div>
+		</div>
 		<div class="sjl-stat-card sjl-stat--completed">
 			<div class="sjl-stat-label">${__("Completed")}</div>
 			<div class="sjl-stat-value">${summary.Completed || 0}</div>
@@ -170,6 +175,7 @@ function _sjl_render_stats(page, summary) {
 	const countMap = {
 		All: summary.All || 0,
 		Active: summary.Active || 0,
+		"Pending Billing": summary["Pending Billing"] || 0,
 		Completed: summary.Completed || 0,
 		Cancelled: summary.Cancelled || 0,
 	};
@@ -212,8 +218,6 @@ function _sjl_render_table(page, journeys) {
 }
 
 function _sjl_row(j) {
-	const start = j.journey_start_date_time ? frappe.datetime.str_to_user(j.journey_start_date_time) : "-";
-	const end = j.completion_date_time ? frappe.datetime.str_to_user(j.completion_date_time) : "-";
 	const routeStr = [j.origin, j.destination].filter(Boolean).join(" → ") || "-";
 
 	const rawCustomer = j.customer || "-";
@@ -233,14 +237,12 @@ function _sjl_row(j) {
 			</td>
 			<td>
 				<div class="sjl-cell-primary">${frappe.utils.escape_html(j.vehicle_plate_number || "-")}</div>
-				<div class="sjl-cell-secondary">${frappe.utils.escape_html(j.container_number || "")}</div>
 			</td>
 			<td>
 				<div class="sjl-cell-primary">${frappe.utils.escape_html(routeStr)}</div>
 			</td>
 			<td>
 				<div class="sjl-cell-primary">${j.days_taken ? parseFloat(j.days_taken).toFixed(1) + " days" : "-"}</div>
-				<div class="sjl-cell-secondary">${start}</div>
 			</td>
 			<td>
 				<span class="sjl-badge sjl-badge--${_sjl_status_class(j.journey_status)}">

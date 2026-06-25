@@ -32,6 +32,7 @@
   "api_tab",
   "current_location",
   "last_known_api_location",
+  "api_branch",
   "last_api_status",
   "lock_status",
   "last_api_sync_time",
@@ -51,6 +52,10 @@
   "raw_api_response",
   "lifecycle_tab",
   "date_received",
+  "acquisition_reference",
+  "acquisition_supplier",
+  "acquisition_invoice_reference",
+  "acquisition_cost",
   "date_activated",
   "date_deactivated",
   "remarks",
@@ -203,6 +208,13 @@
    "label": "Last Known API Location"
   },
   {
+   "fieldname": "api_branch",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "API Branch",
+   "read_only": 1
+  },
+  {
    "fieldname": "last_api_status",
    "fieldtype": "Data",
    "label": "Last API Status"
@@ -306,6 +318,33 @@
    "label": "Date Received"
   },
   {
+   "fieldname": "acquisition_reference",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Acquisition Reference",
+   "options": "Seal Acquisition",
+   "read_only": 1
+  },
+  {
+   "fieldname": "acquisition_supplier",
+   "fieldtype": "Link",
+   "label": "Acquisition Supplier",
+   "options": "Supplier",
+   "read_only": 1
+  },
+  {
+   "fieldname": "acquisition_invoice_reference",
+   "fieldtype": "Data",
+   "label": "Acquisition Invoice / PO",
+   "read_only": 1
+  },
+  {
+   "fieldname": "acquisition_cost",
+   "fieldtype": "Currency",
+   "label": "Acquisition Cost",
+   "read_only": 1
+  },
+  {
    "fieldname": "date_activated",
    "fieldtype": "Date",
    "label": "Date Activated"
@@ -340,7 +379,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-14 18:00:00.000000",
+ "modified": "2026-06-25 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Device",

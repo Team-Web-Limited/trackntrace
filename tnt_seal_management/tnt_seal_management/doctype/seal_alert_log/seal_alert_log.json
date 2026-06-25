@@ -1,0 +1,254 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 0,
+ "autoname": "format:SAL-{YYYY}-{MM}-{#####}",
+ "creation": "2026-06-25 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "header_section",
+  "alert_source",
+  "alert_col",
+  "alert_type",
+  "level_section",
+  "level",
+  "level_col",
+  "is_resolved",
+  "message_section",
+  "message",
+  "target_section",
+  "seal_device",
+  "target_col",
+  "seal_journey",
+  "journey_request",
+  "time_section",
+  "occurred_at",
+  "time_col",
+  "resolved_at",
+  "ack_section",
+  "acknowledged",
+  "ack_col",
+  "acknowledged_by",
+  "acknowledged_at",
+  "source_section",
+  "source_alert_id",
+  "raw_data"
+ ],
+ "fields": [
+  {
+   "fieldname": "header_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "default": "System",
+   "fieldname": "alert_source",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Alert Source",
+   "options": "System\nUffizio",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "alert_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "alert_type",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Alert Type",
+   "read_only": 1,
+   "description": "Category — e.g. Security, Connectivity, Battery for System alerts, or Uffizio's own alert_type category for Uffizio alerts."
+  },
+  {
+   "fieldname": "level_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "level",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Level",
+   "options": "Critical\nWarning\nInfo",
+   "read_only": 1
+  },
+  {
+   "fieldname": "level_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_resolved",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Resolved",
+   "read_only": 1
+  },
+  {
+   "fieldname": "message_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Message",
+   "read_only": 1
+  },
+  {
+   "fieldname": "target_section",
+   "fieldtype": "Section Break",
+   "label": "Target"
+  },
+  {
+   "fieldname": "seal_device",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Seal Device",
+   "options": "Seal Device",
+   "read_only": 1
+  },
+  {
+   "fieldname": "target_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "seal_journey",
+   "fieldtype": "Link",
+   "label": "Seal Journey",
+   "options": "Seal Journey",
+   "read_only": 1
+  },
+  {
+   "fieldname": "journey_request",
+   "fieldtype": "Link",
+   "label": "Journey Request",
+   "options": "Journey Request",
+   "read_only": 1
+  },
+  {
+   "fieldname": "time_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "occurred_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Occurred At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "time_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "resolved_at",
+   "fieldtype": "Datetime",
+   "label": "Resolved At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ack_section",
+   "fieldtype": "Section Break",
+   "label": "Acknowledgement"
+  },
+  {
+   "default": "0",
+   "fieldname": "acknowledged",
+   "fieldtype": "Check",
+   "label": "Acknowledged"
+  },
+  {
+   "fieldname": "ack_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "acknowledged_by",
+   "fieldtype": "Link",
+   "label": "Acknowledged By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "acknowledged_at",
+   "fieldtype": "Datetime",
+   "label": "Acknowledged At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_section",
+   "fieldtype": "Section Break",
+   "label": "Source Detail",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "source_alert_id",
+   "fieldtype": "Data",
+   "label": "Source Alert ID",
+   "read_only": 1,
+   "description": "Uffizio's own alert_id, for de-duplication. Blank for System-derived alerts."
+  },
+  {
+   "fieldname": "raw_data",
+   "fieldtype": "Long Text",
+   "label": "Raw Data",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-25 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Seal Alert Log",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Seal System Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Operations Control Room",
+   "write": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Management"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "occurred_at",
+ "sort_order": "DESC",
+ "states": []
+}

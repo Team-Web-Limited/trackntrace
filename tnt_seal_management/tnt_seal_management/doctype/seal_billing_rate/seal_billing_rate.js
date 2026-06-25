@@ -33,12 +33,12 @@ frappe.ui.form.on("Seal Billing Rate", {
 			const $back_btn = $(back_btn_html);
 			$back_btn.insertBefore(print_btn);
 			$back_btn.on("click", () => {
-				frappe.set_route("List", "Seal Billing Rate");
+				frappe.set_route("seal-billing-rate-list");
 			});
 		} else {
 			// Fallback: If no print button is found, add it as a standard custom button
 			frm.add_custom_button(__("Back"), () => {
-				frappe.set_route("List", "Seal Billing Rate");
+				frappe.set_route("seal-billing-rate-list");
 			});
 		}
 	},
@@ -70,6 +70,16 @@ function _apply_period_type(frm) {
 			"first_period_days",
 			"description",
 			__("Derived from the date range (inclusive). Set the amounts below per rule.")
+		);
+		return;
+	}
+
+	if (period === "Days") {
+		frm.set_df_property("first_period_days", "read_only", 0);
+		frm.set_df_property(
+			"first_period_days",
+			"description",
+			__("Enter the number of days for this billing rule.")
 		);
 		return;
 	}

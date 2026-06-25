@@ -21,6 +21,10 @@ def get_seal_journey_list_data(status="All", search=None, page=1, page_length=30
 	filters = []
 	if status == "Active":
 		filters.append(["journey_status", "not in", _TERMINAL_STATUSES + ("Draft",)])
+	elif status == "Pending Billing":
+		# Billing is a separate axis from the journey lifecycle — this surfaces the
+		# completed-but-unsettled journeys that have left the active views.
+		filters.append(["billing_status", "=", "Pending Billing"])
 	elif status in ("Completed", "Cancelled", "Draft"):
 		filters.append(["journey_status", "=", status])
 
@@ -64,10 +68,12 @@ def _summary():
 	completed = count([["journey_status", "=", "Completed"]])
 	active = count([["journey_status", "not in", _TERMINAL_STATUSES + ("Draft",)]])
 	cancelled = count([["journey_status", "=", "Cancelled"]])
+	pending_billing = count([["billing_status", "=", "Pending Billing"]])
 
 	return {
 		"All": all_count,
 		"Active": active,
+		"Pending Billing": pending_billing,
 		"Completed": completed,
 		"Cancelled": cancelled,
 	}

@@ -7,6 +7,7 @@ frappe.ui.form.on("Journey Request", {
 		frm.add_fetch("seal_device", "last_api_sync_time", "api_last_update_time");
 
 		_journey_request_apply_locks(frm);
+		_journey_request_apply_role_visibility(frm);
 		_journey_request_add_list_button(frm);
 		_journey_request_add_seals_grid_button(frm);
 
@@ -75,7 +76,13 @@ function _journey_request_add_buttons(frm) {
 				__(
 					"Confirm tagging is finished. This cannot be undone. Ensure evidence photos are attached and Tagging Completed is ticked."
 				),
-				() => _jr_call(frm, "complete_tagging"),
+				() => {
+					// complete_tagging() re-reads the doc from the database, so any
+					// unsaved checkbox/photo edits on the form must be saved first
+					// or the server still sees the pre-edit values.
+					const proceed = () => _jr_call(frm, "complete_tagging");
+					frm.is_dirty() ? frm.save().then(proceed) : proceed();
+				},
 				__("Confirm")
 			);
 		}).addClass("btn-primary");
@@ -89,6 +96,41 @@ function _journey_request_add_buttons(frm) {
 		frm.add_custom_button(__("Reject"), () =>
 			_jr_prompt_reject(frm, "reject_journey_request")
 		);
+	}
+
+	if (status === "Untagging" && isTech) {
+		frm.add_custom_button(__("Submit Untagging to Control Room"), () => {
+			frappe.warn(
+				__("Submit Untagging to Control Room"),
+				__("Confirm untagging evidence is captured before submitting for Control Room approval."),
+				() => {
+					// submit_untagging_to_control_room() re-reads the doc from the
+					// database, so unsaved photo edits must be saved first.
+					const proceed = () => _jr_call(frm, "submit_untagging_to_control_room");
+					frm.is_dirty() ? frm.save().then(proceed) : proceed();
+				},
+				__("Confirm")
+			);
+		}).addClass("btn-primary");
+	}
+
+	// "Untagging Approved" doubles as the seal-return work window — the FT who
+	// untagged the seal (now its custodian) captures return evidence and submits
+	// it for the Control Room's final good-condition sign-off.
+	if (status === "Untagging Approved" && isTech) {
+		frm.add_custom_button(__("Submit Seal Return to Control Room"), () => {
+			frappe.warn(
+				__("Submit Seal Return to Control Room"),
+				__("Confirm the seal has been returned in good condition and evidence is captured before submitting for Control Room approval."),
+				() => {
+					// submit_seal_return_to_control_room() re-reads the doc from the
+					// database, so unsaved photo edits must be saved first.
+					const proceed = () => _jr_call(frm, "submit_seal_return_to_control_room");
+					frm.is_dirty() ? frm.save().then(proceed) : proceed();
+				},
+				__("Confirm")
+			);
+		}).addClass("btn-primary");
 	}
 }
 
@@ -181,11 +223,9 @@ function _jr_swap_seal(frm) {
 }
 
 function _journey_request_add_list_button(frm) {
-	const label = __("Back");
-	frm.page.remove_inner_button(label);
-	frm.page
-		.add_inner_button(label, () => frappe.set_route("journey-request-list"))
-		.addClass("btn-primary");
+	frm.add_custom_button(__("Back"), () => {
+		frappe.set_route("journey-request-list");
+	});
 }
 
 function _journey_request_add_seals_grid_button(frm) {
@@ -227,9 +267,22 @@ const JR_CONTENT_FIELDS = [
 const JR_TAGGING_FIELDS = [
 	"tagging_photos",
 	"actual_tagging_date_time",
-	"tagging_location",
 	"tagging_completed",
 	"tagging_remarks",
+];
+// tagging_location is intentionally excluded — it is pulled automatically from
+// the seal device's GPS in complete_tagging() and stays read-only (see its
+// "read_only": 1 in journey_request.json) rather than being technician-edited.
+const JR_UNTAGGING_FIELDS = [
+	"untagging_entry_document",
+	"untagging_photos",
+	"untagging_confirmed_by_technician",
+];
+const JR_SEAL_RETURN_FIELDS = [
+	"seal_return_entry_document",
+	"seal_return_photos",
+	"seal_return_confirmed_by_technician",
+	"seal_return_condition",
 ];
 
 function _journey_request_apply_locks(frm) {
@@ -243,6 +296,8 @@ function _journey_request_apply_locks(frm) {
 
 	let lockedContent = !isNew;
 	let lockedTagging = !isNew;
+	let lockedUntagging = !isNew;
+	let lockedSealReturn = !isNew;
 
 	if (isTech && (isNew || status === "Draft")) {
 		lockedContent = false;
@@ -250,6 +305,16 @@ function _journey_request_apply_locks(frm) {
 	} else if (isTech && status === "Tagging") {
 		lockedContent = true;
 		lockedTagging = false;
+	} else if (isTech && status === "Untagging") {
+		lockedContent = true;
+		lockedTagging = true;
+		lockedUntagging = false;
+	} else if (isTech && status === "Untagging Approved") {
+		// Seal-return work window: untagging is locked-in, seal return is editable.
+		lockedContent = true;
+		lockedTagging = true;
+		lockedUntagging = true;
+		lockedSealReturn = false;
 	}
 
 	for (const fieldname of JR_CONTENT_FIELDS) {
@@ -257,6 +322,12 @@ function _journey_request_apply_locks(frm) {
 	}
 	for (const fieldname of JR_TAGGING_FIELDS) {
 		frm.set_df_property(fieldname, "read_only", lockedTagging ? 1 : 0);
+	}
+	for (const fieldname of JR_UNTAGGING_FIELDS) {
+		frm.set_df_property(fieldname, "read_only", lockedUntagging ? 1 : 0);
+	}
+	for (const fieldname of JR_SEAL_RETURN_FIELDS) {
+		frm.set_df_property(fieldname, "read_only", lockedSealReturn ? 1 : 0);
 	}
 
 	frm.set_df_property("job_order", "read_only", 1);
@@ -267,8 +338,18 @@ function _journey_request_apply_locks(frm) {
 	// found" and aborted the rest of refresh(frm).
 }
 
+function _journey_request_apply_role_visibility(frm) {
+	const isFieldTechnician =
+		frappe.user.has_role("Field Technician") && !frappe.user.has_role("System Manager");
+
+	frm.set_df_property("jr_row_10_section", "hidden", isFieldTechnician ? 1 : 0);
+	frm.set_df_property("approval_log", "hidden", isFieldTechnician ? 1 : 0);
+	frm.toggle_display("jr_row_10_section", !isFieldTechnician);
+	frm.toggle_display("approval_log", !isFieldTechnician);
+}
+
 // While the request is still Draft, every section past Seals (documents/photos,
 // control room approval, tagging, customer care approval, approval history,
-// journey reference, remarks) is hidden via `depends_on` on those section breaks
+// remarks) is hidden via `depends_on` on those section breaks
 // in journey_request.json — Frappe hides whole sections natively there, which is
 // more reliable than toggling field visibility from JS.

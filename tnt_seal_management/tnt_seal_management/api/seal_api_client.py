@@ -315,6 +315,98 @@ def get_live_data(vehicle_nos=None, imei_nos=None, force_token_refresh=False, sy
 
 
 # ---------------------------------------------------------------------------
+# Alert data call (Uffizio's own alert feed — Trakzee Premium)
+# ---------------------------------------------------------------------------
+
+def get_alert_data(
+	imei_nos=None, from_dt=None, to_dt=None, alert_id=None,
+	force_token_refresh=False, sync_type="Alert Data Sync",
+):
+	"""
+	POST to getAlertData endpoint: https://developers.uffizio.com/tracking-api/55
+	Documented as a "Trakzee Premium" feature — unverified against the live
+	Uffizio account configured in Seal API Settings. Confirm a 200 response
+	with real alert rows before wiring this into the scheduler.
+
+	from_dt / to_dt: epoch seconds (the API's documented "Long" timestamp).
+	Returns the parsed JSON response. Creates a Seal API Sync Log entry.
+	"""
+	settings, password = get_api_settings()
+
+	token = generate_access_token(force=True) if force_token_refresh else get_cached_token()
+
+	respect_rate_limit(settings)
+
+	base_url = settings.api_base_url.rstrip("/")
+	url = f"{base_url}/webservice?token=getAlertData"
+
+	payload = {
+		"access_token": token,
+		"username": settings.username,
+		"format": "json",
+	}
+	if from_dt:
+		payload["from"] = from_dt
+	if to_dt:
+		payload["to"] = to_dt
+	if imei_nos:
+		payload["imei_number"] = (
+			imei_nos if isinstance(imei_nos, str) else ",".join(str(i) for i in imei_nos)
+		)
+	if alert_id:
+		payload["alert_id"] = alert_id
+
+	log = {
+		"doctype": _SYNC_LOG_DOCTYPE,
+		"sync_type": sync_type,
+		"sync_started_at": now_datetime(),
+		"request_url": url,
+		"request_body": json.dumps({**payload, "access_token": "***REDACTED***"}),
+	}
+
+	try:
+		resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=30)
+
+		log["http_status_code"] = resp.status_code
+		log["sync_completed_at"] = now_datetime()
+
+		if resp.status_code in (401, 403) and not force_token_refresh:
+			_save_sync_log({**log, "sync_status": "Failed", "error_message": f"HTTP {resp.status_code} — retrying with fresh token"})
+			return get_alert_data(
+				imei_nos=imei_nos, from_dt=from_dt, to_dt=to_dt, alert_id=alert_id,
+				force_token_refresh=True, sync_type=sync_type,
+			)
+
+		if resp.status_code != 200:
+			raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:500]}")
+
+		data = resp.json()
+		log["response_body"] = json.dumps(data)[:5000]
+
+		api_error = _extract_api_error(data)
+		if api_error:
+			if "token" in api_error.lower() and not force_token_refresh:
+				_save_sync_log({**log, "sync_status": "Failed", "error_message": api_error + " — retrying"})
+				return get_alert_data(
+					imei_nos=imei_nos, from_dt=from_dt, to_dt=to_dt, alert_id=alert_id,
+					force_token_refresh=True, sync_type=sync_type,
+				)
+			raise RuntimeError(f"API error: {api_error}")
+
+		log["sync_status"] = "Success"
+
+	except Exception as exc:
+		log["sync_status"] = "Failed"
+		log["error_message"] = str(exc)
+		log["sync_completed_at"] = now_datetime()
+		_save_sync_log(log)
+		raise
+
+	_save_sync_log(log)
+	return data
+
+
+# ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
 

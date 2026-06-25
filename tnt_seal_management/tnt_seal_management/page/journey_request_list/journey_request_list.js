@@ -18,9 +18,11 @@ frappe.pages["journey-request-list"].on_page_load = function (wrapper) {
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
 	page.add_inner_button(__("Refresh"), () => _jrl_load(page));
-	page
-		.add_inner_button(__("+ Journey Request"), () => frappe.new_doc("Journey Request"))
-		.addClass("jrl-new-request-btn");
+	if (frappe.session.user === "Administrator" || frappe.user.has_role("System Manager")) {
+		page
+			.add_inner_button(__("+ Journey Request"), () => frappe.new_doc("Journey Request"))
+			.addClass("jrl-new-request-btn");
+	}
 
 	const $statsBar = $('<div class="jrl-header-stats"></div>');
 	$(wrapper).find('.page-head .page-actions').before($statsBar);
@@ -39,6 +41,8 @@ function _jrl_build_page(page) {
 		["Tagging", __("Tagging")],
 		["Pending CC Approval", __("Pending CC Approval")],
 		["Journey Ready", __("Journey Ready")],
+		["Untagging", __("Untagging")],
+		["Pending Untagging Approval", __("Pending Untagging Approval")],
 		["Rejected", __("Rejected")],
 		["Cancelled", __("Cancelled")],
 	];
@@ -132,36 +136,8 @@ function _jrl_build_page(page) {
 	});
 	$(page.body).on("click", ".jrl-clear-btn", () => _jrl_clear_filters(page));
 	$(page.body).on("click", ".jrl-row", function (event) {
-		if ($(event.target).closest(".jrl-action-btn, .jrl-action-group").length) return;
 		const name = $(this).data("name");
 		if (name) frappe.set_route("Form", "Journey Request", name);
-	});
-	$(page.body).on("click", ".jrl-action-btn", function (event) {
-		event.preventDefault();
-		event.stopPropagation();
-		const $button = $(this);
-		const action = $button.data("action");
-		const docname = $button.data("name");
-		if (!action || !docname) return;
-		if (action === "open") {
-			frappe.set_route("Form", "Journey Request", docname);
-			return;
-		}
-		if (action === "approve") {
-			_jrl_approve_request(page, docname);
-			return;
-		}
-		if (action === "amend") {
-			_jrl_return_for_amendment(page, docname);
-			return;
-		}
-		if (action === "cr_approve") {
-			_jrl_control_room_approve(page, docname);
-			return;
-		}
-		if (action === "cr_reject") {
-			_jrl_control_room_reject(page, docname);
-		}
 	});
 	$(page.body).on("click", ".jrl-page-btn", function () {
 		if ($(this).prop("disabled")) return;
@@ -219,6 +195,10 @@ function _jrl_render_stats(page, summary) {
 			<div class="jrl-stat-label">${__("Journey Ready")}</div>
 			<div class="jrl-stat-value">${summary["Journey Ready"] || 0}</div>
 		</div>
+		<div class="jrl-stat-card jrl-stat--untagging">
+			<div class="jrl-stat-label">${__("Untagging")}</div>
+			<div class="jrl-stat-value">${(summary["Untagging"] || 0) + (summary["Pending Untagging Approval"] || 0)}</div>
+		</div>
 		<div class="jrl-stat-card jrl-stat--rejected">
 			<div class="jrl-stat-label">${__("Rejected")}</div>
 			<div class="jrl-stat-value">${summary.Rejected || 0}</div>
@@ -253,13 +233,10 @@ function _jrl_render_table(page, requests) {
 				<th>${__("Client Name")}</th>
 				<th>${__("Vehicle")}</th>
 				<th>${__("Entry Number")}</th>
-				<th>${__("Container Number")}</th>
-				<th>${__("Number of Seals")}</th>
 				<th>${__("Seal Serial Number(s)")}</th>
 				<th>${__("Origin")}</th>
 				<th>${__("Destination")}</th>
-				<th>${__("Driver Contact")}</th>
-				<th>${__("Action")}</th>
+				<th>${__("Status")}</th>
 			</tr></thead>
 			<tbody>${requests.map(_jrl_row_html).join("")}</tbody>
 		</table>
@@ -281,15 +258,21 @@ function _jrl_row_html(request) {
 			<td>${clientHtml}</td>
 			<td>${frappe.utils.escape_html(request.vehicle || "—")}</td>
 			<td>${frappe.utils.escape_html(request.entry_number || "—")}</td>
-			<td>${frappe.utils.escape_html(request.container_number || "—")}</td>
-			<td>${frappe.utils.escape_html(String(request.number_of_seals ?? "—"))}</td>
 			<td>${frappe.utils.escape_html(request.seal_serial_numbers || "—")}</td>
 			<td>${frappe.utils.escape_html(request.origin || "—")}</td>
 			<td>${frappe.utils.escape_html(request.destination || "—")}</td>
-			<td>${frappe.utils.escape_html(request.driver_contact || "—")}</td>
-			<td>${_jrl_action_html(request)}</td>
+			<td><span class="jrl-badge jrl-badge--${_jrl_status_class(request.journey_request_status)}">${frappe.utils.escape_html(request.journey_request_status || "—")}</span></td>
 		</tr>
 	`;
+}
+
+function _jrl_status_class(status) {
+	if (status === "Journey Ready") return "approved";
+	if (status === "Rejected" || status === "Cancelled") return "rejected";
+	if (status === "Pending Control Room Approval" || status === "Pending CC Approval" || status === "Pending Untagging Approval") return "pending";
+	if (status === "Tagging") return "tagging";
+	if (status === "Untagging") return "untagging";
+	return "draft";
 }
 
 function _jrl_action_html(request) {
@@ -476,7 +459,7 @@ function _jrl_inject_styles() {
 		.jrl-page {
 			--jrl-blue: #0284c7;
 			--jrl-dark: #075985;
-			max-width: 1580px;
+			max-width: 1200px;
 			margin: 0 auto;
 			padding: 32px 24px 48px;
 			position: relative;
@@ -507,6 +490,7 @@ function _jrl_inject_styles() {
 		}
 		.jrl-header-stats .jrl-stat--pending { border-top-color: #f59e0b; }
 		.jrl-header-stats .jrl-stat--approved { border-top-color: #16a34a; }
+		.jrl-header-stats .jrl-stat--untagging { border-top-color: #ea580c; }
 		.jrl-header-stats .jrl-stat--rejected { border-top-color: #dc2626; }
 		.jrl-header-stats .jrl-stat-label {
 			color: #0369a1;
@@ -721,10 +705,10 @@ function _jrl_inject_styles() {
 		}
 		.jrl-actions { display: flex; gap: 8px; padding-bottom: 1px; }
 		.jrl-table-scroll { overflow-x: auto; }
-		.jrl-table { width: 100%; min-width: 1440px; border-collapse: collapse; }
+		.jrl-table { width: 100%; min-width: 800px; border-collapse: collapse; }
 		.jrl-table th,
 		.jrl-table td {
-			padding: 16px 18px;
+			padding: 10px 12px;
 			border-bottom: 1px solid #e0f2fe;
 			text-align: left;
 			vertical-align: middle;
@@ -772,6 +756,19 @@ function _jrl_inject_styles() {
 			background: #ffedd5;
 			color: #c2410c;
 		}
+		.jrl-badge {
+			display: inline-flex;
+			border-radius: 999px;
+			padding: 6px 11px;
+			font-size: 12px;
+			font-weight: 800;
+		}
+		.jrl-badge--approved { background: #dcfce7; color: #166534; }
+		.jrl-badge--rejected { background: #fee2e2; color: #b91c1c; }
+		.jrl-badge--pending { background: #fef3c7; color: #92400e; }
+		.jrl-badge--tagging { background: #e0f2fe; color: #0369a1; }
+		.jrl-badge--untagging { background: #fff7ed; color: #c2410c; }
+		.jrl-badge--draft { background: #e5e7eb; color: #4b5563; }
 		.jrl-empty { padding: 60px 20px; text-align: center; color: #64748b; }
 		.jrl-empty strong { display: block; margin-bottom: 6px; color: #0c4a6e; font-size: 22px; }
 		.jrl-pagination {

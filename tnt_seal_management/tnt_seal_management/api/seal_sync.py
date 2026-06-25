@@ -78,6 +78,7 @@ def normalize_live_data_response(response_json):
 				"speed": _float(_pick(rec, ["speed", "Speed"])),
 				"battery": _pick(rec, ["battery", "Battery", "battery_level", "battery_percentage"]),
 				"transmission_status": _pick(rec, ["transmission_status", "TransmissionStatus", "GPS", "gps"]),
+				"branch": _pick(rec, ["branch", "Branch", "BRANCH", "fleet_branch", "FleetBranch"]),
 				"elock": _pick(rec, ["elock", "Elock", "ELock", "ELOCK", "lock_status", "LockStatus"]),
 				"last_update_time": _pick(rec, ["last_update_time", "LastUpdateTime", "datetime", "Datetime", "DateTime", "date_time", "GPSActualTime", "gps_date_time", "serverTimeStamp"]),
 				"_raw": rec,
@@ -105,9 +106,15 @@ def sync_seal_device(seal_device_name, sync_type="Manual Device Sync"):
 		)
 
 	try:
+		# IMEI alone is enough — _match_record matches by IMEI first and only
+		# falls back to vehicle_no locally if that fails. Sending vehicle_nos
+		# as an API-side filter is risky: if current_vehicle holds a plate the
+		# Uffizio account doesn't have registered, the whole request is
+		# rejected ("<plate> Does Not Belong To Given User") even though the
+		# IMEI itself is valid. sync_all_devices (the full-fleet path) never
+		# sends vehicle_nos for the same reason.
 		raw = get_live_data(
 			imei_nos=device.imei_number,
-			vehicle_nos=device.current_vehicle or None,
 			sync_type=sync_type,
 		)
 	except Exception as exc:
@@ -153,7 +160,71 @@ def sync_seal_device(seal_device_name, sync_type="Manual Device Sync"):
 				"Seal Journey Request Sync",
 			)
 
+	try:
+		_reconcile_alert_log(device)
+	except Exception as exc:
+		frappe.log_error(
+			f"Alert log reconcile failed for {seal_device_name}: {exc}",
+			"Seal Alert Log Sync",
+		)
+
 	return matched
+
+
+def _reconcile_alert_log(device):
+	"""Re-derive alerts for one freshly-synced Seal Device and keep Seal Alert
+	Log in step: open a row the first time a condition appears, resolve it the
+	first time it clears. Runs at every sync chokepoint (scheduled, manual,
+	tagging/arrival GPS pulls) so the log reflects live telemetry without
+	hammering the DB on every dashboard read."""
+	from tnt_seal_management.tnt_seal_management.api.journey_monitoring import _derive_seal_alerts
+
+	journey_status = None
+	seal_journey = device.current_journey or None
+	journey_request = None
+	if seal_journey:
+		journey_status = frappe.db.get_value("Seal Journey", seal_journey, "journey_status")
+	elif device.current_journey_request:
+		journey_request = device.current_journey_request
+		journey_status = frappe.db.get_value("Journey Request", journey_request, "journey_request_status")
+
+	seal = {
+		"api_device_status": device.last_api_status,
+		"api_last_update_time": device.last_api_sync_time,
+		"battery_level": device.battery_level,
+	}
+	alerts = _derive_seal_alerts(journey_status, seal, device.lock_status)
+	current_types = {a["type"] for a in alerts}
+
+	open_rows = frappe.get_all(
+		"Seal Alert Log",
+		filters={"seal_device": device.name, "alert_source": "System", "is_resolved": 0},
+		fields=["name", "alert_type"],
+	)
+	open_types = {r.alert_type for r in open_rows}
+
+	for row in open_rows:
+		if row.alert_type not in current_types:
+			frappe.db.set_value(
+				"Seal Alert Log", row.name, {"is_resolved": 1, "resolved_at": now_datetime()}
+			)
+
+	for alert in alerts:
+		if alert["type"] in open_types:
+			continue
+		frappe.get_doc({
+			"doctype": "Seal Alert Log",
+			"alert_source": "System",
+			"alert_type": alert["type"],
+			"level": alert["level"].capitalize(),
+			"message": alert["message"],
+			"seal_device": device.name,
+			"seal_journey": seal_journey,
+			"journey_request": journey_request,
+			"occurred_at": now_datetime(),
+		}).insert(ignore_permissions=True)
+
+	frappe.db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -557,6 +628,100 @@ def manual_sync_seal_journey(seal_journey_name):
 		return {"status": "error", "message": str(exc)}
 
 
+# ---------------------------------------------------------------------------
+# Uffizio's own alert feed (getAlertData — Trakzee Premium, separate from the
+# locally-derived alerts in journey_monitoring.py). Manual-trigger only for
+# now: unverified against the live Seal API Settings account, so it is not
+# wired into hooks.py scheduler_events alongside the other syncs. Once a
+# manual run confirms real alert rows come back, add it to the cron block
+# next to scheduled_sync_active_journeys.
+# ---------------------------------------------------------------------------
+
+def sync_alert_data(from_dt=None, to_dt=None, imei_nos=None, sync_type="Alert Data Sync"):
+	"""Pull Uffizio's getAlertData feed and persist new alerts to Seal Alert
+	Log with alert_source="Uffizio", deduplicated by source_alert_id so
+	re-running the sync never creates duplicate rows."""
+	from tnt_seal_management.tnt_seal_management.api.seal_api_client import get_alert_data
+
+	raw = get_alert_data(imei_nos=imei_nos, from_dt=from_dt, to_dt=to_dt, sync_type=sync_type)
+	records = _normalize_alert_data_response(raw)
+
+	imeis = {str(r["imei"]) for r in records if r.get("imei")}
+	device_by_imei = {}
+	if imeis:
+		rows = frappe.get_all(
+			"Seal Device",
+			filters={"imei_number": ["in", list(imeis)]},
+			fields=["name", "imei_number", "current_journey", "current_journey_request"],
+		)
+		device_by_imei = {str(r.imei_number): r for r in rows}
+
+	created = 0
+	skipped = 0
+	for rec in records:
+		alert_id = rec.get("alert_id")
+		if alert_id and frappe.db.exists(
+			"Seal Alert Log", {"source_alert_id": str(alert_id), "alert_source": "Uffizio"}
+		):
+			skipped += 1
+			continue
+
+		device = device_by_imei.get(str(rec.get("imei"))) if rec.get("imei") else None
+		frappe.get_doc({
+			"doctype": "Seal Alert Log",
+			"alert_source": "Uffizio",
+			"alert_type": rec.get("alert_type") or "Unknown",
+			"level": "Warning",
+			"message": rec.get("alert_info") or rec.get("alert_type") or _("Uffizio alert"),
+			"seal_device": device.name if device else None,
+			"seal_journey": device.current_journey if device else None,
+			"journey_request": device.current_journey_request if device else None,
+			"occurred_at": rec.get("alert_generation") or now_datetime(),
+			"source_alert_id": str(alert_id) if alert_id else None,
+			"raw_data": json.dumps(rec.get("_raw") or rec)[:5000],
+		}).insert(ignore_permissions=True)
+		created += 1
+
+	frappe.db.commit()
+	return {"created": created, "skipped": skipped, "total": len(records)}
+
+
+def _normalize_alert_data_response(response_json):
+	"""Normalise Uffizio's getAlertData response shape — see
+	https://developers.uffizio.com/tracking-api/55 — into a uniform list."""
+	if not response_json:
+		return []
+	records = response_json.get("data") if isinstance(response_json, dict) else response_json
+	if not isinstance(records, list):
+		return []
+
+	normalised = []
+	for rec in records:
+		if not isinstance(rec, dict):
+			continue
+		normalised.append({
+			"imei": _pick(rec, ["imei", "Imeino", "imei_no", "IMEI"]),
+			"alert_id": _pick(rec, ["alert_id", "Alert_Id", "AlertId"]),
+			"alert_type": _pick(rec, ["alert_type", "Alert_Type", "AlertType"]),
+			"alert_info": _pick(rec, ["alert_info", "Alert_Info", "description", "Description"]),
+			"alert_generation": _pick(rec, ["alert_generation", "Alert_Generation", "AlertGeneration"]),
+			"alert_location": _pick(rec, ["alert_location", "Alert_Location"]),
+			"_raw": rec,
+		})
+	return normalised
+
+
+@frappe.whitelist()
+def manual_sync_alert_data(from_dt=None, to_dt=None):
+	_require_sync_permission()
+	try:
+		result = sync_alert_data(from_dt=from_dt, to_dt=to_dt)
+		return {"status": "success", **result}
+	except Exception as exc:
+		frappe.log_error(f"Manual alert data sync failed: {exc}", "Seal Alert Data Sync")
+		return {"status": "error", "message": str(exc)}
+
+
 @frappe.whitelist()
 def test_connection():
 	_require_admin_permission()
@@ -631,7 +796,7 @@ def get_device_dashboard_data():
 			"name", "device_id", "imei_number",
 			"current_status", "condition", "current_vehicle", "current_journey",
 			"current_technician",
-			"current_location", "last_known_api_location",
+			"current_location", "last_known_api_location", "api_branch",
 			"latitude", "longitude", "speed", "battery_level",
 			"last_api_status", "lock_status", "transmission_status",
 			"last_successful_sync_time", "last_failed_sync_time",
@@ -787,6 +952,8 @@ def _apply_to_device(device_name, rec):
 		upd["battery_level"] = str(rec["battery"])[:140]
 	if rec.get("transmission_status"):
 		upd["transmission_status"] = str(rec["transmission_status"])[:140]
+	if rec.get("branch"):
+		upd["api_branch"] = str(rec["branch"])[:140]
 	lock_status = normalize_elock_status(rec.get("elock"))
 	if lock_status:
 		upd["lock_status"] = lock_status
@@ -863,6 +1030,8 @@ def _apply_to_journey(journey_name, rec):
 		upd["api_speed"] = rec["speed"]
 	if rec.get("battery") is not None:
 		upd["api_battery_level"] = str(rec["battery"])[:140]
+	if rec.get("branch"):
+		upd["api_branch"] = str(rec["branch"])[:140]
 	if rec.get("_raw"):
 		upd["api_raw_response"] = json.dumps(rec["_raw"])[:5000]
 
@@ -879,6 +1048,8 @@ def _apply_to_journey_request_seal(row_name, rec):
 		upd["api_location"] = str(rec["location"])[:140]
 	if rec.get("battery") is not None:
 		upd["battery_level"] = str(rec["battery"])[:140]
+	if rec.get("branch"):
+		upd["api_branch"] = str(rec["branch"])[:140]
 	lock_status = normalize_elock_status(rec.get("elock"))
 	if lock_status:
 		upd["lock_status"] = lock_status
@@ -919,6 +1090,19 @@ def _apply_to_seal_journey_seals(seal_journey_name, seal_device_name, rec):
 	)
 	for row_name in rows:
 		_apply_to_journey_request_seal(row_name, rec)
+	_update_seal_journey_api_branch_summary(seal_journey_name)
+
+
+def _update_seal_journey_api_branch_summary(seal_journey_name):
+	"""Set the journey branch only when every seal row has the same API branch."""
+	rows = frappe.db.get_all(
+		"Journey Request Seal",
+		filters={"parent": seal_journey_name, "parenttype": "Seal Journey"},
+		fields=["api_branch"],
+	)
+	branches = {(r.api_branch or "").strip() for r in rows if (r.api_branch or "").strip()}
+	branch = next(iter(branches)) if rows and len(branches) == 1 and len(branches) == len(rows) else ""
+	frappe.db.set_value("Seal Journey", seal_journey_name, "api_branch", branch)
 
 
 # ---------------------------------------------------------------------------
@@ -988,6 +1172,7 @@ def import_devices_from_api():
 				"current_location": str(rec.get("location") or "")[:140] or None,
 				"last_known_api_location": str(rec.get("location") or "")[:140] or None,
 				"last_api_status": str(rec.get("status") or "")[:140] or None,
+				"api_branch": str(rec.get("branch") or "")[:140] or None,
 				"lock_status": normalize_elock_status(rec.get("elock")) or None,
 				"latitude": rec.get("latitude"),
 				"longitude": rec.get("longitude"),

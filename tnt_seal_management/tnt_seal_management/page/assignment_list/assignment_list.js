@@ -34,6 +34,9 @@ function _asg_build_page(page) {
 		["All", __("All Assignments")],
 		["Pending", __("TO Assigned")],
 		["Assigned", __("Assigned")],
+		["Awaiting Untagging Assignment", __("Awaiting Untagging")],
+		["TO Assigned for Untagging", __("TO Assigned for Untagging")],
+		["Untagging Assigned", __("Untagging Assigned")],
 		["Cancelled", __("Cancelled")],
 	];
 
@@ -212,6 +215,14 @@ function _asg_render_stats(page, summary) {
 			<div class="asg-stat-label">${__("Assigned")}</div>
 			<div class="asg-stat-value">${summary.Assigned || 0}</div>
 		</div>
+		<div class="asg-stat-card asg-stat--untagging">
+			<div class="asg-stat-label">${__("Awaiting Untagging")}</div>
+			<div class="asg-stat-value">${summary["Awaiting Untagging Assignment"] || 0}</div>
+		</div>
+		<div class="asg-stat-card asg-stat--untagging">
+			<div class="asg-stat-label">${__("To Approve Untagging")}</div>
+			<div class="asg-stat-value">${summary["TO Assigned for Untagging"] || 0}</div>
+		</div>
 		<div class="asg-stat-card asg-stat--cancelled">
 			<div class="asg-stat-label">${__("Cancelled")}</div>
 			<div class="asg-stat-value">${summary.Cancelled || 0}</div>
@@ -225,6 +236,9 @@ function _asg_render_stats(page, summary) {
 		"All": summary.All || 0,
 		"Pending": summary.Pending || 0,
 		"Assigned": summary.Assigned || 0,
+		"Awaiting Untagging Assignment": summary["Awaiting Untagging Assignment"] || 0,
+		"TO Assigned for Untagging": summary["TO Assigned for Untagging"] || 0,
+		"Untagging Assigned": summary["Untagging Assigned"] || 0,
 		"Cancelled": summary.Cancelled || 0,
 	};
 	$(page.body).find(".asg-fcount").each(function () {
@@ -249,7 +263,8 @@ function _asg_render_table(page, assignments) {
 	$(page.body).find(".asg-table-wrap").html(`
 		<table class="asg-table">
 			<thead><tr>
-				<th>${__("PCB Job Order")}</th>
+				<th>${__("Type")}</th>
+				<th>${__("Job Order / Journey")}</th>
 				<th>${__("Client")}</th>
 				<th>${__("Location")}</th>
 				<th>${__("Scheduled")}</th>
@@ -271,6 +286,14 @@ function _asg_row_html(assignment) {
 		? frappe.datetime.str_to_user(assignment.scheduled_date_time)
 		: "—";
 
+	const isUntagging = assignment.request_type === "Untagging";
+	const typeBadge = isUntagging
+		? `<span class="asg-type asg-type--untagging">${__("Untagging")}</span>`
+		: `<span class="asg-type asg-type--tagging">${__("Tagging")}</span>`;
+	const source = isUntagging
+		? (assignment.seal_journey || "—")
+		: (assignment.pcb_job_order || "—");
+
 	let clientHtml = frappe.utils.escape_html(assignment.client_name || "—");
 	if (assignment.client_name) {
 		const words = assignment.client_name.split(" ");
@@ -282,7 +305,8 @@ function _asg_row_html(assignment) {
 
 	return `
 		<tr class="asg-row" data-name="${frappe.utils.escape_html(assignment.name)}">
-			<td>${frappe.utils.escape_html(assignment.pcb_job_order || "—")}</td>
+			<td>${typeBadge}</td>
+			<td>${frappe.utils.escape_html(source)}</td>
 			<td>${clientHtml}</td>
 			<td>${frappe.utils.escape_html(assignment.location || "—")}</td>
 			<td>${frappe.utils.escape_html(scheduled)}</td>
@@ -380,6 +404,7 @@ function _asg_inject_styles() {
 		}
 		.asg-header-stats .asg-stat--pending  { border-top-color: #f59e0b; }
 		.asg-header-stats .asg-stat--assigned  { border-top-color: var(--asg-blue); }
+		.asg-header-stats .asg-stat--untagging { border-top-color: #ea580c; }
 		.asg-header-stats .asg-stat--cancelled { border-top-color: #dc2626; }
 		.asg-header-stats .asg-stat-label {
 			color: #0369a1;
@@ -621,7 +646,21 @@ function _asg_inject_styles() {
 		}
 		.asg-badge--assigned  { background: #dbeafe; color: #1d4ed8; }
 		.asg-badge--pending   { background: #fef3c7; color: #92400e; }
+		.asg-badge--awaiting-untagging-assignment { background: #fed7aa; color: #9a3412; }
+		.asg-badge--to-assigned-for-untagging { background: #fef08a; color: #854d0e; }
+		.asg-badge--untagging-assigned { background: #ddd6fe; color: #5b21b6; }
 		.asg-badge--cancelled { background: #fee2e2; color: #b91c1c; }
+		.asg-type {
+			display: inline-flex;
+			border-radius: 6px;
+			padding: 3px 8px;
+			font-size: 11px;
+			font-weight: 800;
+			text-transform: uppercase;
+			letter-spacing: .03em;
+		}
+		.asg-type--tagging { background: #e0f2fe; color: #0369a1; }
+		.asg-type--untagging { background: #fff7ed; color: #c2410c; }
 		.asg-empty {
 			display: flex;
 			flex-direction: column;

@@ -28,11 +28,17 @@
   "origin",
   "destination",
   "approval_tab",
+  "approval_timeline",
   "finance_pcb_approval_status",
   "finance_pcb_approver",
   "finance_pcb_approval_date_time",
   "finance_pcb_remarks",
+  "customer_care_section",
+  "customer_care_approver",
+  "customer_care_approval_date_time",
+  "customer_care_remarks",
   "assignment_tab",
+  "assignment_timeline",
   "assigned_team_lead",
   "team_lead_assignment_date_time",
   "assigned_technician",
@@ -45,18 +51,16 @@
   "pre_tagging_checklist",
   "pre_tagging_status",
   "pre_tagging_remarks",
-  "seals_tab",
-  "journey_seals",
-  "assigned_seal",
   "tagging_details_tab",
+  "tagging_details_section",
   "tagging_status",
   "tagging_date_time",
-  "tagging_remarks",
+  "tagging_details_column",
   "tagging_location",
-  "customer_care_section",
-  "customer_care_approver",
-  "customer_care_approval_date_time",
-  "customer_care_remarks",
+  "tagging_remarks",
+  "seals_tab",
+  "assigned_seal",
+  "journey_seals",
   "photo_evidence_tab",
   "photos",
   "post_tagging_tab",
@@ -76,6 +80,7 @@
   "current_seal_status",
   "transit_row_3_section",
   "api_device_status",
+  "api_branch",
   "transit_row_3_column",
   "api_last_update_time",
   "transit_row_4_section",
@@ -98,24 +103,37 @@
   "arrival_row_1_section",
   "arrival_date_time",
   "arrival_row_1_column",
-  "arrival_location",
-  "arrival_row_2_section",
-  "untagging_started_date_time",
-  "arrival_row_2_column",
-  "untagging_status",
-  "arrival_row_3_section",
-  "untagging_completed_date_time",
-  "arrival_row_3_column",
-  "untagging_confirmation",
-  "arrival_row_4_section",
-  "seal_unlocked_confirmation",
-  "arrival_row_4_column",
-  "days_taken",
-  "arrival_row_5_section",
   "arrival_remarks",
+  "arrival_row_2_section",
+  "untagging_status",
+  "arrival_row_2_column",
+  "untagging_confirmation",
+  "arrival_row_3_section",
+  "arrival_location",
+  "arrival_row_3_column",
+  "untagging_started_date_time",
+  "arrival_row_4_section",
+  "untagging_completed_date_time",
+  "arrival_row_4_column",
+  "seal_unlocked_confirmation",
+  "arrival_row_5_section",
+  "days_taken",
+  "arrival_row_5_column",
+  "days_taken_display",
   "seal_return_tab",
-  "seal_condition_after_journey",
   "completion_date_time",
+  "returned_by",
+  "return_location",
+  "seal_condition_after_journey",
+  "seal_return_column",
+  "control_room_approval",
+  "seal_return_confirmed_by_technician",
+  "seal_return_control_room_approver",
+  "seal_return_control_room_approval_date_time",
+  "seal_return_evidence_section",
+  "seal_return_entry_document",
+  "seal_return_evidence_column",
+  "seal_return_photos",
   "billing_tab",
   "billing_rule",
   "billing_status",
@@ -132,6 +150,11 @@
   "extra_day_amount",
   "billing_total_section",
   "total_charge",
+  "billing_settlement_section",
+  "invoice_reference",
+  "billed_by",
+  "billing_settlement_column",
+  "billed_date_time",
   "logs_attachments_tab",
   "api_raw_response",
   "remarks"
@@ -179,7 +202,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Journey Status",
-   "options": "Draft\nPending Finance PCB Approval\nFinance PCB Approved\nFinance PCB Rejected\nTeam Lead Assigned\nTechnician Assigned\nPre-Tagging\nTagging Request Booked\nTagging In Progress\nTagged\nPost-Tagging\nReady for Journey\nIn Transit\nArrived\nUntagging In Progress\nUntagged\nCompleted\nCancelled",
+   "options": "Draft\nPending Finance PCB Approval\nFinance PCB Approved\nFinance PCB Rejected\nTeam Lead Assigned\nTechnician Assigned\nPre-Tagging\nTagging Request Booked\nTagging In Progress\nTagged\nPost-Tagging\nReady for Journey\nIn Transit\nArrived\nUntagging In Progress\nUntagged\nAwaiting Seal Return\nAwaiting Control Room Approval\nCompleted\nCancelled",
    "read_only": 1
   },
   {
@@ -225,6 +248,11 @@
    "label": "Approval"
   },
   {
+   "fieldname": "approval_timeline",
+   "fieldtype": "HTML",
+   "label": "Approval Timeline"
+  },
+  {
    "default": "Pending",
    "fieldname": "finance_pcb_approval_status",
    "fieldtype": "Select",
@@ -255,6 +283,11 @@
    "fieldname": "assignment_tab",
    "fieldtype": "Tab Break",
    "label": "Assignment"
+  },
+  {
+   "fieldname": "assignment_timeline",
+   "fieldtype": "HTML",
+   "label": "Assignment Timeline"
   },
   {
    "fieldname": "assigned_team_lead",
@@ -338,7 +371,7 @@
   },
   {
    "fieldname": "seals_tab",
-   "fieldtype": "Tab Break",
+   "fieldtype": "Section Break",
    "label": "Seals"
   },
   {
@@ -360,7 +393,16 @@
   {
    "fieldname": "tagging_details_tab",
    "fieldtype": "Tab Break",
-   "label": "Tagging Details"
+   "label": "Tagging"
+  },
+  {
+   "fieldname": "tagging_details_section",
+   "fieldtype": "Section Break",
+   "label": "Tagging Summary"
+  },
+  {
+   "fieldname": "tagging_details_column",
+   "fieldtype": "Column Break"
   },
   {
    "default": "Pending",
@@ -384,7 +426,7 @@
   },
   {
    "fieldname": "photo_evidence_tab",
-   "fieldtype": "Tab Break",
+   "fieldtype": "Section Break",
    "label": "Photo Evidence"
   },
   {
@@ -492,6 +534,12 @@
    "read_only": 1
   },
   {
+   "fieldname": "api_branch",
+   "fieldtype": "Data",
+   "label": "API Branch",
+   "read_only": 1
+  },
+  {
    "fieldname": "transit_row_3_column",
    "fieldtype": "Column Break"
   },
@@ -574,7 +622,7 @@
   {
    "fieldname": "arrival_tab",
    "fieldtype": "Tab Break",
-   "label": "Arrival"
+   "label": "Arrival/Untagging"
   },
   {
    "fieldname": "arrival_row_1_section",
@@ -637,7 +685,7 @@
    "fieldname": "untagging_confirmation",
    "fieldtype": "Check",
    "label": "Untagging Confirmation",
-   "read_only": 1
+   "description": "Editable by Operations Control Room only while untagging is in progress."
   },
   {
    "fieldname": "arrival_row_4_section",
@@ -648,7 +696,7 @@
    "fieldname": "seal_unlocked_confirmation",
    "fieldtype": "Check",
    "label": "Seal Unlocked Confirmation",
-   "read_only": 1
+   "description": "Editable by Operations Control Room only while untagging is in progress."
   },
   {
    "fieldname": "arrival_row_4_column",
@@ -659,7 +707,19 @@
    "fieldtype": "Float",
    "label": "Days Taken",
    "precision": "2",
-   "read_only": 1
+   "read_only": 1,
+   "description": "Decimal days — kept for billing/overdue comparisons. See Duration for a human-readable figure."
+  },
+  {
+   "fieldname": "days_taken_display",
+   "fieldtype": "Data",
+   "label": "Duration",
+   "read_only": 1,
+   "description": "Shows hours instead of a fractional day while the journey hasn't filled a full day yet."
+  },
+  {
+   "fieldname": "arrival_row_5_column",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "arrival_row_5_section",
@@ -669,12 +729,32 @@
    "fieldname": "arrival_remarks",
    "fieldtype": "Small Text",
    "label": "Arrival Remarks",
-   "read_only": 1
+   "description": "Editable by Operations Control Room only while untagging is in progress."
   },
   {
    "fieldname": "seal_return_tab",
    "fieldtype": "Tab Break",
    "label": "Seal Return"
+  },
+  {
+   "fieldname": "completion_date_time",
+   "fieldtype": "Datetime",
+   "label": "Seal Return / Completion Date and Time",
+   "read_only": 1
+  },
+  {
+   "description": "The Field Technician who returned the seal (its custodian after untagging).",
+   "fieldname": "returned_by",
+   "fieldtype": "Link",
+   "label": "Returned By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "return_location",
+   "fieldtype": "Data",
+   "label": "Return Location",
+   "read_only": 1
   },
   {
    "fieldname": "seal_condition_after_journey",
@@ -684,9 +764,59 @@
    "read_only": 1
   },
   {
-   "fieldname": "completion_date_time",
+   "fieldname": "seal_return_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Set automatically once Control Room approves the seal return.",
+   "fieldname": "control_room_approval",
+   "fieldtype": "Check",
+   "label": "Seal Returned (Control Room Approved)",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "The technician's own (non-authoritative) confirmation that the seal was returned in good condition.",
+   "fieldname": "seal_return_confirmed_by_technician",
+   "fieldtype": "Check",
+   "label": "Confirmed by Technician",
+   "read_only": 1
+  },
+  {
+   "fieldname": "seal_return_control_room_approver",
+   "fieldtype": "Link",
+   "label": "Seal Return Control Room Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "seal_return_control_room_approval_date_time",
    "fieldtype": "Datetime",
-   "label": "Completion Date and Time",
+   "label": "Seal Return Approval Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "seal_return_evidence_section",
+   "fieldtype": "Section Break",
+   "label": "Seal Return Evidence"
+  },
+  {
+   "fieldname": "seal_return_entry_document",
+   "fieldtype": "Table",
+   "label": "Entry Pictures (Seal Return)",
+   "options": "Seal Trip Photo",
+   "read_only": 1
+  },
+  {
+   "fieldname": "seal_return_evidence_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "seal_return_photos",
+   "fieldtype": "Table",
+   "label": "Seal Return Pictures",
+   "options": "Seal Trip Photo",
    "read_only": 1
   },
   {
@@ -778,6 +908,34 @@
    "fieldname": "total_charge",
    "fieldtype": "Currency",
    "label": "Total Charge",
+   "read_only": 1
+  },
+  {
+   "fieldname": "billing_settlement_section",
+   "fieldtype": "Section Break",
+   "label": "Billing Settlement"
+  },
+  {
+   "description": "Reference of the invoice raised to the customer for this journey.",
+   "fieldname": "invoice_reference",
+   "fieldtype": "Data",
+   "label": "Invoice Reference"
+  },
+  {
+   "fieldname": "billed_by",
+   "fieldtype": "Link",
+   "label": "Billed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "billing_settlement_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "billed_date_time",
+   "fieldtype": "Datetime",
+   "label": "Billed Date and Time",
    "read_only": 1
   },
   {

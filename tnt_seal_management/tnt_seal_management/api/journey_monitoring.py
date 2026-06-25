@@ -25,7 +25,6 @@ from tnt_seal_management.tnt_seal_management.api.seal_sync import (
 # ---------------------------------------------------------------------------
 STALE_MINUTES = 30  # no API update for this many minutes => stale
 LOW_BATTERY_PCT = 20  # battery below this (%) => low-battery warning
-OVERSPEED_KMH = 80  # speed above this (km/h) => overspeed info
 
 # Journey statuses that count as "active / incomplete" (everything except the
 # two terminal states). Used for the active view and summary counts.
@@ -36,10 +35,40 @@ _FIELDS = [
 	"origin", "destination", "journey_status",
 	"journey_start_date_time", "arrival_date_time", "completion_date_time",
 	"assigned_seal", "current_seal_status",
+	"assigned_team_lead", "assigned_technician",
 	"api_device_status", "api_device_location",
 	"api_latitude", "api_longitude", "api_speed", "api_battery_level",
 	"api_last_update_time", "api_sync_error", "creation", "days_taken"
 ]
+
+# --- Custody / "warehouse" lifecycle -----------------------------------------
+# In TNT terms the "warehouse" is whoever/whatever currently holds the seal. It
+# passes hand-to-hand as the journey advances: the real warehouse holds it until
+# a PCB team lead is assigned, then the team lead holds it until they assign a
+# field technician, who holds it through tagging until Customer Care approves and
+# the journey goes live, at which point the customer holds it until untagging.
+# Once untagging is confirmed the seal passes back to the Field Technician who
+# untagged it (the seal-return phase), and finally, when Control Room approves the
+# seal return, custody reverts to the warehouse — the seal's resting location.
+# This is derived live here rather than persisted; the Seal Device custody fields
+# are the eventual source of truth once the handoffs are wired into the
+# transitions themselves.
+_CUSTODY_WAREHOUSE_STATUSES = frozenset({
+	"Draft", "Pending Finance PCB Approval",
+	"Finance PCB Approved", "Finance PCB Rejected",
+})
+_CUSTODY_TEAM_LEAD_STATUSES = frozenset({"Team Lead Assigned"})
+_CUSTODY_TECHNICIAN_STATUSES = frozenset({
+	"Technician Assigned", "Pre-Tagging", "Tagging Request Booked",
+	"Tagging In Progress", "Tagged", "Post-Tagging",
+	# Post-untagging: the FT who untagged the seal holds it through seal return.
+	"Untagged", "Awaiting Seal Return", "Awaiting Control Room Approval",
+})
+_CUSTODY_CUSTOMER_STATUSES = frozenset({
+	"Ready for Journey", "In Transit", "Arrived", "Untagging In Progress",
+})
+# Seal return complete — custody is back with the warehouse (the seal's location).
+_CUSTODY_RETURNED_STATUSES = frozenset({"Completed"})
 
 
 @frappe.whitelist()
@@ -72,11 +101,12 @@ def get_journey_monitoring_data(
 		)
 		_attach_seals(all_active)
 		journeys_with_alerts = [j for j in all_active if j.get("alert_level")]
-		
+
 		total = len(journeys_with_alerts)
 		start = (page - 1) * page_length
 		journeys = journeys_with_alerts[start : start + page_length]
 		_attach_longer_in_journey(journeys)
+		_attach_custodian(journeys)
 	else:
 		total = frappe.db.count("Seal Journey", filters=_count_filters(filters, or_filters))
 
@@ -91,6 +121,7 @@ def get_journey_monitoring_data(
 		)
 		_attach_seals(journeys)
 		_attach_longer_in_journey(journeys)
+		_attach_custodian(journeys)
 
 	return {
 		"journeys": [dict(j) for j in journeys],
@@ -218,6 +249,100 @@ def _attach_longer_in_journey(journeys):
 				j["longer_in_journey"] = total_days - allowed_days
 
 
+def _attach_custodian(journeys):
+	"""Attach the current "warehouse" (custodian) to each journey, derived from
+	its stage — see the _CUSTODY_*_STATUSES sets above for the hand-to-hand rules.
+
+	Sets two keys per journey: ``custodian_type`` (Warehouse / Team Lead / Field
+	Technician / Customer, for badge styling) and ``current_warehouse`` (the
+	holder's display name)."""
+	if not journeys:
+		return
+
+	# Batch-resolve the User full names we'll need (team leads + technicians).
+	user_ids = set()
+	for j in journeys:
+		status = j.get("journey_status")
+		if status in _CUSTODY_TEAM_LEAD_STATUSES and j.get("assigned_team_lead"):
+			user_ids.add(j["assigned_team_lead"])
+		elif status in _CUSTODY_TECHNICIAN_STATUSES and j.get("assigned_technician"):
+			user_ids.add(j["assigned_technician"])
+	user_names = (
+		dict(
+			frappe.get_all(
+				"User",
+				filters={"name": ["in", list(user_ids)]},
+				fields=["name", "full_name"],
+				as_list=True,
+			)
+		)
+		if user_ids
+		else {}
+	)
+
+	# Batch-resolve the real warehouse (Custody Point) for warehouse-phase seals,
+	# from the seal device's GPS-attributed custody.
+	warehouse_seal_ids = {
+		j.get("assigned_seal")
+		for j in journeys
+		if j.get("journey_status") in (_CUSTODY_WAREHOUSE_STATUSES | _CUSTODY_RETURNED_STATUSES)
+		and j.get("assigned_seal")
+	}
+	seal_warehouse = {}
+	if warehouse_seal_ids:
+		for row in frappe.get_all(
+			"Seal Device",
+			filters={
+				"name": ["in", list(warehouse_seal_ids)],
+				"current_custody_type": "Custody Point",
+			},
+			fields=["name", "current_custodian"],
+		):
+			if row.current_custodian:
+				seal_warehouse[row.name] = row.current_custodian
+
+	for j in journeys:
+		j["custodian_type"], j["current_warehouse"] = _resolve_custodian(
+			j, user_names, seal_warehouse
+		)
+
+
+def _resolve_custodian(journey, user_names, seal_warehouse):
+	status = journey.get("journey_status")
+
+	if status in _CUSTODY_WAREHOUSE_STATUSES:
+		warehouse = seal_warehouse.get(journey.get("assigned_seal"))
+		return "Warehouse", (warehouse or _("Warehouse"))
+
+	if status in _CUSTODY_TEAM_LEAD_STATUSES:
+		team_lead = journey.get("assigned_team_lead")
+		label = user_names.get(team_lead, team_lead) if team_lead else _("Team Lead (unassigned)")
+		return "Team Lead", label
+
+	if status in _CUSTODY_TECHNICIAN_STATUSES:
+		technician = journey.get("assigned_technician")
+		label = (
+			user_names.get(technician, technician) if technician else _("Technician (unassigned)")
+		)
+		return "Field Technician", label
+
+	if status in _CUSTODY_CUSTOMER_STATUSES:
+		return "Customer", (journey.get("customer") or _("Customer"))
+
+	if status in _CUSTODY_RETURNED_STATUSES:
+		# Seal return signed off — custody is back with the warehouse, i.e. the
+		# seal's resting location. Prefer the persisted custody point, falling back
+		# to the seal's last known location, then a generic label.
+		warehouse = (
+			seal_warehouse.get(journey.get("assigned_seal"))
+			or journey.get("api_device_location")
+		)
+		return "Warehouse", (warehouse or _("Warehouse"))
+
+	# Cancelled — no meaningful custodian.
+	return "", ""
+
+
 def _device_lock_map(rows, journeys):
 	seal_names = {r.get("seal_device") for r in rows if r.get("seal_device")}
 	seal_names |= {j.get("assigned_seal") for j in journeys if j.get("assigned_seal")}
@@ -233,16 +358,28 @@ def _device_lock_map(rows, journeys):
 
 
 def _derive_seal_alerts(journey_status, seal, lock):
-	"""Compute alerts for a single seal from its synced child-row fields."""
+	"""Compute alerts for a single seal from its synced child-row fields.
+
+	Each alert carries a ``type`` (category, for filtering/grouping) alongside
+	the existing ``level`` (severity, for the badge color) — see
+	Seal Alert Log for where these get persisted."""
 	alerts = []
 	is_active = journey_status not in _TERMINAL_STATUSES
 	in_transit = journey_status == "In Transit"
 
 	if in_transit and lock == "Unlocked":
-		alerts.append({"level": "critical", "message": _("Seal unlocked in transit")})
+		alerts.append({
+			"type": "Security",
+			"level": "critical",
+			"message": _("Seal unlocked in transit"),
+		})
 
 	if is_active and normalize_api_status(seal.get("api_device_status"))["bucket"] == "offline":
-		alerts.append({"level": "warning", "message": _("Device offline")})
+		alerts.append({
+			"type": "Connectivity",
+			"level": "warning",
+			"message": _("Device offline"),
+		})
 
 	if is_active:
 		last = seal.get("api_last_update_time")
@@ -250,13 +387,18 @@ def _derive_seal_alerts(journey_status, seal, lock):
 			mins = (now_datetime() - get_datetime(last)).total_seconds() / 60.0
 			if mins > STALE_MINUTES:
 				alerts.append({
+					"type": "Connectivity",
 					"level": "warning",
 					"message": _("No update for {0} min").format(int(mins)),
 				})
 
 	battery = _parse_number(seal.get("battery_level"))
 	if battery is not None and battery < LOW_BATTERY_PCT:
-		alerts.append({"level": "warning", "message": _("Low battery ({0}%)").format(int(battery))})
+		alerts.append({
+			"type": "Battery",
+			"level": "warning",
+			"message": _("Low battery ({0}%)").format(int(battery)),
+		})
 
 	return alerts
 
