@@ -122,7 +122,6 @@ class JourneyRequest(Document):
 		self.ensure_pre_tagging_checklist()
 		self.enforce_field_locks()
 		self.enforce_tagging_irreversible()
-		self.validate_technician_availability()
 		self.validate_seals()
 		self.validate_route()
 
@@ -171,27 +170,6 @@ class JourneyRequest(Document):
 			frappe.throw(
 				_("Tagging Completed cannot be unchecked once confirmed."),
 				title=_("Not Permitted"),
-			)
-
-	def validate_technician_availability(self):
-		if not self.assigned_technician:
-			return
-
-		occupied_journey = frappe.db.get_value(
-			"Seal Journey",
-			{
-				"assigned_technician": self.assigned_technician,
-				"technician_status": "Occupied",
-				"name": ["!=", self.journey_reference or ""],
-			},
-			"name",
-		)
-		if occupied_journey:
-			frappe.throw(
-				_("Technician {0} is occupied on Seal Journey {1}.").format(
-					self.assigned_technician, occupied_journey
-				),
-				title=_("Technician Unavailable"),
 			)
 
 	def validate_route(self):

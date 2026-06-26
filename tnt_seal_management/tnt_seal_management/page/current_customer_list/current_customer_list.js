@@ -294,25 +294,6 @@ function _customer_clear(page) {
 	_customer_load(page);
 }
 
-// Standard day counts per fixed contract period. The amounts are always
-// set per rule, never derived from the period.
-const CCL_PERIOD_DAYS = {
-	Weekly: 7,
-	Monthly: 30,
-	Quarterly: 90,
-	"Semi-Annually": 180,
-	Annually: 365,
-};
-
-// Inclusive whole-day span between two date strings: Jun 1 -> Jun 10 = 10.
-function _ccl_inclusive_day_span(from_date, to_date) {
-	if (!from_date || !to_date) return 0;
-	const a = frappe.datetime.str_to_obj(from_date);
-	const b = frappe.datetime.str_to_obj(to_date);
-	if (!a || !b || b < a) return 0;
-	return Math.round((b - a) / 86400000) + 1;
-}
-
 function _customer_open_billing_modal(page, customer) {
 	frappe.call({
 		method: "tnt_seal_management.tnt_seal_management.api.current_customers.get_customer_billing",
@@ -330,11 +311,24 @@ function _customer_open_billing_modal(page, customer) {
 
 function _customer_show_billing_dialog(page, data) {
 	const cur = data.current || {};
-	const defaultRules = data.default_rules || [];
-	const defaultRuleMap = Object.fromEntries(
-		defaultRules.map((rule) => [rule.billing_rule_name || rule.name, rule.name])
-	);
-	const defaultRuleOptions = defaultRules.map((rule) => rule.billing_rule_name || rule.name);
+
+	// Rules are configured in Seal Billing Rate — this modal only assigns one
+	// of the active rules (by billing type) to the customer.
+	const ruleLists = {
+		Default: data.default_rules || [],
+		Special: data.special_rules || [],
+	};
+	const ruleMaps = {
+		Default: Object.fromEntries(ruleLists.Default.map((r) => [r.billing_rule_name || r.name, r])),
+		Special: Object.fromEntries(ruleLists.Special.map((r) => [r.billing_rule_name || r.name, r])),
+	};
+	const ruleOptions = {
+		Default: ruleLists.Default.map((r) => r.billing_rule_name || r.name),
+		Special: ruleLists.Special.map((r) => r.billing_rule_name || r.name),
+	};
+
+	const initialType = cur.billing_type || "Default";
+	const currentLabel = cur.rule ? (cur.rule.billing_rule_name || cur.rule.name) : null;
 
 	const dialog = new frappe.ui.Dialog({
 		title: __("Set Billing — {0}", [data.customer_name]),
@@ -345,136 +339,150 @@ function _customer_show_billing_dialog(page, data) {
 				label: __("Billing Type"),
 				options: ["Default", "Special"],
 				reqd: 1,
-				default: cur.billing_type || "Default",
-				description: __("Default uses a shared rate card. Special defines a contract just for this customer."),
+				default: initialType,
+				description: __("Default uses a shared rate card. Special is a private, per-customer rate."),
 			},
 			{ fieldtype: "Column Break" },
 			{
 				fieldtype: "Select",
-				fieldname: "default_rule_label",
-				label: __("Default Billing Rule"),
-				options: defaultRuleOptions,
-				depends_on: "eval:doc.billing_type=='Default'",
-				mandatory_depends_on: "eval:doc.billing_type=='Default'",
-				default: cur.default_rule_label || defaultRuleOptions[0] || null,
+				fieldname: "billing_rule_label",
+				label: __("Billing Rule"),
+				options: ruleOptions[initialType],
+				reqd: 1,
+				default: currentLabel || ruleOptions[initialType][0] || null,
+				description: __("Configure rule terms in Seal Billing Rate. This only assigns the rule."),
 			},
-			{
-				fieldtype: "Section Break",
-				label: __("Contract Rules"),
-				depends_on: "eval:doc.billing_type=='Special'",
-			},
+			{ fieldtype: "Section Break", label: __("Rule Details (read-only)") },
 			{
 				fieldtype: "Select",
 				fieldname: "billing_period_type",
 				label: __("Billing Period Type"),
-				options: ["Weekly", "Monthly", "Quarterly", "Semi-Annually", "Annually", "Date Range"],
-				depends_on: "eval:doc.billing_type=='Special'",
-				default: cur.billing_period_type || "Monthly",
+				read_only: 1,
+				depends_on: 'eval:doc.billing_type!="Special"',
+			},
+			{ fieldtype: "Int", fieldname: "first_period_days", label: __("First Period Days"), read_only: 1 },
+			{ fieldtype: "Column Break" },
+			{ fieldtype: "Currency", fieldname: "first_period_amount", label: __("First Period Amount"), read_only: 1 },
+			{ fieldtype: "Currency", fieldname: "extra_day_rate", label: __("Extra Day Rate (per day)"), read_only: 1 },
+			{ fieldtype: "Column Break" },
+			{
+				fieldtype: "Date",
+				fieldname: "rule_effective_from",
+				label: __("Rule Effective From"),
+				read_only: 1,
+				depends_on: 'eval:doc.billing_type!="Special"',
+			},
+			{
+				fieldtype: "Date",
+				fieldname: "rule_effective_to",
+				label: __("Rule Effective To"),
+				read_only: 1,
+				depends_on: 'eval:doc.billing_type!="Special"',
+			},
+			{
+				fieldtype: "Section Break",
+				label: __("Customer Period"),
+				description: __("The customer's own slice of the rule's validity window above — it cannot extend beyond it."),
 			},
 			{
 				fieldtype: "Date",
 				fieldname: "period_from_date",
 				label: __("Period From Date"),
-				depends_on: "eval:doc.billing_type=='Special' && doc.billing_period_type=='Date Range'",
-				mandatory_depends_on: "eval:doc.billing_type=='Special' && doc.billing_period_type=='Date Range'",
 				default: cur.period_from_date || null,
 			},
+			{ fieldtype: "Column Break" },
 			{
 				fieldtype: "Date",
 				fieldname: "period_to_date",
 				label: __("Period To Date"),
-				depends_on: "eval:doc.billing_type=='Special' && doc.billing_period_type=='Date Range'",
-				mandatory_depends_on: "eval:doc.billing_type=='Special' && doc.billing_period_type=='Date Range'",
 				default: cur.period_to_date || null,
 			},
-			{
-				fieldtype: "Int",
-				fieldname: "first_period_days",
-				label: __("First Period Days"),
-				depends_on: "eval:doc.billing_type=='Special'",
-				default: cur.first_period_days || 30,
-				read_only: 1,
-				description: __("Auto-set from the billing period type. Editable when the period type is Date Range."),
-			},
-			{ fieldtype: "Column Break", depends_on: "eval:doc.billing_type=='Special'" },
-			{
-				fieldtype: "Currency",
-				fieldname: "first_period_amount",
-				label: __("First Period Amount"),
-				depends_on: "eval:doc.billing_type=='Special'",
-				default: cur.first_period_amount || 0,
-			},
-			{
-				fieldtype: "Currency",
-				fieldname: "extra_day_rate",
-				label: __("Extra Day Rate (per day)"),
-				depends_on: "eval:doc.billing_type=='Special'",
-				default: cur.extra_day_rate || 0,
-			},
-			{ fieldtype: "Data", fieldname: "currency", hidden: 1, default: cur.currency || "KES" },
 		],
 		primary_action_label: __("Save Billing"),
-		primary_action(values) {
-			const defaultRule = defaultRuleMap[values.default_rule_label] || null;
+		primary_action() {
+			const billingType = dialog.get_value("billing_type");
+			const rule = ruleMaps[billingType][dialog.get_value("billing_rule_label")];
+			if (!rule) {
+				frappe.show_alert({ message: __("Choose a billing rule."), indicator: "red" }, 5);
+				return;
+			}
+			if (!_customer_validate_period_bounds(dialog, rule)) return;
 			_customer_submit_billing(
 				page,
 				data.customer,
-				{ ...values, default_rule: defaultRule },
+				rule.name,
+				billingType,
+				dialog.get_value("period_from_date"),
+				dialog.get_value("period_to_date"),
 				dialog
 			);
 		},
 	});
 
-	let lastAutoDays = null;
-	const applyPeriodLock = () => {
-		if (dialog.get_value("billing_type") !== "Special") return;
-		const period = dialog.get_value("billing_period_type");
-
-		if (period === "Date Range") {
-			dialog.set_df_property("first_period_days", "read_only", 0);
-			const days = _ccl_inclusive_day_span(
-				dialog.get_value("period_from_date"),
-				dialog.get_value("period_to_date")
-			);
-			const current = dialog.get_value("first_period_days");
-			// Only auto-fill if the user hasn't manually overridden the value.
-			if (days && (!current || current === lastAutoDays)) {
-				dialog.set_value("first_period_days", days);
-				lastAutoDays = days;
-			}
-			return;
-		}
-
-		dialog.set_df_property("first_period_days", "read_only", 1);
-		const mapped = CCL_PERIOD_DAYS[period];
-		if (mapped) {
-			dialog.set_value("first_period_days", mapped);
-			lastAutoDays = mapped;
-		}
+	const applyRuleDetails = () => {
+		const billingType = dialog.get_value("billing_type");
+		const rule = ruleMaps[billingType][dialog.get_value("billing_rule_label")];
+		dialog.set_value("billing_period_type", rule ? rule.billing_period_type : "");
+		dialog.set_value("first_period_days", rule ? rule.first_period_days : "");
+		dialog.set_value("first_period_amount", rule ? rule.first_period_amount : "");
+		dialog.set_value("extra_day_rate", rule ? rule.extra_day_rate : "");
+		dialog.set_value("rule_effective_from", rule ? rule.effective_from : "");
+		dialog.set_value("rule_effective_to", rule ? rule.effective_to : "");
 	};
-	dialog.fields_dict.billing_period_type.df.onchange = applyPeriodLock;
-	dialog.fields_dict.billing_type.df.onchange = applyPeriodLock;
-	dialog.fields_dict.period_from_date.df.onchange = applyPeriodLock;
-	dialog.fields_dict.period_to_date.df.onchange = applyPeriodLock;
+
+	const refreshRuleOptions = () => {
+		const billingType = dialog.get_value("billing_type");
+		const options = ruleOptions[billingType] || [];
+		dialog.set_df_property("billing_rule_label", "options", options);
+		if (!options.includes(dialog.get_value("billing_rule_label"))) {
+			dialog.set_value("billing_rule_label", options[0] || "");
+		}
+		applyRuleDetails();
+	};
+
+	dialog.fields_dict.billing_type.df.onchange = refreshRuleOptions;
+	dialog.fields_dict.billing_rule_label.df.onchange = applyRuleDetails;
 
 	dialog.show();
-	applyPeriodLock();
+	applyRuleDetails();
 }
 
-function _customer_submit_billing(page, customer, values, dialog) {
+// Keeps the customer's period inside the rule's company-wide validity window
+// (either bound may be unset on the rule, meaning open-ended on that side).
+function _customer_validate_period_bounds(dialog, rule) {
+	const from = dialog.get_value("period_from_date");
+	const to = dialog.get_value("period_to_date");
+
+	if (from && to && frappe.datetime.str_to_obj(to) < frappe.datetime.str_to_obj(from)) {
+		frappe.show_alert({ message: __("Period To Date cannot be before Period From Date."), indicator: "red" }, 5);
+		return false;
+	}
+	if (from && rule.effective_from && frappe.datetime.str_to_obj(from) < frappe.datetime.str_to_obj(rule.effective_from)) {
+		frappe.show_alert(
+			{ message: __("Period From Date cannot be before the rule's Effective From Date ({0}).", [rule.effective_from]), indicator: "red" },
+			6
+		);
+		return false;
+	}
+	if (to && rule.effective_to && frappe.datetime.str_to_obj(to) > frappe.datetime.str_to_obj(rule.effective_to)) {
+		frappe.show_alert(
+			{ message: __("Period To Date cannot be after the rule's Effective To Date ({0}).", [rule.effective_to]), indicator: "red" },
+			6
+		);
+		return false;
+	}
+	return true;
+}
+
+function _customer_submit_billing(page, customer, billingRule, billingType, periodFromDate, periodToDate, dialog) {
 	frappe.call({
 		method: "tnt_seal_management.tnt_seal_management.api.current_customers.set_customer_billing",
 		args: {
 			customer,
-			billing_type: values.billing_type,
-			default_rule: values.default_rule || null,
-			billing_period_type: values.billing_period_type || null,
-			first_period_days: values.first_period_days || null,
-			first_period_amount: values.first_period_amount || 0,
-			extra_day_rate: values.extra_day_rate || 0,
-			period_from_date: values.period_from_date || null,
-			period_to_date: values.period_to_date || null,
-			currency: values.currency || "KES",
+			billing_rule: billingRule,
+			billing_type: billingType,
+			period_from_date: periodFromDate || null,
+			period_to_date: periodToDate || null,
 		},
 		freeze: true,
 		freeze_message: __("Saving billing…"),

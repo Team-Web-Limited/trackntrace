@@ -1,20 +1,13 @@
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import cint
 
 
 CUSTOMER_BILLING_TYPE_FIELD = "custom_billing_type"
-DEFAULT_BILLING_RULE = "sqf2gijhij"
 
-# Standard day counts per fixed contract period. Mirrors the client + Seal
-# Billing Rate definitions; amounts are always per-rule, never derived here.
-PERIOD_TYPE_DAYS = {
-	"Weekly": 7,
-	"Monthly": 30,
-	"Quarterly": 90,
-	"Semi-Annually": 180,
-	"Annually": 365,
-}
+# Sentinel meaning "leave this field untouched" — distinct from an explicit
+# None, which clears the value.
+_UNSET = object()
 
 
 def _get_customer_level_assignment_map(customer_names):
@@ -302,10 +295,19 @@ def save_customer_billing_types(updates):
 	return {"saved": saved}
 
 
-def _upsert_customer_assignment(customer, billing_rule):
+def _upsert_customer_assignment(customer, billing_rule, effective_from=_UNSET, effective_to=_UNSET):
 	"""Persist a customer's chosen rule as a customer-level Customer Billing
 	Assignment. Reuses the existing row when present, deactivates any extras, and
-	clears the assignment when no rule is chosen."""
+	clears the assignment when no rule is chosen.
+
+	``effective_from``/``effective_to`` are the customer's own slice of the rule's
+	validity window (the rule's Validity section is company-wide). Pass ``_UNSET``
+	(the default) to leave whatever is already on the assignment untouched —
+	callers that don't deal in per-customer dates (e.g. bulk billing-type saves)
+	rely on this. Goes through ``doc.save()`` rather than ``db.set_value`` so the
+	doctype's date-vs-rule-window validation in
+	``customer_billing_assignment.py`` runs.
+	"""
 	existing = frappe.get_all(
 		"Customer Billing Assignment",
 		filters={"assignment_type": "Customer", "customer": customer},
@@ -322,11 +324,14 @@ def _upsert_customer_assignment(customer, billing_rule):
 	if existing:
 		# Keep the first, point it at the new rule, remove duplicates.
 		primary = existing[0].name
-		frappe.db.set_value(
-			"Customer Billing Assignment",
-			primary,
-			{"billing_rule": billing_rule, "active": 1},
-		)
+		doc = frappe.get_doc("Customer Billing Assignment", primary)
+		doc.billing_rule = billing_rule
+		doc.active = 1
+		if effective_from is not _UNSET:
+			doc.effective_from = effective_from
+		if effective_to is not _UNSET:
+			doc.effective_to = effective_to
+		doc.save(ignore_permissions=True)
 		for row in existing[1:]:
 			frappe.delete_doc("Customer Billing Assignment", row.name, ignore_permissions=True)
 		return
@@ -338,6 +343,8 @@ def _upsert_customer_assignment(customer, billing_rule):
 			"customer": customer,
 			"billing_rule": billing_rule,
 			"active": 1,
+			"effective_from": None if effective_from is _UNSET else effective_from,
+			"effective_to": None if effective_to is _UNSET else effective_to,
 		}
 	)
 	doc.insert(ignore_permissions=True)
@@ -347,203 +354,107 @@ def _upsert_customer_assignment(customer, billing_rule):
 # Per-customer billing modal (Set Billing)
 # ---------------------------------------------------------------------------
 
+RULE_DISPLAY_FIELDS = [
+	"name",
+	"billing_rule_name",
+	"billing_type",
+	"billing_period_type",
+	"first_period_days",
+	"first_period_amount",
+	"extra_day_rate",
+	"currency",
+	"effective_from",
+	"effective_to",
+]
+
+
 @frappe.whitelist()
 def get_customer_billing(customer):
-	"""Prefill payload for the Set Billing modal: the customer's current rule plus
-	the list of shareable Default rules to choose from."""
+	"""Prefill payload for the Set Billing modal: the customer's current assignment
+	plus the active Default/Special rules available to assign. Rules themselves are
+	configured in Seal Billing Rate — this modal only assigns one to the customer."""
 	if not customer or not frappe.db.exists("Customer", customer):
 		frappe.throw(_("Customer not found."))
 
 	default_rules = frappe.get_all(
 		"Seal Billing Rate",
 		filters={"active": 1, "billing_type": "Default"},
-		fields=[
-			"name",
-			"billing_rule_name",
-			"billing_period_type",
-			"first_period_days",
-			"first_period_amount",
-			"extra_day_rate",
-			"currency",
-		],
+		fields=RULE_DISPLAY_FIELDS,
 		order_by="first_period_days asc, billing_rule_name asc",
 	)
-	default_rule_map = {row.name: row for row in default_rules}
-	target_default = default_rule_map.get(DEFAULT_BILLING_RULE)
+	special_rules = frappe.get_all(
+		"Seal Billing Rate",
+		filters={"active": 1, "billing_type": "Special"},
+		fields=RULE_DISPLAY_FIELDS,
+		order_by="billing_rule_name asc",
+	)
 
 	current = {
 		"billing_type": "Default",
-		"default_rule": DEFAULT_BILLING_RULE if target_default else None,
-		"default_rule_label": (target_default.billing_rule_name or target_default.name) if target_default else None,
-		"billing_period_type": "Monthly",
-		"first_period_days": 30,
-		"first_period_amount": 0,
-		"extra_day_rate": 0,
+		"billing_rule": None,
+		"rule": None,
 		"period_from_date": None,
 		"period_to_date": None,
-		"currency": "KES",
-		"rule_name": None,
 	}
 
-	rule_name = _get_customer_level_assignment_map([customer]).get(customer)
-	if rule_name:
+	assignment = frappe.db.get_value(
+		"Customer Billing Assignment",
+		{"assignment_type": "Customer", "customer": customer, "active": 1},
+		["billing_rule", "effective_from", "effective_to"],
+		order_by="priority desc, modified desc",
+		as_dict=True,
+	)
+	if assignment and assignment.billing_rule:
 		rule = frappe.db.get_value(
-			"Seal Billing Rate",
-			rule_name,
-			[
-				"name",
-				"billing_type",
-				"billing_period_type",
-				"first_period_days",
-				"first_period_amount",
-				"extra_day_rate",
-				"period_from_date",
-				"period_to_date",
-				"currency",
-			],
-			as_dict=True,
+			"Seal Billing Rate", assignment.billing_rule, RULE_DISPLAY_FIELDS, as_dict=True
 		)
 		if rule:
-			current.update(
-				{
-					"rule_name": rule.name,
-					"billing_type": rule.billing_type or "Default",
-					"billing_period_type": rule.billing_period_type or "Monthly",
-					"first_period_days": rule.first_period_days,
-					"first_period_amount": rule.first_period_amount,
-					"extra_day_rate": rule.extra_day_rate,
-					"period_from_date": rule.period_from_date,
-					"period_to_date": rule.period_to_date,
-					"currency": rule.currency or "KES",
-				}
-			)
-			if (rule.billing_type or "Default") == "Default":
-				current["default_rule"] = rule.name
-				current["default_rule_label"] = rule.billing_rule_name or rule.name
+			current = {
+				"billing_type": rule.billing_type or "Default",
+				"billing_rule": rule.name,
+				"rule": rule,
+				# The customer's own slice of the rule's company-wide validity window.
+				"period_from_date": assignment.effective_from,
+				"period_to_date": assignment.effective_to,
+			}
 
 	return {
 		"customer": customer,
 		"customer_name": frappe.db.get_value("Customer", customer, "customer_name") or customer,
 		"default_rules": default_rules,
+		"special_rules": special_rules,
 		"current": current,
 	}
 
 
 @frappe.whitelist()
-def set_customer_billing(
-	customer,
-	billing_type,
-	default_rule=None,
-	billing_period_type=None,
-	first_period_days=None,
-	first_period_amount=None,
-	extra_day_rate=None,
-	period_from_date=None,
-	period_to_date=None,
-	currency=None,
-):
-	"""Save a customer's billing choice from the modal.
-
-	- ``Default``: assign one of the shared Default rules. Any private Special rule
-	  the customer had is deactivated.
-	- ``Special``: create/update a Special rule dedicated to this customer with the
-	  given contract terms, then assign it.
-	"""
+def set_customer_billing(customer, billing_rule, billing_type=None, period_from_date=None, period_to_date=None):
+	"""Assign an existing, active Seal Billing Rate to the customer. The rule's own
+	terms (period type, amounts) are configured on the rule itself in Seal Billing
+	Rate. ``period_from_date``/``period_to_date`` are the customer's own slice of
+	the rule's Validity window — they must fall within the rule's
+	effective_from/effective_to, enforced by Customer Billing Assignment.validate()."""
 	if not frappe.has_permission("Customer", "write"):
 		frappe.throw(_("Not permitted to update customers."), frappe.PermissionError)
 	if not customer or not frappe.db.exists("Customer", customer):
 		frappe.throw(_("Customer not found."))
 
-	billing_type = billing_type or "Default"
+	rule = frappe.db.get_value(
+		"Seal Billing Rate", {"name": billing_rule, "active": 1}, ["name", "billing_type", "billing_rule_name"], as_dict=True
+	)
+	if not billing_rule or not rule:
+		frappe.throw(_("Choose an active billing rule."))
+	if billing_type and rule.billing_type != billing_type:
+		frappe.throw(_("Selected rule does not match the chosen billing type."))
 
-	if billing_type == "Default":
-		is_valid = frappe.db.exists(
-			"Seal Billing Rate", {"name": default_rule, "active": 1, "billing_type": "Default"}
-		)
-		if not default_rule or not is_valid:
-			frappe.throw(_("Choose an active default billing rule."))
-		_deactivate_customer_special_rule(customer)
-		_upsert_customer_assignment(customer, default_rule)
-		rule_used = default_rule
-	elif billing_type == "Special":
-		rule_used = _save_customer_special_rule(
-			customer,
-			billing_period_type,
-			first_period_amount,
-			extra_day_rate,
-			currency,
-			period_from_date=period_from_date,
-			period_to_date=period_to_date,
-		)
-		_upsert_customer_assignment(customer, rule_used)
-	else:
-		frappe.throw(_("Invalid billing type."))
+	_upsert_customer_assignment(
+		customer, rule.name, effective_from=period_from_date or None, effective_to=period_to_date or None
+	)
 
 	frappe.db.commit()
 	return {
 		"customer": customer,
-		"billing_rule": rule_used,
-		"billing_rule_name": frappe.db.get_value("Seal Billing Rate", rule_used, "billing_rule_name"),
-		"billing_type": billing_type,
+		"billing_rule": rule.name,
+		"billing_rule_name": rule.billing_rule_name,
+		"billing_type": rule.billing_type,
 	}
-
-
-def _get_customer_special_rule(customer):
-	"""Return the customer's dedicated Special rule (via its current assignment), or
-	None when the customer is on a shared Default rule / unassigned."""
-	rule = _get_customer_level_assignment_map([customer]).get(customer)
-	if rule and frappe.db.get_value("Seal Billing Rate", rule, "billing_type") == "Special":
-		return rule
-	return None
-
-
-def _deactivate_customer_special_rule(customer):
-	rule = _get_customer_special_rule(customer)
-	if rule:
-		frappe.db.set_value("Seal Billing Rate", rule, "active", 0)
-
-
-def _save_customer_special_rule(
-	customer, period_type, amount, rate, currency,
-	period_from_date=None, period_to_date=None,
-):
-	period_type = period_type or "Monthly"
-	amount = flt(amount)
-	rate = flt(rate)
-	if amount < 0 or rate < 0:
-		frappe.throw(_("Amounts cannot be negative."))
-
-	customer_label = frappe.db.get_value("Customer", customer, "customer_name") or customer
-	rule_label = _("{0} — Special Contract").format(customer_label)
-
-	existing = _get_customer_special_rule(customer)
-	if existing:
-		doc = frappe.get_doc("Seal Billing Rate", existing)
-	else:
-		doc = frappe.new_doc("Seal Billing Rate")
-
-	doc.billing_rule_name = rule_label
-	doc.billing_type = "Special"
-	doc.active = 1
-	doc.is_global_default = 0
-	doc.currency = currency or "KES"
-	doc.billing_period_type = period_type
-	doc.first_period_amount = amount
-	doc.extra_day_rate = rate
-
-	if period_type == "Date Range":
-		if not period_from_date or not period_to_date:
-			frappe.throw(_("Period From Date and Period To Date are required for a Date Range period."))
-		doc.period_from_date = period_from_date
-		doc.period_to_date = period_to_date
-		# first_period_days is derived from the range by the rule's own validate().
-	else:
-		doc.period_from_date = None
-		doc.period_to_date = None
-		mapped = PERIOD_TYPE_DAYS.get(period_type)
-		if not mapped:
-			frappe.throw(_("Invalid billing period type."))
-		doc.first_period_days = mapped
-
-	doc.save(ignore_permissions=True)
-	return doc.name

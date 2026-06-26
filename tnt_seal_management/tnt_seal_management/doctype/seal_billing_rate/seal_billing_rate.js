@@ -43,6 +43,10 @@ frappe.ui.form.on("Seal Billing Rate", {
 		}
 	},
 
+	billing_type(frm) {
+		_apply_period_type(frm);
+	},
+
 	billing_period_type(frm) {
 		_apply_period_type(frm);
 	},
@@ -57,6 +61,18 @@ frappe.ui.form.on("Seal Billing Rate", {
 });
 
 function _apply_period_type(frm) {
+	if (frm.doc.billing_type === "Special") {
+		// Special is a private contract: first_period_days is entered directly,
+		// no period type or date range involved.
+		frm.set_df_property("first_period_days", "read_only", 0);
+		frm.set_df_property(
+			"first_period_days",
+			"description",
+			__("Enter the number of days for this contract.")
+		);
+		return;
+	}
+
 	const period = frm.doc.billing_period_type;
 
 	if (period === "Date Range") {

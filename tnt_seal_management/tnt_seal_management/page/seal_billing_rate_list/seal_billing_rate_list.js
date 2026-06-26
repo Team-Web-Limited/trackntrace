@@ -17,6 +17,7 @@ frappe.pages["seal-billing-rate-list"].on_page_load = function (wrapper) {
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
 	page.add_inner_button(__("Refresh"), () => _sbr_load(page));
+	page.add_inner_button(__("Mass Assign Billing"), () => _sbr_show_mass_assign_dialog(page));
 	page.set_primary_action(__("New Billing Rate"), () => frappe.new_doc("Seal Billing Rate"));
 
 	const $statsBar = $('<div class="sbr-header-stats"></div>');
@@ -330,6 +331,108 @@ function _sbr_clear(page) {
 	$(page.body).find(".sbr-filter-btn-label").text(__("All Rates"));
 	$(page.body).find(".sbr-active-btn-label").text(__("All"));
 	_sbr_load(page);
+}
+
+// Mass Assign Billing — bulk version of the "Set Billing" modal on Current
+// Customer List. Imports only write the Customer <-> Billing Rule link
+// (Customer Billing Assignment); rule terms are configured in Seal Billing
+// Rate. Default and Special use separate templates/imports because a Default
+// rule is expected to repeat across rows while a Special rule must stay
+// unique to one customer per import.
+const SBR_TEMPLATE_URL = {
+	Default: "/api/method/tnt_seal_management.tnt_seal_management.api.seal_billing_rate_list.download_default_assignment_template",
+	Special: "/api/method/tnt_seal_management.tnt_seal_management.api.seal_billing_rate_list.download_special_assignment_template",
+};
+const SBR_IMPORT_METHOD = {
+	Default: "tnt_seal_management.tnt_seal_management.api.seal_billing_rate_list.import_default_assignments",
+	Special: "tnt_seal_management.tnt_seal_management.api.seal_billing_rate_list.import_special_assignments",
+};
+
+function _sbr_show_mass_assign_dialog(page) {
+	const dialog = new frappe.ui.Dialog({
+		title: __("Mass Assign Billing"),
+		size: "large",
+		fields: [
+			{
+				fieldname: "instructions",
+				fieldtype: "HTML",
+				options: `
+					<div class="sbr-import-help">
+						<p>${__("Assigns an existing, active billing rule to many customers at once. Rule terms (period type, amounts, validity) are configured on the rule itself in Seal Billing Rate — this only sets the assignment.")}</p>
+						<p><b>${__("Excel columns")}</b></p>
+						<ul>
+							<li><b>Customer</b> ${__("(required — Customer ID or Customer Name)")}</li>
+							<li><b>Billing Rule</b> ${__("(required — must be an active rule of the chosen billing type)")}</li>
+							<li>Period From Date ${__("(optional)")}</li>
+							<li>Period To Date ${__("(optional — must fall within the rule's own Effective From/To window)")}</li>
+						</ul>
+						<button class="btn btn-xs btn-default sbr-template-btn" type="button">${__("Download Excel Template")}</button>
+					</div>
+				`,
+			},
+			{
+				fieldname: "billing_type",
+				fieldtype: "Select",
+				label: __("Billing Type"),
+				options: ["Default", "Special"],
+				default: "Default",
+				reqd: 1,
+				description: __("Default: a shared rate card, the same rule may repeat across rows. Special: a private per-customer rule — must not repeat within one import."),
+			},
+			{
+				fieldname: "file_url",
+				fieldtype: "Attach",
+				label: __("Excel File"),
+				reqd: 1,
+				options: { restrictions: { allowed_file_types: [".xlsx", ".xls"] } },
+			},
+		],
+		primary_action_label: __("Import"),
+		primary_action(values) {
+			frappe.call({
+				method: SBR_IMPORT_METHOD[values.billing_type],
+				args: { file_url: values.file_url },
+				freeze: true,
+				freeze_message: __("Importing billing assignments…"),
+				callback(r) {
+					const result = r.message || {};
+					_sbr_show_import_result(result);
+					if (result.updated) _sbr_load(page);
+				},
+			});
+		},
+	});
+
+	dialog.$wrapper.find(".sbr-template-btn").on("click", () => {
+		const billingType = dialog.get_value("billing_type") || "Default";
+		window.open(SBR_TEMPLATE_URL[billingType], "_blank");
+	});
+
+	dialog.show();
+}
+
+function _sbr_show_import_result(result) {
+	const updated = result.updated || 0;
+	const errors = result.errors || [];
+
+	if (!errors.length) {
+		frappe.show_alert({ message: __("Assigned billing to {0} customer(s).", [updated]), indicator: "green" }, 7);
+		return;
+	}
+
+	const rows = errors
+		.map((e) => `<tr><td>${frappe.utils.escape_html(e.row)}</td><td>${frappe.utils.escape_html(e.message)}</td></tr>`)
+		.join("");
+	frappe.msgprint({
+		title: __("Mass Assign Billing — {0} succeeded, {1} failed", [updated, errors.length]),
+		indicator: errors.length && !updated ? "red" : "orange",
+		message: `
+			<table class="table table-bordered">
+				<thead><tr><th>${__("Row")}</th><th>${__("Error")}</th></tr></thead>
+				<tbody>${rows}</tbody>
+			</table>
+		`,
+	});
 }
 
 function _sbr_set_loading(page, show) {

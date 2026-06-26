@@ -70,6 +70,7 @@
   },
   {
    "default": "Monthly",
+   "depends_on": "eval:doc.billing_type=='Default'",
    "fieldname": "billing_period_type",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -78,6 +79,7 @@
   },
   {
    "default": "0",
+   "depends_on": "eval:doc.billing_type=='Default'",
    "description": "Mark exactly one rule as the system-wide fallback used when no customer or customer-group assignment matches.",
    "fieldname": "is_global_default",
    "fieldtype": "Check",
@@ -89,18 +91,18 @@
    "label": "Pricing"
   },
   {
-   "depends_on": "eval:doc.billing_period_type=='Date Range'",
+   "depends_on": "eval:doc.billing_type=='Default' && doc.billing_period_type=='Date Range'",
    "fieldname": "period_from_date",
    "fieldtype": "Date",
    "label": "Period From Date",
-   "mandatory_depends_on": "eval:doc.billing_period_type=='Date Range'"
+   "mandatory_depends_on": "eval:doc.billing_type=='Default' && doc.billing_period_type=='Date Range'"
   },
   {
-   "depends_on": "eval:doc.billing_period_type=='Date Range'",
+   "depends_on": "eval:doc.billing_type=='Default' && doc.billing_period_type=='Date Range'",
    "fieldname": "period_to_date",
    "fieldtype": "Date",
    "label": "Period To Date",
-   "mandatory_depends_on": "eval:doc.billing_period_type=='Date Range'"
+   "mandatory_depends_on": "eval:doc.billing_type=='Default' && doc.billing_period_type=='Date Range'"
   },
   {
    "default": "5",
@@ -131,6 +133,7 @@
    "label": "Validity"
   },
   {
+   "depends_on": "eval:doc.billing_type=='Default'",
    "fieldname": "effective_from",
    "fieldtype": "Date",
    "label": "Effective From Date"
@@ -140,6 +143,7 @@
    "fieldtype": "Column Break"
   },
   {
+   "depends_on": "eval:doc.billing_type=='Default'",
    "fieldname": "effective_to",
    "fieldtype": "Date",
    "label": "Effective To Date"

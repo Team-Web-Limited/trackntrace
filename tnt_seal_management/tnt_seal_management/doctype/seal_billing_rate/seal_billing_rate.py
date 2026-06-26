@@ -28,7 +28,13 @@ class SealBillingRate(Document):
 		inclusive span between the two dates — the dates are only a calculator for
 		the day count, the billing engine still consumes first_period_days alone.
 		For Days, keep the user-entered value.
-		For other period types, use the standard day count for that period."""
+		For other period types, use the standard day count for that period.
+
+		Special rules skip all of this — they're a private contract with
+		first_period_days entered directly, no period type or date range."""
+		if self.billing_type == "Special":
+			return
+
 		if self.billing_period_type == "Date Range":
 			if not self.period_from_date or not self.period_to_date:
 				frappe.throw(_("Period From Date and Period To Date are required for a Date Range period."))
@@ -58,6 +64,11 @@ class SealBillingRate(Document):
 				frappe.throw(_("Effective To Date cannot be before Effective From Date."))
 
 	def validate_single_global_default(self):
+		if self.billing_type == "Special":
+			# Special is a private, per-customer contract — never a fallback default.
+			self.is_global_default = 0
+			return
+
 		if not self.is_global_default:
 			return
 

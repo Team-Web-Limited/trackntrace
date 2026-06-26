@@ -412,6 +412,7 @@ function _seal_device_row_html(d) {
 		? `<span class="sd-badge sd-badge--excluded" title="${frappe.utils.escape_html(d.remarks || "")}">${__("Sync Excluded")}</span>`
 		: "";
 	const battery = _format_battery(d.battery_level);
+	const locationHtml = _format_location_cell(d.current_location || d.last_known_api_location);
 	const lastSync = d.last_successful_sync_time
 		? frappe.datetime.prettyDate(d.last_successful_sync_time).replace(/\s+ago$/i, "")
 		: __("Never");
@@ -430,7 +431,7 @@ function _seal_device_row_html(d) {
 			<td>${d.current_technician ? frappe.utils.escape_html(d.current_technician) : "—"}</td>
 			<td>${frappe.utils.escape_html(d.journey_vehicle || d.current_vehicle || "—")}</td>
 			<td>${coordLine}</td>
-			<td>${frappe.utils.escape_html(d.current_location || d.last_known_api_location || "—")}</td>
+			<td class="sd-cell-location">${locationHtml}</td>
 			<td>${battery}</td>
 			<td>${frappe.utils.escape_html(lastSync)}</td>
 		</tr>
@@ -505,6 +506,18 @@ function _format_battery(value) {
 	if (value === null || value === undefined || value === "") return "—";
 	const text = String(value);
 	return frappe.utils.escape_html(text.includes("%") ? text : `${text}%`);
+}
+
+function _format_location_cell(value) {
+	const location = String(value || "").trim();
+	if (!location) return "—";
+
+	const words = location.split(/\s+/);
+	const display = words.length > 3 ? words.slice(0, 3).join(" ") + "..." : location;
+	const escapedLocation = frappe.utils.escape_html(location);
+	const escapedDisplay = frappe.utils.escape_html(display);
+
+	return "<span class=\"sd-location-text\" title=\"" + escapedLocation + "\">" + escapedDisplay + "</span>";
 }
 
 function _set_seal_device_loading(page, on) {
@@ -707,7 +720,7 @@ function _inject_seal_device_styles() {
 		}
 		.sd-clear-btn:hover { background: #f8fafc; border-color: #94a3b8; }
 
-		.sd-table { width: 100%; min-width: 1180px; border-collapse: collapse; }
+		.sd-table { width: max-content; min-width: 1180px; border-collapse: collapse; table-layout: auto; }
 		.sd-table th,
 		.sd-table td {
 			padding: 10px 12px;
@@ -718,6 +731,8 @@ function _inject_seal_device_styles() {
 			font-size: 14px;
 			line-height: 1.45;
 		}
+		.sd-table th,
+		.sd-table td { white-space: nowrap; }
 		.sd-table th {
 			position: sticky;
 			top: 0;
@@ -746,6 +761,15 @@ function _inject_seal_device_styles() {
 		.sd-badge--excluded { background: #fef3c7; color: #92400e; margin-left: 6px; cursor: help; }
 		.sd-coord-link { color: var(--sd-blue); text-decoration: none; font-size: 12px; }
 		.sd-coord-link:hover { text-decoration: underline; }
+		.sd-cell-location { max-width: 260px; }
+		.sd-location-text {
+			display: inline-block;
+			max-width: 100%;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			vertical-align: bottom;
+			cursor: help;
+		}
 		.sd-empty { padding: 60px 20px; text-align: center; color: #64748b; }
 		.sd-empty strong { display: block; margin-bottom: 6px; color: #0c4a6e; font-size: 22px; }
 		.sd-pagination {
