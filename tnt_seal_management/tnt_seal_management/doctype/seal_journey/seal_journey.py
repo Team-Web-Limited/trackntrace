@@ -305,14 +305,26 @@ def _pull_arrival_location(doc):
 
 
 @frappe.whitelist()
-def confirm_arrival(docname):
-	"""Driver calls Control Room on arrival and the seal is opened on the spot —
-	in practice arrival and seal-unlock are the same event, so this one action
-	covers both: ticking Seal Unlocked Confirmation in the Control Room Approve
-	tab calls this directly. Captures location live from the seal's GPS and
-	timestamps arrival, which also makes Days Taken non-zero immediately (see
-	SealJourney.set_days_taken)."""
+def confirm_arrival(docname, unlock_method="physical"):
+	"""Driver calls Control Room on arrival and the seal is unlocked — this one
+	action covers both arrival and seal-unlock. The Control Room picks how the
+	seal was unlocked, which routes the rest of the workflow:
+
+	  • ``physical`` (default) — a Field Technician must physically remove the
+	    seal, so this kicks off the untagging phase: it raises an Untagging
+	    request to the PCB Team Leader and the journey moves to "Arrived".
+
+	  • ``remote`` — the client called in and the seal was unlocked remotely, so
+	    untagging is skipped entirely. The journey goes straight to "Awaiting Seal
+	    Return" and a Seal Return request is raised so the PCB Team Leader can
+	    assign a Tag Operator to collect the seal from the client.
+
+	Captures location live from the seal's GPS and timestamps arrival, which also
+	makes Days Taken non-zero immediately (see SealJourney.set_days_taken)."""
 	_ensure_control_room_role()
+	if unlock_method not in ("physical", "remote"):
+		frappe.throw(_("Invalid unlock method {0}.").format(unlock_method), title=_("Invalid Request"))
+
 	doc = _get_seal_journey(docname)
 	if doc.journey_status != "In Transit":
 		frappe.throw(
@@ -320,16 +332,35 @@ def confirm_arrival(docname):
 			title=_("Invalid Status"),
 		)
 
+	# Pull the live GPS location FIRST: sync_seal_device writes the journey's API
+	# mirror fields (api_last_update_time, location, …) straight to the row and
+	# commits (see seal_sync._apply_to_journey), which bumps this Seal Journey's
+	# `modified`. Reload afterwards so our own save below compares against the
+	# fresh timestamp instead of tripping a "Document has been modified" conflict.
+	location = _pull_arrival_location(doc)
+	doc.reload()
+
 	doc.arrival_date_time = doc.arrival_date_time or now_datetime()
-	doc.arrival_location = _pull_arrival_location(doc) or doc.arrival_location
+	doc.arrival_location = location or doc.arrival_location
 	doc.seal_unlocked_confirmation = 1
-	doc.journey_status = "Arrived"
 	doc.flags.ignore_field_locks = True
+
+	if unlock_method == "remote":
+		_confirm_remote_unlock(doc)
+	else:
+		_confirm_physical_unlock(doc)
+
+	frappe.db.commit()
+
+
+def _confirm_physical_unlock(doc):
+	"""Physical unlock: a Tag Operator must remove the seal, so kick off the
+	untagging phase. Raising the untagging request is tolerated if it fails so a
+	hiccup there never blocks the arrival confirmation itself."""
+	doc.seal_unlock_method = "Physical"
+	doc.journey_status = "Arrived"
 	doc.save()
 
-	# Arrival kicks off the untagging phase — raise the request to the PCB Team
-	# Leader (surfaces in their Assignment list / card). Tolerated if it fails so
-	# a hiccup here never blocks the arrival confirmation itself.
 	try:
 		from tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment import (
 			create_untagging_request,
@@ -342,7 +373,28 @@ def confirm_arrival(docname):
 			"Untagging Request",
 		)
 
-	frappe.db.commit()
+
+def _confirm_remote_unlock(doc):
+	"""Remote unlock: the seal was opened remotely at the client's request, so
+	there is no physical untagging. Skip straight to the seal-return phase and
+	raise a Seal Return request for the PCB Team Leader. Tolerated if it fails so
+	a hiccup there never blocks the arrival confirmation itself."""
+	doc.seal_unlock_method = "Remote"
+	doc.untagging_status = "Not Required"
+	doc.journey_status = "Awaiting Seal Return"
+	doc.save()
+
+	try:
+		from tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment import (
+			create_seal_return_request,
+		)
+
+		create_seal_return_request(doc)
+	except Exception as exc:
+		frappe.log_error(
+			f"Seal return request creation failed for {doc.name}: {exc}",
+			"Seal Return Request",
+		)
 
 
 @frappe.whitelist()
@@ -684,8 +736,6 @@ def resolve_seal_journey_mirror_values(seal_journey):
 				"seal_return_confirmed_by_technician",
 				"seal_return_condition",
 				"seal_return_location",
-				"seal_return_control_room_approver",
-				"seal_return_control_room_approval_date_time",
 			],
 			as_dict=True,
 		)
@@ -712,16 +762,10 @@ def resolve_seal_journey_mirror_values(seal_journey):
 
 			# --- Seal Return (mirrored onto the Seal Return tab) -------------
 			put("return_location", jr.seal_return_location)
-			put("seal_return_control_room_approver", jr.seal_return_control_room_approver)
-			put(
-				"seal_return_control_room_approval_date_time",
-				jr.seal_return_control_room_approval_date_time,
-			)
-			put("control_room_approval", cint(jr.seal_returned))
 			put("seal_return_confirmed_by_technician", cint(jr.seal_return_confirmed_by_technician))
 			put("seal_condition_after_journey", jr.seal_return_condition)
 			# Returned By is the technician who untagged/returned the seal, but only
-			# once the return is actually approved (before that the seal isn't back).
+			# once the technician confirms the return.
 			if cint(jr.seal_returned):
 				put("returned_by", jr.assigned_technician)
 

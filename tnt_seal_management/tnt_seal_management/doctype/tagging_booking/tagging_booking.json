@@ -10,8 +10,13 @@
  "field_order": [
   "booking_details_section",
   "client_name",
+  "branch",
   "booking_details_column",
   "booking_status",
+  "booking_source",
+  "requested_by",
+  "account_manager",
+  "account_manager_submission_date_time",
   "location",
   "booking_date_time",
   "contact_section",
@@ -41,6 +46,12 @@
    "reqd": 1
   },
   {
+   "fieldname": "branch",
+   "fieldtype": "Select",
+   "label": "Branch",
+   "options": "\n"
+  },
+  {
    "fieldname": "booking_details_column",
    "fieldtype": "Column Break"
   },
@@ -50,7 +61,37 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Booking Status",
-   "options": "Draft\nPending Finance PCB Approval\nFinance PCB Approved\nFinance PCB Rejected",
+   "options": "Draft\nPending Account Manager Review\nPending Finance PCB Approval\nFinance PCB Approved\nFinance PCB Rejected\nCancelled",
+   "read_only": 1
+  },
+  {
+   "default": "Account Manager",
+   "fieldname": "booking_source",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Booking Source",
+   "options": "Account Manager\nCustomer Portal",
+   "read_only": 1
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Requested By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "account_manager",
+   "fieldtype": "Link",
+   "label": "Account Manager",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "account_manager_submission_date_time",
+   "fieldtype": "Datetime",
+   "label": "Submitted to Finance By Account Manager At",
    "read_only": 1
   },
   {
@@ -92,24 +133,28 @@
   {
    "fieldname": "approval_section",
    "fieldtype": "Section Break",
-   "label": "Finance Approval"
+   "label": "Finance Approval",
+   "permlevel": 1
   },
   {
    "default": "Pending",
    "fieldname": "finance_pcb_approval_status",
    "fieldtype": "Select",
    "label": "Finance PCB Approval Status",
+   "permlevel": 1,
    "options": "Pending\nApproved\nRejected",
    "read_only": 1
   },
   {
    "fieldname": "approval_column",
-   "fieldtype": "Column Break"
+   "fieldtype": "Column Break",
+   "permlevel": 1
   },
   {
    "fieldname": "finance_pcb_approver",
    "fieldtype": "Link",
    "label": "Finance PCB Approver",
+   "permlevel": 1,
    "options": "User",
    "read_only": 1
   },
@@ -117,6 +162,7 @@
    "fieldname": "finance_pcb_approval_date_time",
    "fieldtype": "Datetime",
    "label": "Finance PCB Approval Date and Time",
+   "permlevel": 1,
    "read_only": 1
   },
   {

@@ -7,7 +7,11 @@ frappe.ui.form.on("Journey Request", {
 		frm.add_fetch("seal_device", "last_api_sync_time", "api_last_update_time");
 
 		_journey_request_apply_locks(frm);
+		_journey_request_lock_pre_tagging_checklist(frm);
+		_journey_request_configure_photo_tables(frm);
+		_journey_request_lock_remarks_log(frm);
 		_journey_request_apply_role_visibility(frm);
+		_journey_request_enable_vehicle_creation(frm);
 		_journey_request_add_list_button(frm);
 		_journey_request_add_seals_grid_button(frm);
 
@@ -16,6 +20,15 @@ frappe.ui.form.on("Journey Request", {
 				"tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.available_seal_query",
 			filters: { journey_request: frm.doc.name || "" },
 		}));
+
+		// A sub-seal's parent must be one of the other seals already on this
+		// journey, so restrict the Parent Seal picker to the sibling rows.
+		frm.set_query("parent_seal", "seals", (doc, cdt, cdn) => {
+			const others = (frm.doc.seals || [])
+				.filter((s) => s.seal_device && s.name !== cdn)
+				.map((s) => s.seal_device);
+			return { filters: { name: ["in", others.length ? others : [""]] } };
+		});
 
 		if (frm.is_new()) {
 			return;
@@ -40,10 +53,68 @@ frappe.ui.form.on("Journey Request", {
 			});
 		}
 	},
+
+});
+
+frappe.ui.form.on("Seal Trip Photo", {
+	entry_document_add(frm, cdt, cdn) {
+		_journey_request_set_photo_type(cdt, cdn, "Pre-Tagging");
+	},
+
+	tagging_photos_add(frm, cdt, cdn) {
+		_journey_request_set_photo_type(cdt, cdn, "Tagging");
+	},
+
+	untagging_entry_document_add(frm, cdt, cdn) {
+		_journey_request_set_photo_type(cdt, cdn, "Untagging");
+	},
+
+	untagging_photos_add(frm, cdt, cdn) {
+		_journey_request_set_photo_type(cdt, cdn, "Untagging");
+	},
+
+	seal_return_entry_document_add(frm, cdt, cdn) {
+		_journey_request_set_photo_type(cdt, cdn, "Seal Return");
+	},
+
+	seal_return_photos_add(frm, cdt, cdn) {
+		_journey_request_set_photo_type(cdt, cdn, "Seal Return");
+	},
 });
 
 const JR_METHOD = (name) =>
 	`tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.${name}`;
+
+function _journey_request_lock_pre_tagging_checklist(frm) {
+	frm.set_df_property("pre_tagging_checklist", "cannot_add_rows", true);
+	frm.set_df_property("pre_tagging_checklist", "cannot_delete_rows", true);
+}
+
+function _journey_request_lock_remarks_log(frm) {
+	frm.set_df_property("remarks_log", "cannot_add_rows", true);
+	frm.set_df_property("remarks_log", "cannot_delete_rows", true);
+}
+
+const JR_PHOTO_TABLE_TYPES = {
+	entry_document: "Pre-Tagging",
+	tagging_photos: "Tagging",
+	untagging_entry_document: "Untagging",
+	untagging_photos: "Untagging",
+	seal_return_entry_document: "Seal Return",
+	seal_return_photos: "Seal Return",
+};
+
+function _journey_request_configure_photo_tables(frm) {
+	for (const fieldname of Object.keys(JR_PHOTO_TABLE_TYPES)) {
+		const grid = frm.fields_dict[fieldname]?.grid;
+		if (!grid) continue;
+		grid.update_docfield_property("photo_type", "read_only", 1);
+	}
+}
+
+function _journey_request_set_photo_type(cdt, cdn, photoType) {
+	frappe.model.set_value(cdt, cdn, "photo_type", photoType);
+}
 
 function _journey_request_add_buttons(frm) {
 	const status = frm.doc.journey_request_status;
@@ -89,9 +160,9 @@ function _journey_request_add_buttons(frm) {
 	}
 
 	if (status === "Pending CC Approval" && isCustomerCare) {
-		frm.add_custom_button(__("Approve"), () =>
-			_jr_call(frm, "approve_journey_request", { remarks: frm.doc.customer_care_remarks })
-		).addClass("btn-primary");
+		frm.add_custom_button(__("Approve"), () => _jr_prompt_customer_care_approval(frm)).addClass(
+			"btn-primary"
+		);
 
 		frm.add_custom_button(__("Reject"), () =>
 			_jr_prompt_reject(frm, "reject_journey_request")
@@ -99,38 +170,17 @@ function _journey_request_add_buttons(frm) {
 	}
 
 	if (status === "Untagging" && isTech) {
-		frm.add_custom_button(__("Submit Untagging to Control Room"), () => {
-			frappe.warn(
-				__("Submit Untagging to Control Room"),
-				__("Confirm untagging evidence is captured before submitting for Control Room approval."),
-				() => {
-					// submit_untagging_to_control_room() re-reads the doc from the
-					// database, so unsaved photo edits must be saved first.
-					const proceed = () => _jr_call(frm, "submit_untagging_to_control_room");
-					frm.is_dirty() ? frm.save().then(proceed) : proceed();
-				},
-				__("Confirm")
-			);
-		}).addClass("btn-primary");
+		frm.add_custom_button(__("Confirm Untagging"), () => _jr_prompt_confirm_untagging(frm)).addClass(
+			"btn-primary"
+		);
 	}
 
-	// "Untagging Approved" doubles as the seal-return work window — the FT who
-	// untagged the seal (now its custodian) captures return evidence and submits
-	// it for the Control Room's final good-condition sign-off.
-	if (status === "Untagging Approved" && isTech) {
-		frm.add_custom_button(__("Submit Seal Return to Control Room"), () => {
-			frappe.warn(
-				__("Submit Seal Return to Control Room"),
-				__("Confirm the seal has been returned in good condition and evidence is captured before submitting for Control Room approval."),
-				() => {
-					// submit_seal_return_to_control_room() re-reads the doc from the
-					// database, so unsaved photo edits must be saved first.
-					const proceed = () => _jr_call(frm, "submit_seal_return_to_control_room");
-					frm.is_dirty() ? frm.save().then(proceed) : proceed();
-				},
-				__("Confirm")
-			);
-		}).addClass("btn-primary");
+	// "Awaiting Seal Return" is the seal-return work window. The assigned FT
+	// captures evidence and confirms the return directly.
+	if (status === "Awaiting Seal Return" && isTech) {
+		frm.add_custom_button(__("Confirm Seal Return"), () => _jr_prompt_confirm_seal_return(frm)).addClass(
+			"btn-primary"
+		);
 	}
 }
 
@@ -143,11 +193,168 @@ function _jr_call(frm, method, extraArgs = {}) {
 	});
 }
 
+function _jr_prompt_confirm_untagging(frm) {
+	if (!frm.doc.untagging_confirmed_by_technician) {
+		frappe.msgprint({
+			message: __("Tick Confirmed by Technician to confirm the seal has been physically removed."),
+			title: __("Confirmation Required"),
+			indicator: "orange",
+		});
+		return;
+	}
+	if (!(frm.doc.untagging_entry_document || []).length || !(frm.doc.untagging_photos || []).length) {
+		frappe.msgprint({
+			message: __(
+				"Attach at least one Entry Picture and one Untagging Picture under Untagging Documents & Photos before confirming."
+			),
+			title: __("Evidence Required"),
+			indicator: "orange",
+		});
+		return;
+	}
+
+	frappe.prompt(
+		[
+			{
+				fieldname: "remarks",
+				fieldtype: "Small Text",
+				label: __("Remarks (Optional)"),
+			},
+		],
+		(values) => {
+			const proceed = () => _jr_confirm_untagging(frm, null, values.remarks || "");
+			frm.is_dirty() ? frm.save().then(proceed) : proceed();
+		},
+		__("Confirm Untagging"),
+		__("Confirm")
+	);
+}
+
+function _jr_confirm_untagging(frm, manualLocation = null, remarks = "") {
+	frappe.call({
+		method: JR_METHOD("confirm_untagging"),
+		args: { docname: frm.doc.name, manual_location: manualLocation, remarks },
+		freeze: true,
+		freeze_message: __("Confirming untagging and capturing location…"),
+		callback(r) {
+			const result = r.message || {};
+			if (result.requires_manual_location) {
+				frappe.prompt(
+					[
+						{
+							fieldname: "manual_location",
+							fieldtype: "Data",
+							label: __("Untagging Location"),
+							reqd: 1,
+							description: __("Live GPS was unavailable. Enter the untagging location manually."),
+						},
+					],
+					(values) => _jr_confirm_untagging(frm, values.manual_location, remarks),
+					__("GPS Location Unavailable"),
+					__("Confirm Untagging")
+				);
+				return;
+			}
+
+			frappe.show_alert({ message: __("Untagging confirmed"), indicator: "green" }, 6);
+			frm.reload_doc();
+		},
+	});
+}
+
+function _jr_prompt_confirm_seal_return(frm) {
+	if (!frm.doc.seal_return_confirmed_by_technician) {
+		frappe.msgprint({
+			message: __("Tick Confirmed by Technician to confirm the seal has been physically returned."),
+			title: __("Confirmation Required"),
+			indicator: "orange",
+		});
+		return;
+	}
+	if (
+		!(frm.doc.seal_return_entry_document || []).length ||
+		!(frm.doc.seal_return_photos || []).length
+	) {
+		frappe.msgprint({
+			message: __(
+				"Attach at least one Entry Picture and one Seal Return Picture under Seal Return Documents & Photos before confirming."
+			),
+			title: __("Evidence Required"),
+			indicator: "orange",
+		});
+		return;
+	}
+
+	frappe.prompt(
+		[
+			{
+				fieldname: "remarks",
+				fieldtype: "Small Text",
+				label: __("Remarks (Optional)"),
+			},
+		],
+		(values) => {
+			const proceed = () => _jr_confirm_seal_return(frm, null, values.remarks || "");
+			frm.is_dirty() ? frm.save().then(proceed) : proceed();
+		},
+		__("Confirm Seal Return"),
+		__("Confirm")
+	);
+}
+
+function _jr_confirm_seal_return(frm, manualLocation = null, remarks = "") {
+	frappe.call({
+		method: JR_METHOD("confirm_seal_return"),
+		args: { docname: frm.doc.name, manual_location: manualLocation, remarks },
+		freeze: true,
+		freeze_message: __("Confirming seal return and capturing location…"),
+		callback(r) {
+			const result = r.message || {};
+			if (result.requires_manual_location) {
+				frappe.prompt(
+					[
+						{
+							fieldname: "manual_location",
+							fieldtype: "Data",
+							label: __("Seal Return Location"),
+							reqd: 1,
+							description: __("Live GPS and stored device location were unavailable. Enter the return location manually."),
+						},
+					],
+					(values) => _jr_confirm_seal_return(frm, values.manual_location, remarks),
+					__("GPS Location Unavailable"),
+					__("Confirm Seal Return")
+				);
+				return;
+			}
+
+			frappe.show_alert({ message: __("Seal return confirmed"), indicator: "green" }, 6);
+			frm.reload_doc();
+		},
+	});
+}
+
 function _jr_prompt_reject(frm, method) {
 	frappe.prompt(
 		[{ fieldname: "remarks", fieldtype: "Small Text", label: __("Remarks"), reqd: 1 }],
 		(values) => _jr_call(frm, method, { remarks: values.remarks }),
 		__("Reject Journey Request")
+	);
+}
+
+function _jr_prompt_customer_care_approval(frm) {
+	frappe.prompt(
+		[
+			{
+				fieldname: "remarks",
+				fieldtype: "Small Text",
+				label: __("Remarks (Optional)"),
+				default: frm.doc.customer_care_remarks || "",
+			},
+		],
+		(values) => _jr_call(frm, "approve_journey_request", { remarks: values.remarks || "" }),
+		__("Approve Journey Request"),
+		__("Approve")
 	);
 }
 
@@ -222,6 +429,22 @@ function _jr_swap_seal(frm) {
 	);
 }
 
+function _journey_request_enable_vehicle_creation(frm) {
+	const isAdmin = frappe.user.has_role("System Manager");
+	const isTech = frappe.user.has_role("Field Technician") || isAdmin;
+	const canCreateVehicle = isTech && (frm.is_new() || frm.doc.journey_request_status === "Draft");
+
+	frm.set_df_property("vehicle", "only_select", canCreateVehicle ? 0 : 1);
+	frm.set_df_property("vehicle", "no_create", canCreateVehicle ? 0 : 1);
+	frm.set_df_property("vehicle", "no_quick_entry", canCreateVehicle ? 0 : 1);
+
+	if (!canCreateVehicle) return;
+
+	frm.add_custom_button(__("Add Vehicle"), () => {
+		frappe.new_doc("Vehicle");
+	}, __("Create"));
+}
+
 function _journey_request_add_list_button(frm) {
 	frm.add_custom_button(__("Back"), () => {
 		frappe.set_route("journey-request-list");
@@ -244,13 +467,10 @@ function _journey_request_add_seals_grid_button(frm) {
 	const isTech = frappe.user.has_role("Field Technician") || isAdmin;
 	if (!isTech) return;
 
-	// "bottom" puts it in the grid footer next to "Add Row" — guaranteed
-	// visible, unlike "top" which sits in a thin strip above the table.
-	grid
-		.add_custom_button(__("Submit to Control Room"), () =>
-			_jr_call(frm, "submit_to_control_room")
-		)
-		.addClass("btn-primary");
+	frm.add_custom_button(__("Submit to Control Room"), () => {
+		const proceed = () => _jr_call(frm, "submit_to_control_room");
+		frm.is_dirty() ? frm.save().then(proceed) : proceed();
+	}).addClass("btn-primary");
 }
 
 const JR_CONTENT_FIELDS = [
@@ -309,7 +529,7 @@ function _journey_request_apply_locks(frm) {
 		lockedContent = true;
 		lockedTagging = true;
 		lockedUntagging = false;
-	} else if (isTech && status === "Untagging Approved") {
+	} else if (isTech && status === "Awaiting Seal Return") {
 		// Seal-return work window: untagging is locked-in, seal return is editable.
 		lockedContent = true;
 		lockedTagging = true;
@@ -348,8 +568,6 @@ function _journey_request_apply_role_visibility(frm) {
 	frm.toggle_display("approval_log", !isFieldTechnician);
 }
 
-// While the request is still Draft, every section past Seals (documents/photos,
-// control room approval, tagging, customer care approval, approval history,
-// remarks) is hidden via `depends_on` on those section breaks
-// in journey_request.json — Frappe hides whole sections natively there, which is
-// more reliable than toggling field visibility from JS.
+// While the request is still Draft, workflow-only sections after Documents &
+// Photos remain hidden via `depends_on`. Documents & Photos stays visible because
+// tagging evidence is required before submission to the Control Room.

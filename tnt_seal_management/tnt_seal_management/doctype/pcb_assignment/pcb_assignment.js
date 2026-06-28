@@ -26,20 +26,11 @@ frappe.ui.form.on("PCB Assignment", {
 			);
 		}
 
-		// Untagging assignments auto-progress to "TO Assigned for Untagging" on
-		// save once a Field Technician is picked (see
-		// PCBAssignment._auto_progress_untagging_status) — this action is the
-		// explicit sign-off that locks it in as "Untagging Assigned".
-		if (
-			frm.doc.request_type === "Untagging" &&
-			frm.doc.assignment_status === "TO Assigned for Untagging"
-		) {
-			frm.add_custom_button(
-				__("Approve Untagging Assignment"),
-				() => _asg_approve_untagging(frm),
-				__("Actions")
-			);
-		}
+		// Untagging/Seal Return assignments have no separate approval step —
+		// picking a Field Technician and saving auto-progresses straight to
+		// "Untagging Assigned" / "Seal Return Assigned" (see
+		// PCBAssignment._auto_progress_untagging_status /
+		// _auto_progress_seal_return_status) and hands off the Journey Request.
 
 		frm.add_custom_button(
 			__("Cancel Assignment"),
@@ -64,22 +55,4 @@ function _asg_update_status(frm, status) {
 			frm.reload_doc();
 		},
 	});
-}
-
-function _asg_approve_untagging(frm) {
-	frappe.confirm(
-		__("Approve this untagging assignment? The assignment will move to Untagging Assigned."),
-		() => {
-			frappe.call({
-				method:
-					"tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment.approve_untagging_assignment",
-				args: { assignment_name: frm.doc.name },
-				freeze: true,
-				callback() {
-					frappe.show_alert({ message: __("Untagging assignment approved"), indicator: "green" }, 5);
-					frm.reload_doc();
-				},
-			});
-		}
-	);
 }

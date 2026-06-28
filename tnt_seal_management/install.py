@@ -1,5 +1,7 @@
 import frappe
 
+from tnt_seal_management.seed import seed_transport_locations
+
 # The custom Page that renders the role-aware TNT landing cards
 # (frappe/boot.py:add_home_page reads this default to decide the post-login route).
 LANDING_PAGE = "tnt-seal-management"
@@ -20,7 +22,9 @@ def set_landing_page():
 
 def after_install():
 	set_landing_page()
+	seed_transport_locations()
 
 
 def after_migrate():
 	set_landing_page()
+	seed_transport_locations()

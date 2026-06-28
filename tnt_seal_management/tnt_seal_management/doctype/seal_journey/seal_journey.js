@@ -92,7 +92,6 @@ const STATUS_TO_MILESTONE = {
 	"Untagging In Progress": 5,
 	"Untagged": 5,
 	"Awaiting Seal Return": 5,
-	"Awaiting Control Room Approval": 5,
 	"Completed": 6,
 };
 
@@ -129,6 +128,7 @@ function _render_lifecycle(frm) {
 	const headline = `<div style="line-height:2;">${chips}</div>
 		<div style="margin-top:6px;font-size:12px;color:#8d99a6;">
 			${__("Status")}: <b>${__(status)}</b></div>`;
+	frm.dashboard.clear_headline();
 	frm.dashboard.set_headline(headline);
 
 	if (negative) {
@@ -148,6 +148,7 @@ function _render_lifecycle(frm) {
 				? ` (${__("since")} ${frappe.datetime.str_to_user(v.current_custody_since)})` : "";
 			const extra = `<div style="margin-top:2px;font-size:12px;color:#8d99a6;">
 				${__("Custodian")}: <b>${frappe.utils.escape_html(v.current_custody_label)}</b>${since}</div>`;
+			frm.dashboard.clear_headline();
 			frm.dashboard.set_headline(headline + extra);
 		});
 	}

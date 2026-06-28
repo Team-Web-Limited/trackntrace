@@ -34,6 +34,15 @@ app_include_js = "/assets/tnt_seal_management/js/tnt_seal_management.js"
 # include custom scss in every website theme (without file extension ".scss")
 # website_theme_scss = "tnt_seal_management/public/scss/website"
 
+portal_menu_items = [
+	{
+		"title": "Tagging Bookings",
+		"route": "/tagging-bookings",
+		"reference_doctype": "Tagging Booking",
+		"role": "Customer",
+	},
+]
+
 # include js, css files in header of web form
 # webform_include_js = {"doctype": "public/js/doctype.js"}
 # webform_include_css = {"doctype": "public/css/doctype.css"}

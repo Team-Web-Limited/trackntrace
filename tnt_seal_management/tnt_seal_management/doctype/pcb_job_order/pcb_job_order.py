@@ -18,9 +18,25 @@ from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey i
 
 class PCBJobOrder(Document):
 	def validate(self):
+		self._guard_cancelled_edits()
 		self._auto_assign_team_leader()
 		self._validate_team_leader()
 		self._sync_assignment()
+
+	def _guard_cancelled_edits(self):
+		"""Block any field edits while a job order remains Cancelled.
+		Allows transitions TO or FROM Cancelled (reopen/re-approval flows)."""
+		if self.is_new() or self.job_order_status != "Cancelled":
+			return
+		prev = self.get_doc_before_save()
+		if not prev or prev.job_order_status != "Cancelled":
+			return
+		for fieldname in ("assigned_pcb_team_leader", "remarks"):
+			if self.get(fieldname) != prev.get(fieldname):
+				frappe.throw(
+					_("Cancelled job orders cannot be modified."),
+					title=_("Invalid Action"),
+				)
 
 	def _auto_assign_team_leader(self):
 		"""Auto-fill the PCB Team Leader when none is set. The business currently

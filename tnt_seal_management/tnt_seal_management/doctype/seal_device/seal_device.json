@@ -15,6 +15,7 @@
   "serial_number",
   "current_status",
   "condition",
+  "parent_seal",
   "assignment_tab",
   "current_journey",
   "current_journey_request",
@@ -107,6 +108,14 @@
    "fieldtype": "Select",
    "label": "Condition",
    "options": "Good\nDamaged\nLost"
+  },
+  {
+   "description": "If this seal is a sub-seal (sublock) attached under another seal for the same journey/container, link the parent seal here. Leave blank for a standalone/parent seal.",
+   "fieldname": "parent_seal",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Parent Seal",
+   "options": "Seal Device"
   },
   {
    "fieldname": "assignment_tab",

@@ -124,4 +124,20 @@ def get_billing_detail(name):
 	doc = frappe.db.get_value("Seal Journey", name, fields, as_dict=True)
 	if not doc:
 		frappe.throw(_("Seal Journey {0} not found.").format(name))
+	rule_name = (
+		frappe.db.get_value("Seal Billing Rate", doc.billing_rule, "billing_rule_name")
+		if doc.billing_rule
+		else None
+	)
+	if rule_name:
+		doc.billing_rule_name = rule_name
+	elif doc.billing_rule:
+		days = cint(doc.first_period_days)
+		doc.billing_rule_name = (
+			_("Legacy Default ({0} days, deleted)").format(days)
+			if days
+			else _("Legacy Billing Rule (deleted)")
+		)
+	else:
+		doc.billing_rule_name = None
 	return doc

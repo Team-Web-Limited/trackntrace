@@ -21,18 +21,16 @@ frappe.pages["control-room"].on_page_load = function (wrapper) {
 		alertStatus: "open",
 		alertLevel: "all",
 		alertType: "all",
+		alertPage: 1,
+		alertPageLength: 20,
+		alertTotal: 0,
 		alertFilterOptions: { levels: [], types: [] },
 		alertSummary: { open: 0, critical_open: 0, unacknowledged_open: 0 },
 		alertPollTimer: null,
 		arrivals: [],
 		arrivalsLoading: false,
 		arrivalsLoaded: false,
-		untaggingApprovals: [],
-		untaggingApprovalsLoading: false,
-		untaggingApprovalsLoaded: false,
-		sealReturnApprovals: [],
-		sealReturnApprovalsLoading: false,
-		sealReturnApprovalsLoaded: false,
+		arrivalDialog: null,
 		dialog_kind: "tagging",
 	};
 
@@ -40,22 +38,62 @@ frappe.pages["control-room"].on_page_load = function (wrapper) {
 	page.add_inner_button(__("Refresh"), () => {
 		_control_room_load_queue(page);
 		_control_room_load_arrivals(page);
-		_control_room_load_untagging_approvals(page);
-		_control_room_load_seal_return_approvals(page);
 	}).addClass("cr-page-refresh-btn");
 
 	_control_room_inject_styles();
 	_control_room_render(page);
 	_control_room_load_queue(page);
-	_control_room_load_alerts(page);
 	_control_room_load_arrivals(page);
-	_control_room_load_untagging_approvals(page);
-	_control_room_load_seal_return_approvals(page);
+
+	// Stash the page so on_page_show can re-apply a deep-link when the user
+	// re-enters this already-built page from the bell.
+	wrapper._cr_page = page;
+
+	// A bell notification deep-links via ?tab=alert&alert=<name>. Frappe's
+	// router strips that query into frappe.route_options and navigates to the
+	// bare path, so we read it from there (not the URL). If no deep-link is
+	// pending, fall back to a normal alert load.
+	if (!_control_room_apply_route_options(page)) {
+		_control_room_load_alerts(page);
+		if (page.control_room_state.tab === "alert") _control_room_start_alert_polling(page);
+	}
 
 	// Stop the alert poll if the user navigates away from this page entirely
 	// (switching tabs within the page is handled in the .cr-tab click handler).
 	$(document).on("page-change", () => _control_room_stop_alert_polling(page));
 };
+
+// Fires every time the page is shown (including re-entering it from the bell),
+// unlike on_page_load which only runs once when the DOM is first built.
+frappe.pages["control-room"].on_page_show = function (wrapper) {
+	const page = wrapper._cr_page;
+	if (page) _control_room_apply_route_options(page);
+};
+
+// Consume a pending frappe.route_options deep-link (set by the global anchor
+// handler from the bell's ?tab=alert&alert=<name> link). Returns true if a
+// deep-link was applied — in which case it has already loaded the alerts.
+function _control_room_apply_route_options(page) {
+	const ro = frappe.route_options;
+	if (!ro || (!ro.alert && ro.tab !== "alert")) return false;
+
+	const state = page.control_room_state;
+	const alertName = ro.alert;
+	// Consume once so it can't leak into later navigations.
+	frappe.route_options = null;
+
+	state.tab = "alert";
+	state.alertPage = 1;
+	if (alertName) {
+		// Pre-filter to the exact alert; widen status so a resolved one shows.
+		state.alertSearch = String(alertName);
+		state.alertStatus = "all";
+	}
+	_control_room_render(page);
+	_control_room_load_alerts(page);
+	_control_room_start_alert_polling(page);
+	return true;
+}
 
 // Polling only runs while the Alert tab is the active tab, and only re-fetches
 // — it never auto-acknowledges or mutates anything, so a Control Room user
@@ -91,7 +129,7 @@ function _control_room_render(page) {
 				<div class="cr-tabs">
 					<button class="cr-tab ${state.tab === "approve" ? "active" : ""}" data-tab="approve">
 						${__("Approve")}
-						<span class="cr-tab-count" data-cr-count>${state.requests.length}</span>
+						<span class="cr-tab-count" data-cr-count>${state.requests.length + state.arrivals.length}</span>
 					</button>
 					<button class="cr-tab ${state.tab === "alert" ? "active" : ""}" data-tab="alert">
 						${__("Alert")}
@@ -203,6 +241,7 @@ function _control_room_render(page) {
 
 	const delayedAlertSearch = _cr_debounce(() => {
 		page.control_room_state.alertSearch = ($(page.body).find(".cr-alert-search").val() || "").trim();
+		page.control_room_state.alertPage = 1;
 		_control_room_load_alerts(page);
 	}, 350);
 
@@ -214,6 +253,7 @@ function _control_room_render(page) {
 		.off("change", ".cr-alert-status")
 		.on("change", ".cr-alert-status", function () {
 			page.control_room_state.alertStatus = $(this).val() || "open";
+			page.control_room_state.alertPage = 1;
 			_control_room_load_alerts(page);
 		});
 
@@ -221,6 +261,7 @@ function _control_room_render(page) {
 		.off("change", ".cr-alert-level")
 		.on("change", ".cr-alert-level", function () {
 			page.control_room_state.alertLevel = $(this).val() || "all";
+			page.control_room_state.alertPage = 1;
 			_control_room_load_alerts(page);
 		});
 
@@ -228,6 +269,7 @@ function _control_room_render(page) {
 		.off("change", ".cr-alert-type")
 		.on("change", ".cr-alert-type", function () {
 			page.control_room_state.alertType = $(this).val() || "all";
+			page.control_room_state.alertPage = 1;
 			_control_room_load_alerts(page);
 		});
 
@@ -238,6 +280,7 @@ function _control_room_render(page) {
 			page.control_room_state.alertStatus = "open";
 			page.control_room_state.alertLevel = "all";
 			page.control_room_state.alertType = "all";
+			page.control_room_state.alertPage = 1;
 			$(page.body).find(".cr-alert-search").val("");
 			$(page.body).find(".cr-alert-status").val("open");
 			$(page.body).find(".cr-alert-level").val("all");
@@ -250,53 +293,86 @@ function _control_room_render(page) {
 		.on("click", ".cr-alert-refresh-btn", () => _control_room_load_alerts(page));
 
 	$(page.body)
+		.off("click", ".cr-alert-page-btn")
+		.on("click", ".cr-alert-page-btn", function () {
+			const nextPage = Number($(this).data("page"));
+			if (!nextPage || nextPage === page.control_room_state.alertPage) return;
+			page.control_room_state.alertPage = nextPage;
+			_control_room_load_alerts(page);
+		});
+
+	$(page.body)
 		.off("click", ".cr-alert-ack-btn")
 		.on("click", ".cr-alert-ack-btn", function () {
 			const docname = $(this).data("name");
 			if (!docname) return;
-			frappe.call({
-				method: "tnt_seal_management.tnt_seal_management.doctype.seal_alert_log.seal_alert_log.acknowledge_alert",
-				args: { docname },
-				freeze: true,
-				callback() {
-					frappe.show_alert({ message: __("Alert acknowledged"), indicator: "green" }, 4);
-					_control_room_load_alerts(page);
-				},
-			});
-		});
-
-	$(page.body)
-		.off("change", ".cr-arrival-unlock-checkbox")
-		.on("change", ".cr-arrival-unlock-checkbox", function () {
-			const $checkbox = $(this);
-			const docname = $checkbox.data("name");
-			if (!docname || !$checkbox.is(":checked")) return;
-
-			frappe.confirm(
-				__(
-					"Confirm the driver has reported arrival and the seal has been unlocked for {0}? This cannot be undone — location will be captured live from the seal's GPS.",
-					[docname]
-				),
-				() => {
+			frappe.prompt(
+				[
+					{
+						fieldname: "status",
+						fieldtype: "Select",
+						label: __("Status"),
+						options: ["Resolved", "Underway"].join("\n"),
+						default: "Resolved",
+						reqd: 1,
+						description: __("Resolved if handled. Underway if acknowledged but further action is still needed."),
+					},
+					{
+						fieldname: "remarks",
+						fieldtype: "Small Text",
+						label: __("Remarks (optional)"),
+						description: __("Log what was done — e.g. action taken, driver contacted, or false alarm."),
+					},
+				],
+				(values) => {
 					frappe.call({
-						method: "tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey.confirm_arrival",
-						args: { docname },
+						method: "tnt_seal_management.tnt_seal_management.doctype.seal_alert_log.seal_alert_log.acknowledge_alert",
+						args: { docname, status: values.status, remarks: values.remarks || null },
 						freeze: true,
-						freeze_message: __("Confirming arrival…"),
+						freeze_message: __("Saving…"),
 						callback() {
 							frappe.show_alert(
-								{ message: __("{0}: arrival confirmed, seal unlocked", [docname]), indicator: "green" },
-								6
+								{ message: __("Alert marked {0}", [values.status]), indicator: "green" },
+								4
 							);
-							_control_room_load_arrivals(page);
-						},
-						error() {
-							$checkbox.prop("checked", false);
+							_control_room_load_alerts(page);
 						},
 					});
 				},
-				() => $checkbox.prop("checked", false)
+				__("Acknowledge {0}", [docname]),
+				__("Submit")
 			);
+		});
+
+	$(page.body)
+		.off("click", ".cr-alert-open-btn")
+		.on("click", ".cr-alert-open-btn", function () {
+			const docname = $(this).data("name");
+			if (!docname) return;
+			const alert = (page.control_room_state.alerts || []).find((a) => a.name === docname);
+			if (!alert) {
+				frappe.show_alert({ message: __("Could not find {0}", [docname]), indicator: "orange" }, 5);
+				return;
+			}
+			_control_room_open_alert_details(alert);
+		});
+
+	$(page.body)
+		.off("click", ".cr-arrival-open")
+		.on("click", ".cr-arrival-open", function () {
+			const docname = $(this).data("name");
+			const journey = (page.control_room_state.arrivals || []).find((row) => row.name === docname);
+			if (journey) _control_room_open_arrival_dialog(page, journey);
+		});
+
+	$(document)
+		.off("click.controlRoomArrival", ".cr-arrival-unlock-btn")
+		.on("click.controlRoomArrival", ".cr-arrival-unlock-btn", function () {
+			const $btn = $(this);
+			const docname = $btn.data("name");
+			const method = $btn.data("method");
+			if (!docname || !method) return;
+			_control_room_confirm_arrival(page, docname, method, $btn);
 		});
 
 	_control_room_bind_actions(page);
@@ -322,16 +398,17 @@ function _control_room_render_body(page) {
 			`);
 			return;
 		}
-		$body.html(`<div class="cr-table-wrap">${_control_room_alert_table(state.alerts)}</div>`);
+		$body.html(`
+			<div class="cr-table-wrap cr-alert-table-wrap">${_control_room_alert_table(state.alerts)}</div>
+			${_control_room_alert_pagination(state)}
+		`);
 		return;
 	}
 
 	const arrivalsHtml = _control_room_arrivals_section_html(state);
-	const untaggingHtml = _control_room_untagging_section_html(state);
-	const sealReturnHtml = _control_room_seal_return_section_html(state);
-	const extraSectionsHtml = `${arrivalsHtml}${untaggingHtml}${sealReturnHtml}`;
+	const extraSectionsHtml = `${arrivalsHtml}`;
 	const hasOtherPending =
-		state.arrivals.length || state.untaggingApprovals.length || state.sealReturnApprovals.length;
+		state.arrivals.length;
 
 	if (state.loading) {
 		$body.html(`${extraSectionsHtml}<div class="cr-loading"><div class="cr-spinner"></div>${__("Loading approval queue…")}</div>`);
@@ -340,7 +417,7 @@ function _control_room_render_body(page) {
 
 	if (!state.requests.length) {
 		// The "nothing to do" placeholder must only show when every approval-type
-		// queue (Journey Requests + Arrivals + Untagging Approvals) is empty —
+		// queue (Journey Requests + Arrivals) is empty —
 		// not just this one. Otherwise a pending card sits above a contradictory
 		// "Nothing awaiting approval" message.
 		$body.html(
@@ -376,33 +453,7 @@ function _control_room_render_body(page) {
 	`);
 }
 
-function _control_room_untagging_section_html(state) {
-	if (state.untaggingApprovalsLoading) {
-		return `<div class="cr-loading"><div class="cr-spinner"></div>${__("Loading untagging approvals…")}</div>`;
-	}
-	if (!state.untaggingApprovals.length) return "";
 
-	return `
-		<section class="cr-untagging-approvals">
-			<h3 class="cr-section-title">${__("Untagging — Pending Approval")}</h3>
-			<div class="cr-table-wrap">${_control_room_request_table(state.untaggingApprovals, "untagging")}</div>
-		</section>
-	`;
-}
-
-function _control_room_seal_return_section_html(state) {
-	if (state.sealReturnApprovalsLoading) {
-		return `<div class="cr-loading"><div class="cr-spinner"></div>${__("Loading seal return approvals…")}</div>`;
-	}
-	if (!state.sealReturnApprovals.length) return "";
-
-	return `
-		<section class="cr-seal-return-approvals">
-			<h3 class="cr-section-title">${__("Seal Return — Pending Approval")}</h3>
-			<div class="cr-table-wrap">${_control_room_request_table(state.sealReturnApprovals, "seal_return")}</div>
-		</section>
-	`;
-}
 
 function _control_room_arrivals_section_html(state) {
 	if (state.arrivalsLoading) {
@@ -413,9 +464,57 @@ function _control_room_arrivals_section_html(state) {
 	return `
 		<section class="cr-arrivals">
 			<h3 class="cr-section-title">${__("Arrivals — Confirm Seal Unlocked")}</h3>
-			<div class="cr-arrival-list">${state.arrivals.map(_control_room_arrival_card).join("")}</div>
+			<div class="cr-arrival-table-wrap">
+				<table class="cr-arrival-table">
+					<thead>
+						<tr>
+							<th>${__("Journey")}</th>
+							<th>${__("Vehicle")}</th>
+							<th>${__("Seal Device")}</th>
+							<th>${__("Last Location")}</th>
+							<th class="cr-arrival-action-col">${__("Action")}</th>
+						</tr>
+					</thead>
+					<tbody>${state.arrivals.map(_control_room_arrival_row).join("")}</tbody>
+				</table>
+			</div>
 		</section>
 	`;
+}
+
+function _control_room_arrival_row(journey) {
+	return `
+		<tr>
+			<td class="cr-arrival-journey">${frappe.utils.escape_html(journey.name)}</td>
+			<td>${frappe.utils.escape_html(journey.vehicle_plate_number || "—")}</td>
+			<td>${frappe.utils.escape_html(journey.assigned_seal || "—")}</td>
+			<td class="cr-arrival-location" title="${frappe.utils.escape_html(journey.api_device_location || "")}">${frappe.utils.escape_html(journey.api_device_location || "—")}</td>
+			<td class="cr-arrival-action-col">
+				<button class="cr-arrival-open" data-name="${frappe.utils.escape_html(journey.name)}">${__("View")}</button>
+			</td>
+		</tr>
+	`;
+}
+
+function _control_room_open_arrival_dialog(page, journey) {
+	const state = page.control_room_state;
+	if (state.arrivalDialog) {
+		state.arrivalDialog.hide();
+		state.arrivalDialog.$wrapper.remove();
+	}
+
+	const dialog = new frappe.ui.Dialog({
+		title: __("Arrival — {0}", [journey.name]),
+		size: "large",
+	});
+	dialog.$body.html(_control_room_arrival_card(journey));
+	dialog.$wrapper.addClass("cr-arrival-dialog");
+	dialog.$wrapper.on("hidden.bs.modal", () => {
+		if (state.arrivalDialog === dialog) state.arrivalDialog = null;
+		dialog.$wrapper.remove();
+	});
+	state.arrivalDialog = dialog;
+	dialog.show();
 }
 
 function _control_room_arrival_card(journey) {
@@ -444,13 +543,52 @@ function _control_room_arrival_card(journey) {
 				${_cr_meta(__("Last API Update"), lastSeen)}
 			</div>
 			<footer class="cr-arrival-actions">
-				<label class="cr-arrival-checkbox">
-					<input type="checkbox" class="cr-arrival-unlock-checkbox" data-name="${frappe.utils.escape_html(journey.name)}">
-					<span>${__("Seal Unlocked Confirmation")}</span>
-				</label>
+				<div class="cr-arrival-unlock-prompt">${__("Confirm arrival — how was the seal unlocked?")}</div>
+				<div class="cr-arrival-unlock-buttons">
+					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--physical" data-name="${frappe.utils.escape_html(journey.name)}" data-method="physical">
+						${__("Physical Unlock — Send for Untagging")}
+					</button>
+					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--remote" data-name="${frappe.utils.escape_html(journey.name)}" data-method="remote">
+						${__("Remote Unlock — Skip to Seal Return")}
+					</button>
+				</div>
 			</footer>
 		</article>
 	`;
+}
+
+function _control_room_confirm_arrival(page, docname, method, $btn) {
+	const isRemote = method === "remote";
+	const message = isRemote
+		? __(
+				"Confirm arrival for {0} with a REMOTE unlock? Untagging will be skipped and a seal return assignment will be raised for the PCB Team Leader to assign a Tag Operator. Location will be captured live from the seal's GPS. This cannot be undone.",
+				[docname]
+			)
+		: __(
+				"Confirm arrival for {0} with a PHYSICAL unlock? An untagging assignment will be raised for the PCB Team Leader to assign a Tag Operator. Location will be captured live from the seal's GPS. This cannot be undone.",
+				[docname]
+			);
+
+	frappe.confirm(message, () => {
+		$btn.prop("disabled", true);
+		frappe.call({
+			method: "tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey.confirm_arrival",
+			args: { docname, unlock_method: method },
+			freeze: true,
+			freeze_message: __("Confirming arrival…"),
+			callback() {
+				const note = isRemote
+					? __("{0}: arrival confirmed (remote unlock) — sent for seal return", [docname])
+					: __("{0}: arrival confirmed (physical unlock) — sent for untagging", [docname]);
+				frappe.show_alert({ message: note, indicator: "green" }, 6);
+				page.control_room_state.arrivalDialog?.hide();
+				_control_room_load_arrivals(page);
+			},
+			error() {
+				$btn.prop("disabled", false);
+			},
+		});
+	});
 }
 
 function _control_room_get_filtered_requests(page) {
@@ -551,15 +689,18 @@ function _control_room_request_table(requests, kind = "tagging") {
 
 const CR_REQUEST_STATUS_LABEL = {
 	tagging: () => __("Pending Control Room Approval"),
-	untagging: () => __("Pending Untagging Approval"),
-	seal_return: () => __("Pending Seal Return Approval"),
 };
 
 function _control_room_request_card(req, kind = "tagging") {
 	const seals = req.seals || [];
-	const sealRows = seals.length
-		? seals.map(_control_room_seal_row).join("")
-		: `<tr><td colspan="6" class="cr-seal-empty">${__("No seals on this request")}</td></tr>`;
+	const sealNumberByDevice = {};
+	seals.forEach((s) => {
+		if (s.seal_device) sealNumberByDevice[s.seal_device] = s.seal_number || s.seal_device;
+	});
+	const orderedSeals = _cr_order_seals_with_subseals(seals);
+	const sealRows = orderedSeals.length
+		? orderedSeals.map((s) => _control_room_seal_row(s, sealNumberByDevice)).join("")
+		: `<tr><td colspan="7" class="cr-seal-empty">${__("No seals on this request")}</td></tr>`;
 	const statusLabel = (CR_REQUEST_STATUS_LABEL[kind] || CR_REQUEST_STATUS_LABEL.tagging)();
 
 	return `
@@ -586,6 +727,7 @@ function _control_room_request_card(req, kind = "tagging") {
 					<thead>
 						<tr>
 							<th>${__("Seal")}</th>
+							<th>${__("Relationship")}</th>
 							<th>${__("Lock")}</th>
 							<th>${__("Device Status")}</th>
 							<th>${__("Battery")}</th>
@@ -617,7 +759,7 @@ function _cr_meta(label, value, wide) {
 	`;
 }
 
-function _control_room_seal_row(seal) {
+function _control_room_seal_row(seal, sealNumberByDevice = {}) {
 	const lock = seal.lock_status || "—";
 	const lockClass =
 		lock === "Locked" ? "cr-pill--ok" : lock === "Unlocked" ? "cr-pill--warn" : "cr-pill--muted";
@@ -627,12 +769,21 @@ function _control_room_seal_row(seal) {
 		? frappe.datetime.str_to_user(seal.api_last_update_time)
 		: "—";
 
+	const isSubSeal = !!seal.parent_seal;
+	const parentLabel = isSubSeal
+		? sealNumberByDevice[seal.parent_seal] || seal.parent_seal
+		: null;
+	const relationship = isSubSeal
+		? `<span class="cr-pill cr-pill--sub">${__("Sub-seal of {0}", [frappe.utils.escape_html(parentLabel)])}</span>`
+		: `<span class="cr-pill cr-pill--parent">${__("Parent Seal")}</span>`;
+
 	return `
-		<tr>
+		<tr class="${isSubSeal ? "cr-seal-row--sub" : ""}">
 			<td>
-				<div class="cr-seal-no">${frappe.utils.escape_html(seal.seal_number || seal.seal_device || "—")}</div>
+				<div class="cr-seal-no">${isSubSeal ? "↳ " : ""}${frappe.utils.escape_html(seal.seal_number || seal.seal_device || "—")}</div>
 				<div class="cr-seal-dev">${frappe.utils.escape_html(seal.seal_device || "")}</div>
 			</td>
+			<td>${relationship}</td>
 			<td><span class="cr-pill ${lockClass}">${frappe.utils.escape_html(lock)}</span></td>
 			<td>${frappe.utils.escape_html(seal.api_device_status || "—")}</td>
 			<td><span class="cr-batt ${battery.cls}">${battery.label}</span></td>
@@ -640,6 +791,38 @@ function _control_room_seal_row(seal) {
 			<td>${frappe.utils.escape_html(lastUpdate)}</td>
 		</tr>
 	`;
+}
+
+function _cr_order_seals_with_subseals(seals) {
+	// Lists each parent seal followed immediately by its sub-seals, so the
+	// approver can see lock relationships without hunting through the table.
+	const byParentDevice = {};
+	const topLevel = [];
+	seals.forEach((s) => {
+		if (s.parent_seal) {
+			byParentDevice[s.parent_seal] = byParentDevice[s.parent_seal] || [];
+			byParentDevice[s.parent_seal].push(s);
+		} else {
+			topLevel.push(s);
+		}
+	});
+
+	const ordered = [];
+	topLevel.forEach((parent) => {
+		ordered.push(parent);
+		(byParentDevice[parent.seal_device] || []).forEach((child) => ordered.push(child));
+	});
+
+	// Sub-seals whose parent isn't on this request (shouldn't normally happen)
+	// still need to be shown, so append any leftovers.
+	const includedChildren = new Set(ordered.filter((s) => s.parent_seal).map((s) => s.seal_device));
+	Object.values(byParentDevice)
+		.flat()
+		.forEach((child) => {
+			if (!includedChildren.has(child.seal_device)) ordered.push(child);
+		});
+
+	return ordered;
 }
 
 function _cr_battery(raw) {
@@ -699,7 +882,7 @@ function _control_room_load_queue(page) {
 			const state = page.control_room_state;
 			state.loading = false;
 			state.requests = (r.message && r.message.requests) || [];
-			$(page.body).find("[data-cr-count]").text(state.requests.length);
+			_control_room_update_approve_count(page);
 			_control_room_render_body(page);
 			_control_room_refresh_dialog(page);
 		},
@@ -722,6 +905,7 @@ function _control_room_load_arrivals(page) {
 			state.arrivalsLoading = false;
 			state.arrivalsLoaded = true;
 			state.arrivals = (r.message && r.message.journeys) || [];
+			_control_room_update_approve_count(page);
 			if (state.tab === "approve") _control_room_render_body(page);
 		},
 		error() {
@@ -732,49 +916,13 @@ function _control_room_load_arrivals(page) {
 	});
 }
 
-function _control_room_load_untagging_approvals(page) {
+function _control_room_update_approve_count(page) {
 	const state = page.control_room_state;
-	state.untaggingApprovalsLoading = true;
-	if (state.tab === "approve") _control_room_render_body(page);
-
-	frappe.call({
-		method: CR_METHOD("get_untagging_approval_queue"),
-		callback(r) {
-			state.untaggingApprovalsLoading = false;
-			state.untaggingApprovalsLoaded = true;
-			state.untaggingApprovals = (r.message && r.message.requests) || [];
-			if (state.tab === "approve") _control_room_render_body(page);
-			_control_room_refresh_dialog(page);
-		},
-		error() {
-			state.untaggingApprovalsLoading = false;
-			if (state.tab === "approve") _control_room_render_body(page);
-			frappe.show_alert({ message: __("Could not load untagging approvals"), indicator: "red" }, 5);
-		},
-	});
+	const count = (state.requests || []).length + (state.arrivals || []).length;
+	$(page.body).find("[data-cr-count]").text(count);
 }
 
-function _control_room_load_seal_return_approvals(page) {
-	const state = page.control_room_state;
-	state.sealReturnApprovalsLoading = true;
-	if (state.tab === "approve") _control_room_render_body(page);
 
-	frappe.call({
-		method: CR_METHOD("get_seal_return_approval_queue"),
-		callback(r) {
-			state.sealReturnApprovalsLoading = false;
-			state.sealReturnApprovalsLoaded = true;
-			state.sealReturnApprovals = (r.message && r.message.requests) || [];
-			if (state.tab === "approve") _control_room_render_body(page);
-			_control_room_refresh_dialog(page);
-		},
-		error() {
-			state.sealReturnApprovalsLoading = false;
-			if (state.tab === "approve") _control_room_render_body(page);
-			frappe.show_alert({ message: __("Could not load seal return approvals"), indicator: "red" }, 5);
-		},
-	});
-}
 
 function _control_room_load_alerts(page) {
 	const state = page.control_room_state;
@@ -788,13 +936,21 @@ function _control_room_load_alerts(page) {
 			status: state.alertStatus || "open",
 			level: state.alertLevel || "all",
 			alert_type: state.alertType || "all",
-			page_length: 100,
+			page: state.alertPage || 1,
+			page_length: state.alertPageLength || 20,
 		},
 		callback(r) {
 			const res = r.message || {};
+			const totalPages = Math.max(1, Math.ceil((res.total || 0) / (state.alertPageLength || 20)));
+			if (state.alertPage > totalPages) {
+				state.alertPage = totalPages;
+				_control_room_load_alerts(page);
+				return;
+			}
 			state.alertsLoading = false;
 			state.alertsLoaded = true;
 			state.alerts = res.rows || [];
+			state.alertTotal = res.total || 0;
 			state.alertFilterOptions = res.filter_options || { levels: [], types: [] };
 			state.alertSummary = res.summary || { open: 0, critical_open: 0, unacknowledged_open: 0 };
 			$(page.body).find("[data-cr-alert-count]")
@@ -810,27 +966,59 @@ function _control_room_load_alerts(page) {
 	});
 }
 
+function _control_room_alert_pagination(state) {
+	const total = state.alertTotal || 0;
+	const pageLength = state.alertPageLength || 20;
+	const totalPages = Math.max(1, Math.ceil(total / pageLength));
+	const currentPage = Math.min(Math.max(state.alertPage || 1, 1), totalPages);
+	const firstRow = total ? (currentPage - 1) * pageLength + 1 : 0;
+	const lastRow = Math.min(currentPage * pageLength, total);
+
+	return `
+		<div class="cr-alert-pagination">
+			<span class="cr-alert-page-summary">${__("Showing {0}-{1} of {2}", [firstRow, lastRow, total])}</span>
+			<div class="cr-alert-page-actions">
+				<button class="cr-alert-page-btn" data-page="${currentPage - 1}" ${currentPage === 1 ? "disabled" : ""}>${__("Previous")}</button>
+				<span>${__("Page {0} of {1}", [currentPage, totalPages])}</span>
+				<button class="cr-alert-page-btn" data-page="${currentPage + 1}" ${currentPage === totalPages ? "disabled" : ""}>${__("Next")}</button>
+			</div>
+		</div>
+	`;
+}
+
 function _control_room_alert_table(alerts) {
 	const rows = alerts
 		.map((a) => {
 			const occurred = a.occurred_at ? frappe.datetime.str_to_user(a.occurred_at) : "—";
-			const target = a.seal_journey || a.journey_request || a.seal_device || "—";
+			const seal = a.seal_device || "—";
 			const levelClass = (a.level || "info").toLowerCase();
 			const statusBadge = a.is_resolved
 				? `<span class="cr-alert-badge cr-alert-badge--resolved">${__("Resolved")}</span>`
 				: `<span class="cr-alert-badge cr-alert-badge--${levelClass}">${frappe.utils.escape_html(a.level || "")}</span>`;
-			const ackCell = a.acknowledged
-				? `<span class="cr-alert-ack-done">${__("Acked by {0}", [frappe.utils.escape_html(a.acknowledged_by || "")])}</span>`
-				: `<button class="cr-alert-ack-btn" data-name="${frappe.utils.escape_html(a.name)}">${__("Acknowledge")}</button>`;
+			const resStatus = a.is_resolved
+				? "Resolved"
+				: a.resolution_status === "Underway"
+				? "Underway"
+				: "Open";
+			const resClass =
+				resStatus === "Resolved" ? "resolved" : resStatus === "Underway" ? "underway" : "open";
+			const statusBtn = `<button class="cr-alert-open-btn cr-res-badge--${resClass}" data-name="${frappe.utils.escape_html(a.name)}" title="${__("View details")}">${frappe.utils.escape_html(resStatus)}</button>`;
+			const actBtn =
+				resStatus !== "Resolved"
+					? `<button class="cr-alert-ack-btn" data-name="${frappe.utils.escape_html(a.name)}">${
+							resStatus === "Underway" ? __("Update") : __("Action")
+					  }</button>`
+					: "";
+			const ackCell = `<div class="cr-res-cell">${statusBtn}${actBtn}</div>`;
 
 			return `
 				<tr>
 					<td>${statusBadge}</td>
 					<td>${frappe.utils.escape_html(a.alert_type || "—")}</td>
 					<td>${frappe.utils.escape_html(a.message || "")}</td>
-					<td>${frappe.utils.escape_html(target)}</td>
-					<td>${frappe.utils.escape_html(a.alert_source || "")}</td>
-					<td>${occurred}</td>
+					<td>${frappe.utils.escape_html(seal)}</td>
+					<td class="cr-seal-loc">${frappe.utils.escape_html(a.seal_location || "—")}</td>
+					<td class="cr-nowrap">${occurred}</td>
 					<td>${ackCell}</td>
 				</tr>
 			`;
@@ -844,10 +1032,10 @@ function _control_room_alert_table(alerts) {
 					<th>${__("Level")}</th>
 					<th>${__("Type")}</th>
 					<th>${__("Message")}</th>
-					<th>${__("Target")}</th>
-					<th>${__("Source")}</th>
+					<th>${__("Seal")}</th>
+					<th>${__("Location")}</th>
 					<th>${__("Occurred At")}</th>
-					<th>${__("Acknowledgement")}</th>
+					<th>${__("Resolution")}</th>
 				</tr>
 			</thead>
 			<tbody>${rows}</tbody>
@@ -855,15 +1043,63 @@ function _control_room_alert_table(alerts) {
 	`;
 }
 
+function _control_room_open_alert_details(alert) {
+	const esc = frappe.utils.escape_html;
+	const dt = (v) => (v ? frappe.datetime.str_to_user(v) : "—");
+	const val = (v) => (v || v === 0 ? esc(String(v)) : "—");
+	const target = alert.seal_journey || alert.journey_request || alert.seal_device || "—";
+	const resStatus = alert.is_resolved
+		? "Resolved"
+		: alert.resolution_status === "Underway"
+		? "Underway"
+		: "Open";
+	const resClass =
+		resStatus === "Resolved" ? "resolved" : resStatus === "Underway" ? "underway" : "open";
+
+	const row = (label, value) => `
+		<tr>
+			<th>${label}</th>
+			<td>${value}</td>
+		</tr>`;
+
+	const html = `
+		<div class="cr-alert-details">
+			<div class="cr-alert-details-section">${__("Alert")}</div>
+			<table class="cr-alert-details-table">
+				${row(__("Level"), `<span class="cr-alert-badge cr-alert-badge--${(alert.level || "info").toLowerCase()}">${val(alert.level)}</span>`)}
+				${row(__("Type"), val(alert.alert_type))}
+				${row(__("Message"), val(alert.message))}
+				${row(__("Source"), val(alert.alert_source))}
+				${row(__("Target"), val(target))}
+				${row(__("Occurred At"), dt(alert.occurred_at))}
+			</table>
+
+			<div class="cr-alert-details-section">${__("Resolution")}</div>
+			<table class="cr-alert-details-table">
+				${row(__("Status"), `<span class="cr-res-badge cr-res-badge--${resClass}">${esc(resStatus)}</span>`)}
+				${row(__("Acknowledged By"), alert.acknowledged_by ? val(alert.acknowledged_by) : __("— (auto / system)"))}
+				${row(__("Acknowledged At"), dt(alert.acknowledged_at))}
+				${row(__("Closed At"), alert.is_resolved ? dt(alert.resolved_at) : "—")}
+				${row(__("Remarks"), val(alert.acknowledgement_remarks))}
+			</table>
+		</div>`;
+
+	const dialog = new frappe.ui.Dialog({
+		title: __("Alert {0}", [alert.name]),
+		size: "large",
+		fields: [{ fieldname: "details_html", fieldtype: "HTML" }],
+	});
+	dialog.fields_dict.details_html.$wrapper.html(html);
+	dialog.set_secondary_action_label(__("Close"));
+	dialog.set_secondary_action(() => dialog.hide());
+	dialog.show();
+}
+
 function _control_room_request_list_for_kind(state, kind) {
-	if (kind === "untagging") return state.untaggingApprovals;
-	if (kind === "seal_return") return state.sealReturnApprovals;
 	return state.requests;
 }
 
 const CR_DIALOG_TITLE = {
-	untagging: () => __("Untagging Approval Review"),
-	seal_return: () => __("Seal Return Approval Review"),
 	tagging: () => __("Control Room Review"),
 };
 
@@ -930,24 +1166,16 @@ function _control_room_refresh_dialog(page) {
 }
 
 function _control_room_reload_queue_for_kind(page, kind) {
-	if (kind === "untagging") _control_room_load_untagging_approvals(page);
-	else if (kind === "seal_return") _control_room_load_seal_return_approvals(page);
-	else _control_room_load_queue(page);
+	_control_room_load_queue(page);
 }
 
 const CR_APPROVE_METHOD = {
-	untagging: "approve_untagging",
-	seal_return: "approve_seal_return",
 	tagging: "approve_by_control_room",
 };
 const CR_REJECT_METHOD = {
-	untagging: "reject_untagging",
-	seal_return: "reject_seal_return",
 	tagging: "reject_by_control_room",
 };
 const CR_APPROVE_MESSAGE = {
-	untagging: (docname) => __("{0} approved — untagging complete", [docname]),
-	seal_return: (docname) => __("{0} approved — seal returned, journey complete", [docname]),
 	tagging: (docname) => __("{0} approved — tagging can begin", [docname]),
 };
 
@@ -1115,7 +1343,104 @@ function _control_room_inject_styles() {
 			cursor: pointer;
 		}
 		.cr-alert-ack-btn:hover { background: #f1f5f9; }
-		.cr-alert-ack-done { color: #64748b; font-size: 12px; }
+		.cr-res-cell { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; white-space: nowrap; }
+		.cr-nowrap { white-space: nowrap; }
+		.cr-res-badge {
+			display: inline-block;
+			padding: 2px 9px;
+			border-radius: 999px;
+			font-size: 11px;
+			font-weight: 800;
+			white-space: nowrap;
+		}
+		.cr-res-badge--open { background: #f1f5f9; color: #475569; }
+		.cr-res-badge--underway { background: #fef3c7; color: #92400e; }
+		.cr-res-badge--resolved { background: #dcfce7; color: #15803d; }
+		/* status button: reads the resolution status, opens the details modal */
+		.cr-alert-open-btn {
+			border: none;
+			border-radius: 999px;
+			padding: 4px 12px;
+			font-size: 11px;
+			font-weight: 800;
+			cursor: pointer;
+			white-space: nowrap;
+		}
+		.cr-alert-open-btn:hover { filter: brightness(0.96); box-shadow: 0 0 0 2px rgba(2, 132, 199, .18); }
+		.cr-alert-details-section {
+			margin: 16px 0 8px;
+			font-size: 12px;
+			font-weight: 800;
+			text-transform: uppercase;
+			letter-spacing: .05em;
+			color: #0369a1;
+		}
+		.cr-alert-details-section:first-child { margin-top: 0; }
+		.cr-alert-details-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+		.cr-alert-details-table th {
+			text-align: left;
+			width: 180px;
+			padding: 8px 12px;
+			background: #f8fafc;
+			border: 1px solid #e2e8f0;
+			color: #64748b;
+			font-weight: 700;
+			vertical-align: top;
+		}
+		.cr-alert-details-table td {
+			padding: 8px 12px;
+			border: 1px solid #e2e8f0;
+			color: #1e293b;
+			overflow-wrap: anywhere;
+		}
+		[data-theme="dark"] .cr-alert-details-table th { background: #0f172a; color: #94a3b8; border-color: #334155; }
+		[data-theme="dark"] .cr-alert-details-table td { color: #e2e8f0; border-color: #334155; }
+		[data-theme="dark"] .cr-res-badge--open { background: #1e293b; color: #cbd5e1; }
+		.cr-alert-table-wrap {
+			height: 520px;
+			overflow: auto;
+			overflow-x: auto;
+			/* full-bleed: cancel the 22px .cr-tab-body padding so rows reach the
+			   panel edges and no space is wasted */
+			margin: -22px -22px 0;
+			border: none;
+			border-bottom: 1px solid #e2e8f0;
+			border-radius: 0;
+			box-shadow: none;
+		}
+		/* keep columns from squishing; forces horizontal scroll on narrow widths */
+		.cr-alert-table-wrap .cr-queue-table { min-width: 1040px; }
+		.cr-alert-table-wrap .cr-queue-table th:first-child,
+		.cr-alert-table-wrap .cr-queue-table td:first-child { padding-left: 14px; }
+		.cr-alert-table-wrap .cr-queue-table th:last-child,
+		.cr-alert-table-wrap .cr-queue-table td:last-child { padding-right: 14px; }
+		.cr-alert-table-wrap .cr-queue-table thead {
+			position: sticky;
+			top: 0;
+			z-index: 1;
+		}
+		.cr-alert-pagination {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 16px;
+			padding-top: 14px;
+			color: #64748b;
+			font-size: 13px;
+		}
+		.cr-alert-page-actions { display: flex; align-items: center; gap: 10px; }
+		.cr-alert-page-btn {
+			border: 1px solid #bae6fd;
+			border-radius: 8px;
+			background: #e0f2fe;
+			color: #075985;
+			padding: 6px 12px;
+			font-size: 12px;
+			font-weight: 700;
+			cursor: pointer;
+		}
+		.cr-alert-page-btn:hover:not(:disabled) { background: #bae6fd; }
+		.cr-alert-page-btn:disabled { cursor: not-allowed; opacity: .45; }
 
 		/* ---- toolbar ---- */
 		.cr-toolbar { padding: 18px; border-bottom: 1px solid #e0f2fe; background: #f0f9ff; }
@@ -1226,30 +1551,92 @@ function _control_room_inject_styles() {
 		.cr-queue-head h3 { margin: 0 0 4px; font-size: 18px; font-weight: 800; color: #0f172a; }
 		.cr-queue-sub { color: #64748b; font-size: 13px; }
 
-		.cr-arrivals { margin-bottom: 22px; }
-		.cr-untagging-approvals { margin-bottom: 22px; }
+		.cr-arrivals {
+			margin: -22px -22px 22px;
+			border-bottom: 1px solid #e2e8f0;
+		}
 		.cr-section-title {
 			margin: 0 0 12px;
 			font-size: 15px;
 			font-weight: 800;
 			color: #0f172a;
 		}
-		.cr-arrival-list { display: grid; gap: 14px; }
+		.cr-arrivals .cr-section-title {
+			margin: 0;
+			padding: 13px 16px;
+			border-bottom: 1px solid #bae6fd;
+			background: #f0f9ff;
+			color: #075985;
+		}
+		.cr-arrival-table-wrap { width: 100%; overflow-x: auto; }
+		.cr-arrival-table {
+			width: 100%;
+			min-width: 760px;
+			border-collapse: collapse;
+			font-size: 13px;
+		}
+		.cr-arrival-table th {
+			padding: 9px 14px;
+			border-bottom: 1px solid #bae6fd;
+			background: #e0f2fe;
+			color: #0369a1;
+			font-size: 11px;
+			font-weight: 800;
+			letter-spacing: .04em;
+			text-align: left;
+			text-transform: uppercase;
+			white-space: nowrap;
+		}
+		.cr-arrival-table td {
+			padding: 10px 14px;
+			border-bottom: 1px solid #f1f5f9;
+			background: #fff;
+			color: #334155;
+			vertical-align: middle;
+		}
+		.cr-arrival-table tbody tr:last-child td { border-bottom: 0; }
+		.cr-arrival-table tbody tr:hover td { background: #f0f9ff; }
+		.cr-arrival-journey { color: #0f172a !important; font-weight: 800; white-space: nowrap; }
+		.cr-arrival-location {
+			max-width: 320px;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+		.cr-arrival-action-col { width: 1%; text-align: right !important; white-space: nowrap; }
+		.cr-arrival-open {
+			border: 1px solid #38bdf8;
+			border-radius: 999px;
+			background: #e0f2fe;
+			color: #075985;
+			padding: 5px 12px;
+			font-size: 12px;
+			font-weight: 800;
+			cursor: pointer;
+		}
+		.cr-arrival-open:hover { background: #bae6fd; }
 		.cr-arrival {
-			border: 1px solid #fdba74;
-			border-radius: 16px;
-			background: #fffbeb;
+			border: 1px solid #bae6fd;
+			border-radius: 0;
+			background: #f8fbff;
 			overflow: hidden;
 			box-shadow: 0 2px 10px rgba(15,23,42,.04);
 		}
+		.cr-arrival-dialog .modal-body { padding: 0; }
+		.cr-arrival-dialog .cr-arrival { border: 0; box-shadow: none; }
+		.cr-arrival-dialog .modal-header {
+			border-bottom: 1px solid #bae6fd;
+			background: #e0f2fe;
+		}
+		.cr-arrival-dialog .modal-title { color: #075985; font-weight: 800; }
 		.cr-arrival-head {
 			display: flex;
 			align-items: center;
 			justify-content: space-between;
 			gap: 12px;
 			padding: 14px 18px;
-			background: linear-gradient(135deg, #fff7ed 0%, #fffbeb 100%);
-			border-bottom: 1px solid #fed7aa;
+			background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
+			border-bottom: 1px solid #bae6fd;
 		}
 		.cr-arrival-status {
 			display: inline-block;
@@ -1262,26 +1649,48 @@ function _control_room_inject_styles() {
 		}
 		.cr-arrival-actions {
 			display: flex;
-			align-items: center;
-			justify-content: flex-end;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 10px;
 			padding: 14px 18px;
-			border-top: 1px solid #fed7aa;
-			background: #fffaf0;
+			border-top: 1px solid #bae6fd;
+			background: #f0f9ff;
 		}
-		.cr-arrival-checkbox {
-			display: inline-flex;
-			align-items: center;
-			gap: 8px;
+		.cr-arrival-unlock-prompt {
 			font-size: 13px;
 			font-weight: 800;
-			color: #92400e;
-			cursor: pointer;
+			color: #075985;
+			text-align: center;
 		}
-		.cr-arrival-checkbox input {
-			width: 18px;
-			height: 18px;
-			cursor: pointer;
+		.cr-arrival-unlock-buttons {
+			display: flex;
+			gap: 10px;
+			flex-wrap: wrap;
 		}
+		.cr-arrival-unlock-btn {
+			flex: 1 1 0;
+			min-width: 180px;
+			padding: 10px 14px;
+			border-radius: 8px;
+			border: 1px solid transparent;
+			font-size: 13px;
+			font-weight: 800;
+			cursor: pointer;
+			transition: background 0.15s, box-shadow 0.15s;
+		}
+		.cr-arrival-unlock-btn:disabled { opacity: 0.6; cursor: default; }
+		.cr-arrival-unlock-btn--physical {
+			background: #0284c7;
+			color: #fff;
+			border-color: #0284c7;
+		}
+		.cr-arrival-unlock-btn--physical:hover:not(:disabled) { background: #0369a1; }
+		.cr-arrival-unlock-btn--remote {
+			background: #fff;
+			color: #5b21b6;
+			border-color: #c4b5fd;
+		}
+		.cr-arrival-unlock-btn--remote:hover:not(:disabled) { background: #f5f3ff; }
 
 		.cr-queue { display: grid; gap: 18px; }
 		.cr-table-wrap {
@@ -1427,6 +1836,11 @@ function _control_room_inject_styles() {
 		.cr-pill--ok { background: #dcfce7; color: #166534; }
 		.cr-pill--warn { background: #ffedd5; color: #9a3412; }
 		.cr-pill--muted { background: #f1f5f9; color: #64748b; }
+		.cr-pill--sub { background: #ede9fe; color: #5b21b6; }
+		.cr-pill--parent { background: #e0f2fe; color: #075985; }
+
+		.cr-seal-row--sub td { background: #fafaff; }
+		.cr-seal-row--sub .cr-seal-no { font-weight: 600; }
 
 		.cr-batt { font-weight: 800; font-size: 13px; }
 		.cr-batt--ok { color: #16a34a; }
@@ -1489,10 +1903,21 @@ function _control_room_inject_styles() {
 		[data-theme="dark"] .cr-tab { background: #1e293b; border-color: #334155; color: #cbd5e1; }
 		[data-theme="dark"] .cr-tab.active { background: #0284c7; color: #fff; border-color: #0284c7; }
 		[data-theme="dark"] .cr-req-head { background: #0b3a52; border-color: #334155; }
-		[data-theme="dark"] .cr-arrival { background: #1e293b; border-color: #92400e; }
-		[data-theme="dark"] .cr-arrival-head { background: #2c1a08; border-color: #92400e; }
-		[data-theme="dark"] .cr-arrival-actions { background: #1e293b; border-color: #92400e; }
-		[data-theme="dark"] .cr-arrival-checkbox { color: #fdba74; }
+		[data-theme="dark"] .cr-arrival { background: #1e293b; border-color: #075985; }
+		[data-theme="dark"] .cr-arrival-head { background: #082f49; border-color: #075985; }
+		[data-theme="dark"] .cr-arrival-actions { background: #172033; border-color: #075985; }
+		[data-theme="dark"] .cr-arrival-unlock-prompt { color: #7dd3fc; }
+		[data-theme="dark"] .cr-arrival-unlock-btn--remote { background: #1e293b; color: #c4b5fd; border-color: #6d28d9; }
+		[data-theme="dark"] .cr-arrival-unlock-btn--remote:hover:not(:disabled) { background: #2e1065; }
+		[data-theme="dark"] .cr-arrival-dialog .modal-header { background: #082f49; border-color: #075985; }
+		[data-theme="dark"] .cr-arrival-dialog .modal-title { color: #bae6fd; }
+		[data-theme="dark"] .cr-arrivals { border-color: #334155; }
+		[data-theme="dark"] .cr-arrivals .cr-section-title,
+		[data-theme="dark"] .cr-arrival-table th { background: #172033; border-color: #334155; }
+		[data-theme="dark"] .cr-arrival-table td { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+		[data-theme="dark"] .cr-arrival-table tbody tr:hover td { background: #0b3a52; }
+		[data-theme="dark"] .cr-arrival-journey { color: #f8fafc !important; }
+		[data-theme="dark"] .cr-arrival-open { background: #082f49; border-color: #0284c7; color: #bae6fd; }
 		[data-theme="dark"] .cr-section-title { color: #f8fafc; }
 		[data-theme="dark"] .cr-req-id, [data-theme="dark"] .cr-queue-head h3,
 		[data-theme="dark"] .cr-empty h3 { color: #f8fafc; }
@@ -1507,6 +1932,7 @@ function _control_room_inject_styles() {
 		[data-theme="dark"] .cr-act--reject { background: #450a0a; border-color: #7f1d1d; color: #fecaca; }
 		[data-theme="dark"] .cr-act--approve { background: #166534; border-color: #166534; color: #dcfce7; }
 		[data-theme="dark"] .cr-alert-ack-btn { background: #1e293b; border-color: #475569; color: #e2e8f0; }
+		[data-theme="dark"] .cr-alert-page-btn { background: #0c4a6e; border-color: #0369a1; color: #e0f2fe; }
 		[data-theme="dark"] .cr-req-actions { background: #172033; border-color: #334155; }
 		[data-theme="dark"] .cr-dialog .modal-body { background: #0f172a; }
 
@@ -1514,7 +1940,10 @@ function _control_room_inject_styles() {
 		@media (max-width: 640px) {
 			.cr-page { padding: 14px 8px 32px; }
 			.cr-tab-body { padding: 14px; }
+			.cr-arrivals { margin: -14px -14px 18px; }
 			.cr-table-wrap { overflow-x: auto; }
+			.cr-alert-table-wrap { overflow: auto; margin: -14px -14px 0; }
+			.cr-alert-pagination { align-items: flex-start; flex-direction: column; }
 			.cr-queue-table { min-width: 820px; }
 			.cr-search-inline,
 			.cr-field,

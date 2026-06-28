@@ -1,0 +1,70 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-06-28 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "checkpoint",
+  "country",
+  "location_type",
+  "expected_arrival",
+  "notes"
+ ],
+ "fields": [
+  {
+   "columns": 3,
+   "fieldname": "checkpoint",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Checkpoint",
+   "options": "Transport Location",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fetch_from": "checkpoint.country",
+   "fieldname": "country",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Country",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fetch_from": "checkpoint.location_type",
+   "fieldname": "location_type",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Type",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "expected_arrival",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Expected Arrival"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Notes"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-06-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Journey Request Checkpoint",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

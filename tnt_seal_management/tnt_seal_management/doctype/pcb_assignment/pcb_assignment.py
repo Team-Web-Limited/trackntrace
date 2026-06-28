@@ -44,7 +44,44 @@ def create_untagging_request(seal_journey):
 			"contact_person_name": seal_journey.contact_person_name,
 			"contact_person_phone": seal_journey.contact_person_phone,
 			"pcb_team_leader": seal_journey.assigned_team_lead,
-			"assignment_status": "Awaiting Untagging Assignment",
+			"assignment_status": "Pending Untagging Assignment",
+		}
+	).insert(ignore_permissions=True)
+
+	return assignment.name
+
+
+def create_seal_return_request(seal_journey):
+	"""Raise a seal-return request for a Seal Journey whose seal was unlocked
+	REMOTELY at arrival — untagging is skipped, so the seal still has to be
+	physically collected from the client. Queued to the PCB Team Leader as a PCB
+	Assignment of request_type "Seal Return", mirroring create_untagging_request
+	(idempotent, no pcb_job_order, points back at the Seal Journey). Called from
+	SealJourney.confirm_arrival when the Control Room chooses Remote Unlock. The
+	Field Technician is assigned later, in the seal-return cycle."""
+	if isinstance(seal_journey, str):
+		seal_journey = frappe.get_doc("Seal Journey", seal_journey)
+
+	existing = frappe.db.get_value(
+		"PCB Assignment",
+		{"seal_journey": seal_journey.name, "request_type": "Seal Return"},
+		"name",
+	)
+	if existing:
+		return existing
+
+	assignment = frappe.get_doc(
+		{
+			"doctype": "PCB Assignment",
+			"request_type": "Seal Return",
+			"seal_journey": seal_journey.name,
+			"client_name": seal_journey.customer,
+			"location": seal_journey.destination or seal_journey.origin,
+			"scheduled_date_time": seal_journey.arrival_date_time or now_datetime(),
+			"contact_person_name": seal_journey.contact_person_name,
+			"contact_person_phone": seal_journey.contact_person_phone,
+			"pcb_team_leader": seal_journey.assigned_team_lead,
+			"assignment_status": "Pending Seal Return Assignment",
 		}
 	).insert(ignore_permissions=True)
 
@@ -55,6 +92,31 @@ class PCBAssignment(Document):
 	def validate(self):
 		self._validate_field_technician_role()
 		self._auto_progress_untagging_status()
+		self._auto_progress_seal_return_status()
+
+	def on_update(self):
+		"""Untagging/Seal Return assignments have no separate "Assign" action — the
+		moment the PCB Team Leader picks a Field Technician and saves, the status
+		auto-progresses straight to "Untagging Assigned" / "Seal Return Assigned"
+		(see _auto_progress_untagging_status / _auto_progress_seal_return_status).
+		This hands the linked Journey Request to that technician and opens the
+		relevant work window the moment that transition lands, rather than needing
+		a second explicit approval step."""
+		previous = self.get_doc_before_save()
+		previous_status = previous.assignment_status if previous else None
+
+		if (
+			self.request_type == "Untagging"
+			and self.assignment_status == "Untagging Assigned"
+			and previous_status != "Untagging Assigned"
+		):
+			_ensure_untagging_journey_request(self)
+		elif (
+			self.request_type == "Seal Return"
+			and self.assignment_status == "Seal Return Assigned"
+			and previous_status != "Seal Return Assigned"
+		):
+			_ensure_seal_return_journey_request(self)
 
 	def _validate_field_technician_role(self):
 		if not self.assigned_field_technician:
@@ -78,14 +140,23 @@ class PCBAssignment(Document):
 	def _auto_progress_untagging_status(self):
 		"""Unlike the tagging flow (which needs an explicit "Assign" action), an
 		untagging assignment advances itself the moment the PCB Team Leader picks
-		a Field Technician and saves — straight from "Awaiting Untagging
-		Assignment" to "TO Assigned for Untagging". Final sign-off is still a
-		separate explicit action (see approve_untagging_assignment), so a team
-		leader can't accidentally lock in an assignment with no review step."""
+		a Field Technician and saves — straight from "Pending Untagging
+		Assignment" to "Untagging Assigned". on_update then hands the linked
+		Journey Request to that technician (see _ensure_untagging_journey_request)."""
 		if self.request_type != "Untagging":
 			return
-		if self.assignment_status == "Awaiting Untagging Assignment" and self.assigned_field_technician:
-			self.assignment_status = "TO Assigned for Untagging"
+		if self.assignment_status == "Pending Untagging Assignment" and self.assigned_field_technician:
+			self.assignment_status = "Untagging Assigned"
+
+	def _auto_progress_seal_return_status(self):
+		"""Mirror of _auto_progress_untagging_status for the remote-unlock seal
+		return cycle: the moment the PCB Team Leader picks a Field Technician and
+		saves, the assignment advances straight from "Pending Seal Return
+		Assignment" to "Seal Return Assigned"."""
+		if self.request_type != "Seal Return":
+			return
+		if self.assignment_status == "Pending Seal Return Assignment" and self.assigned_field_technician:
+			self.assignment_status = "Seal Return Assigned"
 
 
 def get_permission_query_conditions(user=None):
@@ -193,37 +264,6 @@ def update_assignment_status(assignment_name, status):
 	return {"assignment_status": assignment.assignment_status}
 
 
-@frappe.whitelist()
-def approve_untagging_assignment(assignment_name):
-	"""Explicit sign-off step that locks in the Field Technician an untagging
-	assignment was auto-progressed to "TO Assigned for Untagging" with (see
-	PCBAssignment._auto_progress_untagging_status). Exposed as the "Approve
-	Untagging Assignment" Actions button on the PCB Assignment form."""
-	assignment = frappe.get_doc("PCB Assignment", assignment_name)
-	assignment.check_permission("write")
-	_ensure_assignment_status_permission(assignment)
-
-	if assignment.request_type != "Untagging":
-		frappe.throw(
-			_("This action only applies to untagging assignments."),
-			title=_("Invalid Request Type"),
-		)
-	if assignment.assignment_status != "TO Assigned for Untagging":
-		frappe.throw(
-			_('Only assignments at "TO Assigned for Untagging" can be approved.'),
-			title=_("Invalid Status"),
-		)
-
-	assignment.assignment_status = "Untagging Assigned"
-	assignment.save(ignore_permissions=True)
-
-	_ensure_untagging_journey_request(assignment)
-
-	frappe.db.commit()
-
-	return {"assignment_status": assignment.assignment_status}
-
-
 def _ensure_untagging_journey_request(assignment):
 	"""Hand the seal journey's existing Journey Request to the Field Technician
 	who was just approved for untagging, and move it into the Untagging phase —
@@ -255,6 +295,35 @@ def _ensure_untagging_journey_request(assignment):
 		"Untagging In Progress",
 		{"untagging_status": "In Progress", "untagging_started_date_time": now_datetime()},
 	)
+	sync_seal_journey_mirror(assignment.seal_journey)
+
+
+def _ensure_seal_return_journey_request(assignment):
+	"""Hand the seal journey's existing Journey Request to the Field Technician
+	approved for seal return, and move it into the "Awaiting Seal Return" phase.
+	Mirrors _ensure_untagging_journey_request but skips the untagging stage —
+	on a remote unlock there is no physical untagging, so the FT goes straight to
+	collecting the seal from the client."""
+	if not assignment.seal_journey:
+		return
+
+	journey_request_name = frappe.db.get_value(
+		"Journey Request", {"journey_reference": assignment.seal_journey}, "name"
+	)
+	if not journey_request_name:
+		frappe.log_error(
+			f"No Journey Request found for Seal Journey {assignment.seal_journey}",
+			"Seal Return Assignment",
+		)
+		return
+
+	journey_request = frappe.get_doc("Journey Request", journey_request_name)
+	journey_request.assigned_technician = assignment.assigned_field_technician
+	journey_request.journey_request_status = "Awaiting Seal Return"
+	journey_request.flags.ignore_field_locks = True
+	journey_request.save(ignore_permissions=True)
+
+	set_journey_status(assignment.seal_journey, "Awaiting Seal Return")
 	sync_seal_journey_mirror(assignment.seal_journey)
 
 
@@ -337,9 +406,10 @@ def get_assignment_list(
 		"All": 0,
 		"Pending": 0,
 		"Assigned": 0,
-		"Awaiting Untagging Assignment": 0,
-		"TO Assigned for Untagging": 0,
+		"Pending Untagging Assignment": 0,
 		"Untagging Assigned": 0,
+		"Pending Seal Return Assignment": 0,
+		"Seal Return Assigned": 0,
 		"Cancelled": 0,
 	}
 	summary_rows = frappe.get_list(

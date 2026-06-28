@@ -13,6 +13,14 @@ from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey i
 
 
 class TaggingBooking(Document):
+	def before_insert(self):
+		self.booking_source = self.booking_source or "Account Manager"
+		self.requested_by = self.requested_by or frappe.session.user
+		if self.booking_source == "Account Manager" and not self.account_manager:
+			roles = set(frappe.get_roles())
+			if "Account Manager" in roles:
+				self.account_manager = frappe.session.user
+
 	def validate(self):
 		self._enforce_finance_only_approval_controls()
 		self._sync_approval_status()
@@ -20,10 +28,12 @@ class TaggingBooking(Document):
 	def after_insert(self):
 		self._ensure_seal_journey()
 
-	def _ensure_seal_journey(self):
-		"""Create the Seal Journey mirror the first time a booking is saved, so
-		the whole flow is monitored from Draft onwards."""
+	def _ensure_seal_journey(self, force=False):
+		"""Create the operational journey immediately for staff bookings, or
+		after Account Manager acceptance for customer portal bookings."""
 		if self.seal_journey_reference:
+			return
+		if not force and self.booking_source == "Customer Portal":
 			return
 
 		journey = frappe.get_doc(
@@ -42,9 +52,11 @@ class TaggingBooking(Document):
 	def _sync_approval_status(self):
 		status_map = {
 			"Draft": "Pending",
+			"Pending Account Manager Review": "Pending",
 			"Pending Finance PCB Approval": "Pending",
 			"Finance PCB Approved": "Approved",
 			"Finance PCB Rejected": "Rejected",
+			"Cancelled": "Pending",
 		}
 		self.finance_pcb_approval_status = status_map.get(
 			self.booking_status or "Draft",
@@ -92,6 +104,19 @@ class TaggingBooking(Document):
 			_("Only Finance PCB can approve/reject a tagging booking or update finance approval details."),
 			title=_("Insufficient Permission"),
 		)
+
+
+@frappe.whitelist()
+def get_branch_options():
+	rows = frappe.get_all(
+		"Seal Device",
+		fields=["api_branch"],
+		filters={"api_branch": ["!=", ""]},
+		distinct=True,
+		order_by="api_branch asc",
+		limit_page_length=0,
+	)
+	return [(row.api_branch or "").strip() for row in rows if (row.api_branch or "").strip()]
 
 
 @frappe.whitelist()
@@ -143,6 +168,8 @@ def get_booking_list(
 			"contact_person_name",
 			"contact_person_phone",
 			"booking_status",
+			"booking_source",
+			"account_manager",
 			"finance_pcb_approval_status",
 			"creation",
 		],
@@ -165,9 +192,11 @@ def get_booking_list(
 	summary = {
 		"All": 0,
 		"Draft": 0,
+		"Pending Account Manager Review": 0,
 		"Pending Finance PCB Approval": 0,
 		"Finance PCB Approved": 0,
 		"Finance PCB Rejected": 0,
+		"Cancelled": 0,
 	}
 	summary_rows = frappe.get_list(
 		"Tagging Booking",
@@ -210,16 +239,74 @@ def _can_manage_finance_approval(user=None):
 	return "Finance PCB" in roles or "System Manager" in roles
 
 
+def _ensure_account_manager_role():
+	roles = set(frappe.get_roles())
+	if not roles & {"Account Manager", "System Manager"}:
+		frappe.throw(
+			_("Only an Account Manager can submit a booking to Finance."),
+			title=_("Insufficient Permission"),
+		)
+
+
+@frappe.whitelist()
+def assign_to_me(docname):
+	_ensure_account_manager_role()
+	doc = _get_tagging_booking(docname)
+	if doc.booking_status != "Pending Account Manager Review":
+		frappe.throw(
+			_("Only bookings awaiting Account Manager review can be claimed."),
+			title=_("Invalid Status"),
+		)
+	if doc.booking_source != "Customer Portal":
+		frappe.throw(
+			_("Only customer portal bookings can be claimed from the shared queue."),
+			title=_("Invalid Booking Source"),
+		)
+	if doc.account_manager and doc.account_manager != frappe.session.user:
+		frappe.throw(
+			_("This booking is already assigned to {0}.").format(doc.account_manager),
+			title=_("Already Assigned"),
+		)
+	if doc.account_manager == frappe.session.user:
+		return {"name": doc.name, "account_manager": doc.account_manager}
+
+	doc.account_manager = frappe.session.user
+	doc.save()
+	frappe.db.commit()
+	return {"name": doc.name, "account_manager": doc.account_manager}
+
+
 @frappe.whitelist()
 def submit_to_finance(docname):
+	_ensure_account_manager_role()
 	doc = _get_tagging_booking(docname)
-	if doc.booking_status != "Draft":
+	allowed_status = (
+		"Pending Account Manager Review"
+		if doc.booking_source == "Customer Portal"
+		else "Draft"
+	)
+	if doc.booking_status != allowed_status:
 		frappe.throw(
-			_("Only draft tagging bookings can be submitted to Finance."),
+			_("This booking is not ready to be submitted to Finance."),
 			title=_("Invalid Status"),
 		)
 
+	is_admin = "System Manager" in set(frappe.get_roles())
+	if doc.booking_source == "Customer Portal":
+		if not doc.account_manager:
+			frappe.throw(
+				_("Assign this booking to yourself before submitting it to Finance."),
+				title=_("Assignment Required"),
+			)
+		if not is_admin and doc.account_manager != frappe.session.user:
+			frappe.throw(
+				_("This booking is assigned to {0}.").format(doc.account_manager),
+				title=_("Not Assigned to You"),
+			)
+
+	doc._ensure_seal_journey(force=True)
 	doc.booking_status = "Pending Finance PCB Approval"
+	doc.account_manager_submission_date_time = now_datetime()
 	doc.save()
 	set_journey_status(doc.seal_journey_reference, "Pending Finance PCB Approval")
 	sync_seal_journey_mirror(doc.seal_journey_reference)
@@ -290,7 +377,7 @@ _REOPENABLE_JOURNEY_STATUSES = {
 
 @frappe.whitelist()
 def reopen_booking(docname, reason=None):
-	"""Revert an approved tagging booking to Draft so Finance can amend it.
+	"""Return an approved tagging booking to its pre-Finance review state.
 
 	Only allowed while no operational work has started: no tag operator may be
 	assigned and the Seal Journey must not have advanced past the (auto-assigned)
@@ -307,7 +394,12 @@ def reopen_booking(docname, reason=None):
 	_guard_no_downstream_work(doc)
 	_reset_pcb_job_order(doc)
 
-	doc.booking_status = "Draft"
+	doc.booking_status = (
+		"Pending Account Manager Review"
+		if doc.booking_source == "Customer Portal"
+		else "Draft"
+	)
+	doc.account_manager_submission_date_time = None
 	doc.finance_pcb_approver = None
 	doc.finance_pcb_approval_date_time = None
 	if reason:

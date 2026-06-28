@@ -24,9 +24,7 @@ JOURNEY_REQUEST_STATUSES = (
 	"Pending CC Approval",
 	"Journey Ready",
 	"Untagging",
-	"Pending Untagging Approval",
-	"Untagging Approved",
-	"Pending Seal Return Approval",
+	"Awaiting Seal Return",
 	"Seal Returned",
 	"Rejected",
 	"Cancelled",
@@ -56,18 +54,25 @@ TAGGING_FIELDS = (
 # Untagging Documents & Photos section on the Journey Request only appears once
 # the journey reaches the untagging phase (see jr_untagging_section's depends_on).
 UNTAGGING_FIELDS = ("untagging_entry_document", "untagging_photos")
-# Technician's own declaration before submitting — non-authoritative (it never
-# sets untagging_completed; only Control Room's approve_untagging does that),
-# but editable on the same "Untagging" window as the evidence fields above and
-# enforced as mandatory in submit_untagging_to_control_room.
+# Technician confirmation stamps the authoritative untagging completion fields
+# and opens the seal-return window without a Control Room approval gate.
 UNTAGGING_CONFIRMATION_FIELDS = ("untagging_confirmed_by_technician",)
 # Seal return reuses the same Seal Trip Photo child shape, mirroring untagging —
 # the FT who performed the untagging is now the seal's custodian, and captures the
-# return evidence on the same Journey Request once it reaches "Untagging Approved"
+# return evidence on the same Journey Request once it reaches "Awaiting Seal Return"
 # (see the Seal Return section's depends_on). Completion is Control-Room-driven via
-# approve_seal_return; the technician's tick below is a non-authoritative declaration.
+# direct technician confirmation; the tick is required before completion.
 SEAL_RETURN_FIELDS = ("seal_return_entry_document", "seal_return_photos")
 SEAL_RETURN_CONFIRMATION_FIELDS = ("seal_return_confirmed_by_technician", "seal_return_condition")
+
+PHOTO_TABLE_TYPES = {
+	"entry_document": "Pre-Tagging",
+	"tagging_photos": "Tagging",
+	"untagging_entry_document": "Untagging",
+	"untagging_photos": "Untagging",
+	"seal_return_entry_document": "Seal Return",
+	"seal_return_photos": "Seal Return",
+}
 
 _FIELD_LABELS = {
 	"job_order": "Job Order",
@@ -121,9 +126,53 @@ class JourneyRequest(Document):
 	def validate(self):
 		self.ensure_pre_tagging_checklist()
 		self.enforce_field_locks()
+		self.validate_remarks_log()
+		self.set_photo_types()
 		self.enforce_tagging_irreversible()
 		self.validate_seals()
 		self.validate_route()
+
+	def set_photo_types(self):
+		for fieldname, photo_type in PHOTO_TABLE_TYPES.items():
+			for row in self.get(fieldname) or []:
+				row.photo_type = photo_type
+
+	def validate_remarks_log(self):
+		previous = self.get_doc_before_save()
+		previous_rows = {
+			row.name: row for row in (previous.get("remarks_log") or [])
+		} if previous else {}
+		current_names = {row.name for row in self.remarks_log if row.name in previous_rows}
+
+		if set(previous_rows) - current_names:
+			frappe.throw(
+				_("Saved remarks cannot be deleted."),
+				title=_("Remarks History Is Append-Only"),
+			)
+
+		for row in self.remarks_log:
+			old_row = previous_rows.get(row.name)
+			if old_row:
+				# Only the remarks text is protected here. remark_date_time and
+				# remarked_by are read-only/system-set and not part of what this
+				# check is meant to guard — comparing them risks false positives,
+				# since a plain frm.save() round-trips Datetime fields through the
+				# browser and truncates microsecond precision, making an untouched
+				# row look "edited" purely from the precision loss.
+				if cstr(row.remarks) != cstr(old_row.remarks):
+					frappe.throw(
+						_("Saved remarks cannot be edited."),
+						title=_("Remarks History Is Append-Only"),
+					)
+				continue
+
+			if not self.flags.get("allow_remarks_log_append"):
+				frappe.throw(
+					_("Remarks History is populated automatically by workflow actions."),
+					title=_("Cannot Add Remarks Manually"),
+				)
+			row.remarked_by = frappe.session.user
+			row.remark_date_time = now_datetime()
 
 	# ------------------------------------------------------------------
 	# Lock matrix — who may change what, in which status
@@ -198,6 +247,25 @@ class JourneyRequest(Document):
 				title=_("Seal Count Mismatch"),
 			)
 
+		# Sub-seal (parent_seal) integrity: a parent must be another seal on this
+		# same journey, and a seal cannot be its own parent.
+		on_journey = set(seal_devices)
+		for row in self.seals:
+			if not row.parent_seal:
+				continue
+			if row.parent_seal == row.seal_device:
+				frappe.throw(
+					_("Seal {0} cannot be its own parent.").format(row.seal_device),
+					title=_("Invalid Sub-Seal"),
+				)
+			if row.parent_seal not in on_journey:
+				frappe.throw(
+					_("Parent Seal {0} for sub-seal {1} must also be a seal on this journey.").format(
+						row.parent_seal, row.seal_device
+					),
+					title=_("Invalid Sub-Seal"),
+				)
+
 		if self.journey_request_status == "Draft":
 			for seal_device in seal_devices:
 				_ensure_seal_available(seal_device, self.name)
@@ -251,11 +319,11 @@ def _locked_fields_for(roles, status):
 				| set(SEAL_RETURN_FIELDS)
 				| set(SEAL_RETURN_CONFIRMATION_FIELDS)
 			)
-		# "Untagging Approved" doubles as the seal-return work window — the FT who
+		# "Awaiting Seal Return" doubles as the seal-return work window — the FT who
 		# untagged is now the seal's custodian and captures return evidence here,
 		# so everything earlier in the lifecycle is locked but the seal-return
 		# fields stay editable.
-		if status == "Untagging Approved":
+		if status == "Awaiting Seal Return":
 			return (
 				set(CONTENT_FIELDS)
 				| set(EVIDENCE_FIELDS)
@@ -331,6 +399,9 @@ def _append_approval_log(doc, action, remarks=None):
 			"remarks": remarks,
 		},
 	)
+	if cstr(remarks).strip():
+		doc.append("remarks_log", {"remarks": cstr(remarks).strip()})
+		doc.flags.allow_remarks_log_append = True
 
 
 @frappe.whitelist()
@@ -344,6 +415,11 @@ def submit_to_control_room(docname):
 
 	if not doc.seals:
 		frappe.throw(_("Select at least one Seal before submitting."), title=_("Seals Required"))
+	if not any(row.photo_attachment for row in doc.tagging_photos):
+		frappe.throw(
+			_("Attach at least one tagging picture before submitting to the Control Room."),
+			title=_("Tagging Pictures Required"),
+		)
 
 	doc.journey_request_status = "Pending Control Room Approval"
 	_append_approval_log(doc, "Submitted to Control Room")
@@ -555,15 +631,16 @@ def _pull_tagging_location(doc):
 
 
 @frappe.whitelist()
-def submit_untagging_to_control_room(docname):
-	"""Field Technician's counterpart to submit_to_control_room, but for the
-	untagging phase: hands the captured evidence (Untagging Documents & Photos)
-	to the Operations Control Room for approval. Implemented as a first pass —
-	the actual Control Room approve/reject actions for this status land
-	separately."""
+def confirm_untagging(docname, manual_location=None, remarks=None):
+	"""Complete untagging and open the seal-return phase.
+
+	The assigned Field Technician confirms the work directly. GPS is preferred;
+	when no live location is available the client prompts for a manual location
+	and calls this method again with that value.
+	"""
 	_ensure_role(
 		"Field Technician",
-		_("Only the assigned Field Technician can submit untagging for approval."),
+		_("Only the assigned Field Technician can confirm untagging."),
 	)
 	doc = _get_journey_request(docname)
 	is_admin = "System Manager" in set(frappe.get_roles()) or frappe.session.user == "Administrator"
@@ -574,7 +651,7 @@ def submit_untagging_to_control_room(docname):
 		)
 	if doc.journey_request_status != "Untagging":
 		frappe.throw(
-			_("Only journey requests in the Untagging stage can be submitted."),
+			_("Only journey requests in the Untagging stage can be confirmed."),
 			title=_("Invalid Status"),
 		)
 	if not cint(doc.untagging_confirmed_by_technician):
@@ -582,57 +659,29 @@ def submit_untagging_to_control_room(docname):
 			_("Tick Confirmed by Technician to confirm the seal has been physically removed."),
 			title=_("Confirmation Required"),
 		)
+	if not doc.untagging_entry_document:
+		frappe.throw(
+			_("Attach at least one untagging entry picture before confirming."),
+			title=_("Evidence Required"),
+		)
 	if not doc.untagging_photos:
 		frappe.throw(
-			_("Attach at least one untagging evidence photo before submitting."),
+			_("Attach at least one untagging evidence photo before confirming."),
 			title=_("Evidence Required"),
 		)
 
-	doc.journey_request_status = "Pending Untagging Approval"
-	_append_approval_log(doc, "Submitted Untagging to Control Room")
-	doc.flags.ignore_field_locks = True
-	doc.save()
-	frappe.db.commit()
-
-
-@frappe.whitelist()
-def approve_untagging(docname, remarks=None):
-	"""Control Room's counterpart to approve_by_control_room, but for the
-	untagging gate: signs off on the captured untagging evidence and closes the
-	seal journey's untagging loop.
-
-	Unlike tagging (where the technician self-attests completion before
-	submitting), untagging's completion fields are entirely Control-Room-driven
-	— untagging_completed, the GPS location, the approver and the approval
-	timestamp are all stamped here, at the moment of approval, not by the
-	technician. Uses its own untagging_control_room_* fields rather than the
-	tagging gate's control_room_* fields, so approving untagging never
-	overwrites the original tagging approval's record."""
-	_ensure_role(
-		"Operations Control Room",
-		_("Only the Operations Control Room can approve untagging."),
-	)
-	doc = _get_journey_request(docname)
-	if doc.journey_request_status != "Pending Untagging Approval":
-		frappe.throw(
-			_("Only journey requests pending Untagging approval can be approved."),
-			title=_("Invalid Status"),
-		)
+	location = _pull_untagging_location(doc)
+	manual_location = cstr(manual_location).strip()
+	if not location and not manual_location:
+		return {"requires_manual_location": True}
 
 	doc.actual_untagging_date_time = doc.actual_untagging_date_time or now_datetime()
-	doc.untagging_location = _pull_untagging_location(doc) or doc.untagging_location
+	doc.untagging_location = location or manual_location[:140]
 	doc.untagging_completed = 1
-	doc.untagging_control_room_approver = frappe.session.user
-	doc.untagging_control_room_approval_date_time = now_datetime()
-	doc.journey_request_status = "Untagging Approved"
-	_append_approval_log(doc, "Untagging Approved", remarks)
+	doc.journey_request_status = "Awaiting Seal Return"
+	_append_approval_log(doc, "Untagging Confirmed", cstr(remarks).strip() or None)
 	doc.flags.ignore_field_locks = True
 	doc.save()
-	# Approving untagging hands the seal to the FT who untagged it and opens the
-	# seal-return phase: the Seal Journey moves to "Awaiting Seal Return" (custody
-	# = Field Technician, see journey_monitoring._CUSTODY_*), while the Journey
-	# Request stays at "Untagging Approved", which now doubles as the FT's
-	# seal-return work window.
 	set_journey_status(
 		doc.journey_reference,
 		"Awaiting Seal Return",
@@ -640,13 +689,11 @@ def approve_untagging(docname, remarks=None):
 	)
 	sync_seal_journey_mirror(doc.journey_reference)
 	frappe.db.commit()
+	return {"requires_manual_location": False, "location": doc.untagging_location}
 
 
 def _pull_untagging_location(doc):
-	"""Fetch live GPS for the journey's seals at the moment Control Room
-	approves untagging — same automated-capture pattern as
-	_pull_tagging_location, just triggered by the approval action instead of a
-	technician submission."""
+	"""Fetch live GPS for the journey seals when the technician confirms untagging."""
 	from tnt_seal_management.tnt_seal_management.api.seal_sync import sync_seal_device
 
 	for row in doc.seals:
@@ -667,40 +714,11 @@ def _pull_untagging_location(doc):
 
 
 @frappe.whitelist()
-def reject_untagging(docname, remarks=None):
-	_ensure_role(
-		"Operations Control Room",
-		_("Only the Operations Control Room can reject untagging."),
-	)
-	doc = _get_journey_request(docname)
-	if doc.journey_request_status != "Pending Untagging Approval":
-		frappe.throw(
-			_("Only journey requests pending Untagging approval can be rejected."),
-			title=_("Invalid Status"),
-		)
-
-	doc.journey_request_status = "Rejected"
-	_append_approval_log(doc, "Untagging Rejected", remarks)
-	doc.flags.ignore_field_locks = True
-	doc.save()
-	# Same as the other rejection gates — can be a kickback for rework (e.g.
-	# recapture evidence) rather than a hard stop, so the Seal Journey's stage
-	# status is left untouched. untagging_completed is intentionally left
-	# unset — only approval marks untagging complete.
-	sync_seal_journey_mirror(doc.journey_reference)
-	frappe.db.commit()
-
-
-@frappe.whitelist()
-def submit_seal_return_to_control_room(docname):
-	"""Field Technician's counterpart to submit_untagging_to_control_room, but for
-	the seal-return phase: the FT who untagged the seal (now its custodian) hands
-	the captured return evidence (Seal Return Documents & Photos) to the Operations
-	Control Room for a final good-condition sign-off. Runs while the Journey Request
-	sits at "Untagging Approved" — the seal-return work window."""
+def confirm_seal_return(docname, manual_location=None, remarks=None):
+	"""Complete the seal return directly from the assigned Field Technician."""
 	_ensure_role(
 		"Field Technician",
-		_("Only the assigned Field Technician can submit the seal return for approval."),
+		_("Only the assigned Field Technician can confirm the seal return."),
 	)
 	doc = _get_journey_request(docname)
 	is_admin = "System Manager" in set(frappe.get_roles()) or frappe.session.user == "Administrator"
@@ -709,63 +727,45 @@ def submit_seal_return_to_control_room(docname):
 			_("This journey request is assigned to {0}.").format(doc.assigned_technician),
 			title=_("Not Assigned to You"),
 		)
-	if doc.journey_request_status != "Untagging Approved":
+	if doc.journey_request_status != "Awaiting Seal Return":
 		frappe.throw(
-			_("Only journey requests with approved untagging can submit a seal return."),
+			_("Only journey requests awaiting seal return can be confirmed."),
 			title=_("Invalid Status"),
 		)
 	if not cint(doc.seal_return_confirmed_by_technician):
 		frappe.throw(
-			_("Tick Confirmed by Technician to confirm the seal has been returned in good condition."),
+			_("Tick Confirmed by Technician to confirm the seal has been physically returned."),
 			title=_("Confirmation Required"),
+		)
+	if not doc.seal_return_entry_document:
+		frappe.throw(
+			_("Attach at least one seal return entry picture before confirming."),
+			title=_("Evidence Required"),
 		)
 	if not doc.seal_return_photos:
 		frappe.throw(
-			_("Attach at least one seal return evidence photo before submitting."),
+			_("Attach at least one seal return evidence photo before confirming."),
 			title=_("Evidence Required"),
 		)
-
-	doc.journey_request_status = "Pending Seal Return Approval"
-	_append_approval_log(doc, "Submitted Seal Return to Control Room")
-	doc.flags.ignore_field_locks = True
-	doc.save()
-	set_journey_status(doc.journey_reference, "Awaiting Control Room Approval")
-	sync_seal_journey_mirror(doc.journey_reference)
-	frappe.db.commit()
-
-
-@frappe.whitelist()
-def approve_seal_return(docname, remarks=None):
-	"""Control Room's counterpart to approve_untagging, but for the seal-return
-	gate: signs off that the seal has been returned in good condition and closes
-	the journey out. Like untagging, the completion fields (seal_returned, the GPS
-	location, approver and timestamp) are all Control-Room-driven here. On approval
-	the Seal Journey completes and custody passes back to the warehouse (the seal's
-	location), and the seal devices are released to Returned."""
-	_ensure_role(
-		"Operations Control Room",
-		_("Only the Operations Control Room can approve a seal return."),
-	)
-	doc = _get_journey_request(docname)
-	if doc.journey_request_status != "Pending Seal Return Approval":
+	if doc.seal_return_condition not in ("Good", "Damaged", "Lost"):
 		frappe.throw(
-			_("Only journey requests pending Seal Return approval can be approved."),
-			title=_("Invalid Status"),
+			_("Select the seal condition after the journey before confirming."),
+			title=_("Seal Condition Required"),
 		)
 
+	location = _pull_seal_return_location(doc)
+	manual_location = cstr(manual_location).strip()
+	if not location and not manual_location:
+		return {"requires_manual_location": True}
+
 	doc.actual_seal_return_date_time = doc.actual_seal_return_date_time or now_datetime()
-	doc.seal_return_location = _pull_seal_return_location(doc) or doc.seal_return_location
+	doc.seal_return_location = location or manual_location[:140]
 	doc.seal_returned = 1
-	doc.seal_return_control_room_approver = frappe.session.user
-	doc.seal_return_control_room_approval_date_time = now_datetime()
 	doc.journey_request_status = "Seal Returned"
-	_append_approval_log(doc, "Seal Return Approved", remarks)
+	_append_approval_log(doc, "Seal Return Confirmed", cstr(remarks).strip() or None)
 	doc.flags.ignore_field_locks = True
 	doc.save()
 
-	# Journey is done — complete the Seal Journey (custody reverts to the
-	# warehouse/location of the seal, derived in journey_monitoring) and release
-	# the seal devices back to stock.
 	set_journey_status(
 		doc.journey_reference,
 		"Completed",
@@ -795,12 +795,11 @@ def approve_seal_return(docname, remarks=None):
 				remarks=f"Returned via Journey Request {doc.name}",
 				journey=doc.journey_reference,
 			)
-	# Copy the captured return evidence onto the Seal Journey's Seal Return tab.
-	# The scalar return fields flow through sync_seal_journey_mirror below; child
-	# tables (photos) are not part of the mirror contract, so copy them here.
+
 	_copy_seal_return_evidence_to_journey(doc)
 	sync_seal_journey_mirror(doc.journey_reference)
 	frappe.db.commit()
+	return {"requires_manual_location": False, "location": doc.seal_return_location}
 
 
 def _get_main_warehouse():
@@ -841,8 +840,7 @@ def _copy_seal_return_evidence_to_journey(doc):
 
 
 def _pull_seal_return_location(doc):
-	"""Fetch live GPS for the journey's seals at the moment Control Room approves
-	the seal return — same automated-capture pattern as _pull_untagging_location."""
+	"""Fetch live or stored seal GPS when the technician confirms the return."""
 	from tnt_seal_management.tnt_seal_management.api.seal_sync import sync_seal_device
 
 	fallback = None
@@ -870,31 +868,6 @@ def _pull_seal_return_location(doc):
 				fallback = str(stored)[:140]
 
 	return fallback
-
-
-@frappe.whitelist()
-def reject_seal_return(docname, remarks=None):
-	_ensure_role(
-		"Operations Control Room",
-		_("Only the Operations Control Room can reject a seal return."),
-	)
-	doc = _get_journey_request(docname)
-	if doc.journey_request_status != "Pending Seal Return Approval":
-		frappe.throw(
-			_("Only journey requests pending Seal Return approval can be rejected."),
-			title=_("Invalid Status"),
-		)
-
-	# Kick the request back to the seal-return work window so the FT can recapture
-	# evidence and resubmit, rather than hard-stopping the journey. seal_returned
-	# is intentionally left unset — only approval marks the seal returned.
-	doc.journey_request_status = "Untagging Approved"
-	_append_approval_log(doc, "Seal Return Rejected", remarks)
-	doc.flags.ignore_field_locks = True
-	doc.save()
-	set_journey_status(doc.journey_reference, "Awaiting Seal Return")
-	sync_seal_journey_mirror(doc.journey_reference)
-	frappe.db.commit()
 
 
 @frappe.whitelist()
@@ -1216,20 +1189,6 @@ def get_control_room_queue():
 	return _get_approval_queue_by_status("Pending Control Room Approval")
 
 
-@frappe.whitelist()
-def get_untagging_approval_queue():
-	"""Journey Requests awaiting Control Room approval of completed untagging
-	work — same shape as get_control_room_queue, scoped to the untagging gate,
-	for the Approve tab's Untagging section."""
-	return _get_approval_queue_by_status("Pending Untagging Approval")
-
-
-@frappe.whitelist()
-def get_seal_return_approval_queue():
-	"""Journey Requests awaiting Control Room sign-off that the seal was returned
-	in good condition — same shape as get_untagging_approval_queue, scoped to the
-	seal-return gate, for the Approve tab's Seal Return section."""
-	return _get_approval_queue_by_status("Pending Seal Return Approval")
 
 
 def _get_approval_queue_by_status(status):
@@ -1265,6 +1224,7 @@ def _get_approval_queue_by_status(status):
 			"seal_device",
 			"seal_number",
 			"serial_number",
+			"parent_seal",
 			"tag_status",
 			"lock_status",
 			"api_device_status",

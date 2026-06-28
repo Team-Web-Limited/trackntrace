@@ -203,8 +203,13 @@ def _reconcile_alert_log(device):
 	)
 	open_types = {r.alert_type for r in open_rows}
 
+	# Only Battery alerts auto-resolve from telemetry: when a seal's battery
+	# recovers, the warning clears itself. Security and Connectivity alerts are
+	# deliberately NOT auto-resolved here — once raised they stay open until a
+	# Control Room user resolves them through the Resolution workflow, so a
+	# tamper or drop-out is never silently closed by a transient reading.
 	for row in open_rows:
-		if row.alert_type not in current_types:
+		if row.alert_type == "Battery" and row.alert_type not in current_types:
 			frappe.db.set_value(
 				"Seal Alert Log", row.name, {"is_resolved": 1, "resolved_at": now_datetime()}
 			)
@@ -212,7 +217,7 @@ def _reconcile_alert_log(device):
 	for alert in alerts:
 		if alert["type"] in open_types:
 			continue
-		frappe.get_doc({
+		alert_doc = frappe.get_doc({
 			"doctype": "Seal Alert Log",
 			"alert_source": "System",
 			"alert_type": alert["type"],
@@ -224,7 +229,115 @@ def _reconcile_alert_log(device):
 			"occurred_at": now_datetime(),
 		}).insert(ignore_permissions=True)
 
+		# Actively notify on a newly-opened critical alert (e.g. seal unlocked
+		# in transit). Only fires once per alert because the open/resolve
+		# reconcile above won't re-create a row that is already open.
+		if str(alert.get("level", "")).lower() == "critical":
+			_notify_critical_alert(
+				alert["type"], alert["message"], device.name, seal_journey, journey_request,
+				alert_name=alert_doc.name,
+			)
+
 	frappe.db.commit()
+
+
+def _reconcile_alert_log_safe(device_name):
+	"""Reconcile alerts for a device by name, swallowing errors so one bad
+	device never aborts a batch sync. Used by the scheduled/bulk sync paths,
+	which update device fields directly rather than going through
+	sync_seal_device (the single-device path that already reconciles)."""
+	try:
+		_reconcile_alert_log(frappe.get_doc("Seal Device", device_name))
+	except Exception as exc:
+		frappe.log_error(
+			f"Alert log reconcile failed for {device_name}: {exc}",
+			"Seal Alert Log Sync",
+		)
+
+
+# ---------------------------------------------------------------------------
+# Critical-alert notifications
+# ---------------------------------------------------------------------------
+
+# Roles whose members should be told about a critical seal alert. Deliberately
+# excludes System Manager: on this site that role is held by ~20 developers /
+# consultants, and paging them on every seal-tamper would be noise. Critical
+# alerts go to the operational audience only.
+_ALERT_NOTIFY_ROLES = ("Operations Control Room", "Seal System Administrator")
+
+
+def _alert_recipients():
+	"""Return [(user, email)] for enabled users in the control-room roles,
+	excluding Guest/Administrator. email falls back to the user id."""
+	users = set(
+		frappe.get_all(
+			"Has Role",
+			filters={"role": ["in", _ALERT_NOTIFY_ROLES], "parenttype": "User"},
+			pluck="parent",
+		)
+	)
+	users -= {"Guest", "Administrator"}
+	if not users:
+		return []
+	rows = frappe.get_all(
+		"User",
+		filters={"name": ["in", list(users)], "enabled": 1},
+		fields=["name", "email"],
+	)
+	return [(r.name, r.email or r.name) for r in rows]
+
+
+def _notify_critical_alert(
+	alert_type, message, seal_device, seal_journey=None, journey_request=None, alert_name=None
+):
+	"""Push a critical seal alert to the control room: a desk Notification Log
+	(bell icon) per user, plus an email via the site's default outgoing account.
+	Best-effort — failures are logged, never raised, so they can't break a sync."""
+	recipients = _alert_recipients()
+	if not recipients:
+		return
+
+	subject = _("Critical Seal Alert: {0}").format(alert_type)
+	lines = [message, _("Seal Device: {0}").format(seal_device)]
+	if seal_journey:
+		lines.append(_("Seal Journey: {0}").format(seal_journey))
+	if journey_request:
+		lines.append(_("Journey Request: {0}").format(journey_request))
+	body = "<br>".join(str(l) for l in lines)
+
+	# Route the bell click to the Control Room Alert tab (which has the full
+	# resolution workflow UI) rather than the raw Seal Alert Log list view.
+	# Include the alert name so the page deep-links straight to that row.
+	cr_link = "/app/control-room?tab=alert"
+	if alert_name:
+		from urllib.parse import quote
+
+		cr_link += "&alert=" + quote(str(alert_name))
+
+	for user, _email in recipients:
+		try:
+			frappe.get_doc({
+				"doctype": "Notification Log",
+				"subject": subject,
+				"email_content": body,
+				"for_user": user,
+				"type": "Alert",
+				"document_type": "Seal Device",
+				"document_name": seal_device,
+				"link": cr_link,
+			}).insert(ignore_permissions=True)
+		except Exception as exc:
+			frappe.log_error(
+				f"Critical alert desk notification failed for {user}: {exc}",
+				"Seal Alert Notify",
+			)
+
+	emails = [email for _user, email in recipients if email and "@" in email]
+	if emails:
+		try:
+			frappe.sendmail(recipients=emails, subject=subject, message=body, now=False)
+		except Exception as exc:
+			frappe.log_error(f"Critical alert email failed: {exc}", "Seal Alert Notify")
 
 
 # ---------------------------------------------------------------------------
@@ -403,6 +516,7 @@ def scheduled_sync_active_journeys():
 							f"Scheduled sync: seal journey {sj_name} update failed: {exc}",
 							"Seal Scheduled Sync",
 						)
+				_reconcile_alert_log_safe(device_name)
 			except Exception as exc:
 				frappe.log_error(
 					f"Scheduled sync: device {device_name} (IMEI {imei}) failed: {exc}",
@@ -514,6 +628,7 @@ def sync_all_devices(sync_type="Manual Device Sync"):
 							f"Bulk sync: journey request {device['current_journey_request']} update failed: {exc}",
 							"Seal Bulk Sync",
 						)
+				_reconcile_alert_log_safe(device["name"])
 			except Exception as exc:
 				failed += 1
 				frappe.log_error(

@@ -9,6 +9,7 @@ frappe.ui.form.on("Tagging Booking", {
 		}
 	},
 	refresh(frm) {
+		load_branch_options(frm);
 		frm.add_custom_button(__("Back"), () => {
 			frappe.set_route("tagging-booking-list");
 		});
@@ -29,7 +30,30 @@ frappe.ui.form.on("Tagging Booking", {
 			});
 		}
 
-		if (frm.doc.booking_status === "Draft") {
+		const canSubmitToFinance =
+			frappe.user.has_role("Account Manager") || frappe.user.has_role("System Manager");
+		const canClaimPortalReview =
+			canSubmitToFinance &&
+			frm.doc.booking_status === "Pending Account Manager Review" &&
+			frm.doc.booking_source === "Customer Portal" &&
+			!frm.doc.account_manager;
+		const isAssignedPortalReview =
+			frm.doc.booking_status === "Pending Account Manager Review" &&
+			(frm.doc.account_manager === frappe.session.user || frappe.user.has_role("System Manager"));
+		if (canClaimPortalReview) {
+			frm.add_custom_button(__("Assign to Me"), () => {
+				frappe.call({
+					method:
+						"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.assign_to_me",
+					args: { docname: frm.doc.name },
+					callback: () => frm.reload_doc(),
+				});
+			});
+		}
+		if (
+			canSubmitToFinance &&
+			(frm.doc.booking_status === "Draft" || isAssignedPortalReview)
+		) {
 			frm.add_custom_button(__("Submit to Finance"), () => {
 				frappe.call({
 					method:
@@ -147,3 +171,32 @@ frappe.ui.form.on("Tagging Booking", {
 		}
 	},
 });
+
+
+function load_branch_options(frm) {
+	if (frm._loading_branch_options) return frm._loading_branch_options;
+
+	frm._loading_branch_options = frappe.call({
+		method:
+			"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.get_branch_options",
+		callback(r) {
+			const branches = Array.isArray(r.message) ? r.message : [];
+			const currentValue = frm.doc.branch || "";
+			const validCurrentValue = currentValue && branches.includes(currentValue) ? currentValue : "";
+			const options = [""].concat(branches).join("\n");
+
+			frm.set_df_property("branch", "options", options);
+			if (currentValue !== validCurrentValue) {
+				frm.set_value("branch", validCurrentValue);
+			}
+		},
+		error() {
+			frappe.show_alert({ message: __("Failed to load branches"), indicator: "red" }, 5);
+		},
+		always() {
+			frm._loading_branch_options = null;
+		},
+	});
+
+	return frm._loading_branch_options;
+}

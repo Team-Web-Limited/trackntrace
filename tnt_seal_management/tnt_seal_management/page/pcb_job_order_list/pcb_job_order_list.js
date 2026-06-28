@@ -130,12 +130,6 @@ function _pjo_build_page(page) {
 
 	$(page.body).on("click", ".pjo-clear-btn", () => _pjo_clear_filters(page));
 
-	$(page.body).on("click", ".pjo-assign-btn", function (event) {
-		event.stopPropagation();
-		const name = $(this).data("name");
-		if (name) _pjo_prompt_for_tag_operator(page, name);
-	});
-
 	$(page.body).on("click", ".pjo-row", function () {
 		const name = $(this).data("name");
 		if (name) frappe.set_route("Form", "PCB Job Order", name);
@@ -241,7 +235,6 @@ function _pjo_render_table(page, jobOrders) {
 				<th>${__("Phone")}</th>
 				<th>${__("PCB Team Leader")}</th>
 				<th>${__("Status")}</th>
-				<th>${__("Action")}</th>
 			</tr></thead>
 			<tbody>${jobOrders.map(_pjo_row_html).join("")}</tbody>
 		</table>
@@ -254,12 +247,6 @@ function _pjo_row_html(order) {
 	const scheduled = order.scheduled_date_time
 		? frappe.datetime.str_to_user(order.scheduled_date_time)
 		: "—";
-	const canAssign =
-		!["Completed", "Cancelled"].includes(status) &&
-		order.assigned_pcb_team_leader &&
-		(frappe.user.has_role("System Manager") ||
-			order.assigned_pcb_team_leader === frappe.session.user);
-	const assignLabel = order.assignment_reference ? __("Reassign") : __("Assign");
 	const displayStatus = status === "Completed" ? __("Assignment Completed") : status;
 
 	const rawClient = order.client_name || "";
@@ -280,56 +267,8 @@ function _pjo_row_html(order) {
 			<td>${frappe.utils.escape_html(order.contact_person_phone || "—")}</td>
 			<td>${frappe.utils.escape_html(order.assigned_pcb_team_leader || __("Not assigned"))}</td>
 			<td><span class="pjo-badge pjo-badge--${statusClass}">${frappe.utils.escape_html(displayStatus)}</span></td>
-			<td>
-				${canAssign ? `<button class="pjo-assign-btn" data-name="${frappe.utils.escape_html(order.name)}">${assignLabel}</button>` : "—"}
-			</td>
 		</tr>
 	`;
-}
-
-function _pjo_prompt_for_tag_operator(page, jobOrderName) {
-	const dialog = new frappe.ui.Dialog({
-		title: __("Assign Field Technician (Tag Operator)"),
-		fields: [
-			{
-				fieldname: "field_technician",
-				fieldtype: "Link",
-				label: __("Field Technician (Tag Operator)"),
-				options: "User",
-				reqd: 1,
-				get_query: () => ({
-					query:
-						"tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey.field_technician_query",
-				}),
-			},
-		],
-		primary_action_label: __("Assign"),
-		primary_action(values) {
-			frappe.call({
-				method:
-					"tnt_seal_management.tnt_seal_management.doctype.pcb_job_order.pcb_job_order.assign_to_field_technician",
-				args: {
-					job_order_name: jobOrderName,
-					field_technician: values.field_technician,
-				},
-				callback(r) {
-					dialog.hide();
-					const assignment = r.message && r.message.assignment;
-					frappe.show_alert(
-						{
-							message: assignment
-								? __("Assignment {0} saved", [assignment])
-								: __("Tag Operator assigned"),
-							indicator: "green",
-						},
-						5
-					);
-					_pjo_load(page);
-				},
-			});
-		},
-	});
-	dialog.show();
 }
 
 function _pjo_render_pagination(page) {
@@ -660,17 +599,6 @@ function _pjo_inject_styles() {
 		.pjo-badge--team-leader-assigned { background: #dbeafe; color: #1d4ed8; }
 		.pjo-badge--completed { background: #dcfce7; color: #166534; }
 		.pjo-badge--cancelled { background: #fee2e2; color: #b91c1c; }
-		.pjo-assign-btn {
-			border: 1px solid var(--pjo-blue);
-			border-radius: 999px;
-			background: var(--pjo-blue);
-			color: #fff;
-			padding: 7px 12px;
-			font-size: 12px;
-			font-weight: 700;
-			white-space: nowrap;
-			cursor: pointer;
-		}
 		.pjo-empty {
 			display: flex;
 			flex-direction: column;

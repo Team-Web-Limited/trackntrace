@@ -28,10 +28,12 @@
   "time_col",
   "resolved_at",
   "ack_section",
+  "resolution_status",
   "acknowledged",
   "ack_col",
   "acknowledged_by",
   "acknowledged_at",
+  "acknowledgement_remarks",
   "source_section",
   "source_alert_id",
   "raw_data"
@@ -153,7 +155,17 @@
   {
    "fieldname": "ack_section",
    "fieldtype": "Section Break",
-   "label": "Acknowledgement"
+   "label": "Resolution"
+  },
+  {
+   "default": "Open",
+   "fieldname": "resolution_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Resolution Status",
+   "options": "Open\nUnderway\nResolved",
+   "read_only": 1,
+   "description": "Open: not yet handled. Underway: acknowledged, further action needed. Resolved: handled."
   },
   {
    "default": "0",
@@ -177,6 +189,13 @@
    "fieldtype": "Datetime",
    "label": "Acknowledged At",
    "read_only": 1
+  },
+  {
+   "fieldname": "acknowledgement_remarks",
+   "fieldtype": "Small Text",
+   "label": "Acknowledgement Remarks",
+   "read_only": 1,
+   "description": "Notes the acknowledging user logged when clearing this alert (e.g. action taken, driver contacted, false alarm)."
   },
   {
    "fieldname": "source_section",

@@ -21,6 +21,8 @@
   "origin",
   "jr_row_5_column",
   "destination",
+  "jr_checkpoints_section",
+  "checkpoints",
   "jr_row_3_section",
   "entry_number",
   "jr_row_3_column",
@@ -67,10 +69,6 @@
   "untagging_location",
   "jr_untagging_row3_section",
   "untagging_completed",
-  "jr_untagging_row3_column",
-  "untagging_control_room_approver",
-  "jr_untagging_row4_section",
-  "untagging_control_room_approval_date_time",
   "jr_seal_return_section",
   "seal_return_entry_document",
   "jr_seal_return_column",
@@ -83,12 +81,8 @@
   "seal_return_location",
   "jr_seal_return_row3_section",
   "seal_returned",
-  "jr_seal_return_row3_column",
-  "seal_return_control_room_approver",
-  "jr_seal_return_row4_section",
-  "seal_return_control_room_approval_date_time",
   "jr_row_12_section",
-  "remarks"
+  "remarks_log"
  ],
  "fields": [
   {
@@ -102,7 +96,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Control Room Approval\nTagging\nPending CC Approval\nJourney Ready\nUntagging\nPending Untagging Approval\nUntagging Approved\nPending Seal Return Approval\nSeal Returned\nRejected\nCancelled",
+   "options": "Draft\nPending Control Room Approval\nTagging\nPending CC Approval\nJourney Ready\nUntagging\nAwaiting Seal Return\nSeal Returned\nRejected\nCancelled",
    "read_only": 1
   },
   {
@@ -229,7 +223,18 @@
    "reqd": 1
   },
   {
-   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
+   "fieldname": "jr_checkpoints_section",
+   "fieldtype": "Section Break",
+   "label": "Checkpoints",
+   "description": "Optional intermediate stops between origin and destination, in order of travel."
+  },
+  {
+   "fieldname": "checkpoints",
+   "fieldtype": "Table",
+   "label": "Checkpoints",
+   "options": "Journey Request Checkpoint"
+  },
+  {
    "fieldname": "jr_row_7_section",
    "fieldtype": "Section Break",
    "label": "Documents & Photos"
@@ -385,7 +390,7 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:[\"Untagging\",\"Pending Untagging Approval\",\"Untagging Approved\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "fieldname": "jr_untagging_section",
    "fieldtype": "Section Break",
    "label": "Untagging Documents & Photos"
@@ -411,10 +416,10 @@
    "fieldname": "untagging_confirmed_by_technician",
    "fieldtype": "Check",
    "label": "Confirmed by Technician",
-   "description": "Tick to confirm the seal has been physically removed. Required before submitting untagging for Control Room approval."
+   "description": "Tick to confirm the seal has been physically removed. Required before confirming untagging."
   },
   {
-   "depends_on": "eval:[\"Untagging\",\"Pending Untagging Approval\",\"Untagging Approved\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "fieldname": "jr_untagging_row2_section",
    "fieldtype": "Section Break"
   },
@@ -423,7 +428,7 @@
    "fieldtype": "Datetime",
    "label": "Actual Untagging Date and Time",
    "read_only": 1,
-   "description": "Stamped automatically when Control Room approves untagging."
+   "description": "Stamped automatically when the Field Technician confirms untagging."
   },
   {
    "fieldname": "jr_untagging_row2_column",
@@ -434,10 +439,10 @@
    "fieldtype": "Data",
    "label": "Untagging Location",
    "read_only": 1,
-   "description": "Pulled automatically from the seal device's GPS when Control Room approves untagging."
+   "description": "Pulled automatically from seal GPS when the Field Technician confirms untagging; manual entry is requested if GPS is unavailable."
   },
   {
-   "depends_on": "eval:[\"Untagging\",\"Pending Untagging Approval\",\"Untagging Approved\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "fieldname": "jr_untagging_row3_section",
    "fieldtype": "Section Break"
   },
@@ -447,32 +452,10 @@
    "fieldtype": "Check",
    "label": "Untagging Completed",
    "read_only": 1,
-   "description": "Set automatically once Control Room approves untagging."
+   "description": "Set automatically when the Field Technician confirms untagging."
   },
   {
-   "fieldname": "jr_untagging_row3_column",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "untagging_control_room_approver",
-   "fieldtype": "Link",
-   "label": "Untagging Control Room Approver",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "depends_on": "eval:[\"Untagging\",\"Pending Untagging Approval\",\"Untagging Approved\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
-   "fieldname": "jr_untagging_row4_section",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "untagging_control_room_approval_date_time",
-   "fieldtype": "Datetime",
-   "label": "Untagging Control Room Approval Date and Time",
-   "read_only": 1
-  },
-  {
-   "depends_on": "eval:[\"Untagging Approved\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "fieldname": "jr_seal_return_section",
    "fieldtype": "Section Break",
    "label": "Seal Return Documents & Photos"
@@ -498,7 +481,7 @@
    "fieldname": "seal_return_confirmed_by_technician",
    "fieldtype": "Check",
    "label": "Confirmed by Technician",
-   "description": "Tick to confirm the seal has been physically returned in good condition. Required before submitting seal return for Control Room approval."
+   "description": "Tick to confirm the seal has been physically returned in good condition. Required before confirming the seal return."
   },
   {
    "default": "Good",
@@ -509,7 +492,7 @@
    "description": "Condition of the seal as returned by the Field Technician."
   },
   {
-   "depends_on": "eval:[\"Untagging Approved\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "fieldname": "jr_seal_return_row2_section",
    "fieldtype": "Section Break"
   },
@@ -518,7 +501,7 @@
    "fieldtype": "Datetime",
    "label": "Actual Seal Return Date and Time",
    "read_only": 1,
-   "description": "Stamped automatically when Control Room approves the seal return."
+   "description": "Stamped automatically when the Field Technician confirms the seal return."
   },
   {
    "fieldname": "jr_seal_return_row2_column",
@@ -529,10 +512,10 @@
    "fieldtype": "Data",
    "label": "Seal Return Location",
    "read_only": 1,
-   "description": "Pulled automatically from the seal device's GPS when Control Room approves the seal return."
+   "description": "Pulled automatically from seal GPS when the Field Technician confirms the return; manual entry is requested if GPS is unavailable."
   },
   {
-   "depends_on": "eval:[\"Untagging Approved\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "fieldname": "jr_seal_return_row3_section",
    "fieldtype": "Section Break"
   },
@@ -542,39 +525,21 @@
    "fieldtype": "Check",
    "label": "Seal Returned",
    "read_only": 1,
-   "description": "Set automatically once Control Room approves the seal return."
+   "description": "Set automatically when the Field Technician confirms the seal return."
   },
   {
-   "fieldname": "jr_seal_return_row3_column",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "seal_return_control_room_approver",
-   "fieldtype": "Link",
-   "label": "Seal Return Control Room Approver",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "fieldname": "jr_seal_return_row4_section",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "seal_return_control_room_approval_date_time",
-   "fieldtype": "Datetime",
-   "label": "Seal Return Control Room Approval Date and Time",
-   "read_only": 1
-  },
-  {
-   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
    "fieldname": "jr_row_12_section",
    "fieldtype": "Section Break",
    "label": "Remarks"
   },
   {
-   "fieldname": "remarks",
-   "fieldtype": "Text",
-   "label": "Remarks"
+   "cannot_add_rows": 1,
+   "cannot_delete_rows": 1,
+   "fieldname": "remarks_log",
+   "fieldtype": "Table",
+   "label": "Remarks History",
+   "options": "Journey Request Remark",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

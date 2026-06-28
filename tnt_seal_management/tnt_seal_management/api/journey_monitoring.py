@@ -30,6 +30,11 @@ LOW_BATTERY_PCT = 20  # battery below this (%) => low-battery warning
 # two terminal states). Used for the active view and summary counts.
 _TERMINAL_STATUSES = ("Completed", "Cancelled")
 
+# Journey statuses during which an unlocked seal is a security breach: while the
+# load is staged and ready to depart ("Ready for Journey") as well as in motion
+# ("In Transit"). An unlock in either state should never happen.
+_SECURITY_LOCKED_STATUSES = ("Ready for Journey", "In Transit")
+
 _FIELDS = [
 	"name", "customer", "vehicle_plate_number", "container_number",
 	"origin", "destination", "journey_status",
@@ -62,7 +67,7 @@ _CUSTODY_TECHNICIAN_STATUSES = frozenset({
 	"Technician Assigned", "Pre-Tagging", "Tagging Request Booked",
 	"Tagging In Progress", "Tagged", "Post-Tagging",
 	# Post-untagging: the FT who untagged the seal holds it through seal return.
-	"Untagged", "Awaiting Seal Return", "Awaiting Control Room Approval",
+	"Untagged", "Awaiting Seal Return",
 })
 _CUSTODY_CUSTOMER_STATUSES = frozenset({
 	"Ready for Journey", "In Transit", "Arrived", "Untagging In Progress",
@@ -365,13 +370,19 @@ def _derive_seal_alerts(journey_status, seal, lock):
 	Seal Alert Log for where these get persisted."""
 	alerts = []
 	is_active = journey_status not in _TERMINAL_STATUSES
-	in_transit = journey_status == "In Transit"
 
-	if in_transit and lock == "Unlocked":
+	if journey_status in _SECURITY_LOCKED_STATUSES and lock == "Unlocked":
+		# Phrase the message to match the stage so the control room knows whether
+		# the seal opened in motion or while staged before departure.
+		msg = (
+			_("Seal unlocked in transit")
+			if journey_status == "In Transit"
+			else _("Seal unlocked before departure (Ready for Journey)")
+		)
 		alerts.append({
 			"type": "Security",
 			"level": "critical",
-			"message": _("Seal unlocked in transit"),
+			"message": msg,
 		})
 
 	if is_active and normalize_api_status(seal.get("api_device_status"))["bucket"] == "offline":

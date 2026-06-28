@@ -32,11 +32,12 @@ frappe.pages["assignment-list"].on_page_load = function (wrapper) {
 function _asg_build_page(page) {
 	const statuses = [
 		["All", __("All Assignments")],
-		["Pending", __("TO Assigned")],
+		["Pending", __("Awaiting Assignment")],
 		["Assigned", __("Assigned")],
-		["Awaiting Untagging Assignment", __("Awaiting Untagging")],
-		["TO Assigned for Untagging", __("TO Assigned for Untagging")],
+		["Pending Untagging Assignment", __("Pending Untagging Assignment")],
 		["Untagging Assigned", __("Untagging Assigned")],
+		["Pending Seal Return Assignment", __("Pending Seal Return Assignment")],
+		["Seal Return Assigned", __("Seal Return Assigned")],
 		["Cancelled", __("Cancelled")],
 	];
 
@@ -208,7 +209,7 @@ function _asg_render_stats(page, summary) {
 			<div class="asg-stat-value">${summary.All || 0}</div>
 		</div>
 		<div class="asg-stat-card asg-stat--pending">
-			<div class="asg-stat-label">${__("TO Assigned")}</div>
+			<div class="asg-stat-label">${__("Awaiting Assignment")}</div>
 			<div class="asg-stat-value">${summary.Pending || 0}</div>
 		</div>
 		<div class="asg-stat-card asg-stat--assigned">
@@ -216,12 +217,12 @@ function _asg_render_stats(page, summary) {
 			<div class="asg-stat-value">${summary.Assigned || 0}</div>
 		</div>
 		<div class="asg-stat-card asg-stat--untagging">
-			<div class="asg-stat-label">${__("Awaiting Untagging")}</div>
-			<div class="asg-stat-value">${summary["Awaiting Untagging Assignment"] || 0}</div>
+			<div class="asg-stat-label">${__("Pending Untagging Assignment")}</div>
+			<div class="asg-stat-value">${summary["Pending Untagging Assignment"] || 0}</div>
 		</div>
-		<div class="asg-stat-card asg-stat--untagging">
-			<div class="asg-stat-label">${__("To Approve Untagging")}</div>
-			<div class="asg-stat-value">${summary["TO Assigned for Untagging"] || 0}</div>
+		<div class="asg-stat-card asg-stat--seal-return">
+			<div class="asg-stat-label">${__("Pending Seal Return Assignment")}</div>
+			<div class="asg-stat-value">${summary["Pending Seal Return Assignment"] || 0}</div>
 		</div>
 		<div class="asg-stat-card asg-stat--cancelled">
 			<div class="asg-stat-label">${__("Cancelled")}</div>
@@ -236,9 +237,10 @@ function _asg_render_stats(page, summary) {
 		"All": summary.All || 0,
 		"Pending": summary.Pending || 0,
 		"Assigned": summary.Assigned || 0,
-		"Awaiting Untagging Assignment": summary["Awaiting Untagging Assignment"] || 0,
-		"TO Assigned for Untagging": summary["TO Assigned for Untagging"] || 0,
+		"Pending Untagging Assignment": summary["Pending Untagging Assignment"] || 0,
 		"Untagging Assigned": summary["Untagging Assigned"] || 0,
+		"Pending Seal Return Assignment": summary["Pending Seal Return Assignment"] || 0,
+		"Seal Return Assigned": summary["Seal Return Assigned"] || 0,
 		"Cancelled": summary.Cancelled || 0,
 	};
 	$(page.body).find(".asg-fcount").each(function () {
@@ -278,19 +280,32 @@ function _asg_render_table(page, assignments) {
 	`);
 }
 
+const ASG_STATUS_LABELS = {
+	"Pending": () => __("Awaiting Assignment"),
+	"Assigned": () => __("Assigned"),
+	"Pending Untagging Assignment": () => __("Pending Untagging Assignment"),
+	"Untagging Assigned": () => __("Untagging Assigned"),
+	"Pending Seal Return Assignment": () => __("Pending Seal Return Assignment"),
+	"Seal Return Assigned": () => __("Seal Return Assigned"),
+	"Cancelled": () => __("Cancelled"),
+};
+
 function _asg_row_html(assignment) {
 	const status = assignment.assignment_status || "Pending";
 	const statusClass = status.toLowerCase().replaceAll(" ", "-");
-	const statusLabel = status === "Pending" ? __("To Assigned") : (status === "Assigned" ? __("Assigned") : status);
+	const statusLabel = (ASG_STATUS_LABELS[status] || (() => status))();
 	const scheduled = assignment.scheduled_date_time
 		? frappe.datetime.str_to_user(assignment.scheduled_date_time)
 		: "—";
 
 	const isUntagging = assignment.request_type === "Untagging";
+	const isSealReturn = assignment.request_type === "Seal Return";
 	const typeBadge = isUntagging
 		? `<span class="asg-type asg-type--untagging">${__("Untagging")}</span>`
-		: `<span class="asg-type asg-type--tagging">${__("Tagging")}</span>`;
-	const source = isUntagging
+		: isSealReturn
+			? `<span class="asg-type asg-type--seal-return">${__("Seal Return")}</span>`
+			: `<span class="asg-type asg-type--tagging">${__("Tagging")}</span>`;
+	const source = isUntagging || isSealReturn
 		? (assignment.seal_journey || "—")
 		: (assignment.pcb_job_order || "—");
 
@@ -405,6 +420,7 @@ function _asg_inject_styles() {
 		.asg-header-stats .asg-stat--pending  { border-top-color: #f59e0b; }
 		.asg-header-stats .asg-stat--assigned  { border-top-color: var(--asg-blue); }
 		.asg-header-stats .asg-stat--untagging { border-top-color: #ea580c; }
+		.asg-header-stats .asg-stat--seal-return { border-top-color: #5b21b6; }
 		.asg-header-stats .asg-stat--cancelled { border-top-color: #dc2626; }
 		.asg-header-stats .asg-stat-label {
 			color: #0369a1;
@@ -440,7 +456,7 @@ function _asg_inject_styles() {
 			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
 			overflow: hidden;
 		}
-		.asg-table-scroll { overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 200px); }
+		.asg-table-scroll { overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 200px + 1rem); }
 
 		/* ---- toolbar ---- */
 		.asg-toolbar { padding: 18px; border-bottom: 1px solid #e0f2fe; background: #f0f9ff; }
@@ -646,9 +662,10 @@ function _asg_inject_styles() {
 		}
 		.asg-badge--assigned  { background: #dbeafe; color: #1d4ed8; }
 		.asg-badge--pending   { background: #fef3c7; color: #92400e; }
-		.asg-badge--awaiting-untagging-assignment { background: #fed7aa; color: #9a3412; }
-		.asg-badge--to-assigned-for-untagging { background: #fef08a; color: #854d0e; }
+		.asg-badge--pending-untagging-assignment { background: #fed7aa; color: #9a3412; }
 		.asg-badge--untagging-assigned { background: #ddd6fe; color: #5b21b6; }
+		.asg-badge--pending-seal-return-assignment { background: #fbcfe8; color: #9d174d; }
+		.asg-badge--seal-return-assigned { background: #ede9fe; color: #5b21b6; }
 		.asg-badge--cancelled { background: #fee2e2; color: #b91c1c; }
 		.asg-type {
 			display: inline-flex;
@@ -661,6 +678,7 @@ function _asg_inject_styles() {
 		}
 		.asg-type--tagging { background: #e0f2fe; color: #0369a1; }
 		.asg-type--untagging { background: #fff7ed; color: #c2410c; }
+		.asg-type--seal-return { background: #f5f3ff; color: #5b21b6; }
 		.asg-empty {
 			display: flex;
 			flex-direction: column;

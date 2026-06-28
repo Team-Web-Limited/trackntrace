@@ -7,9 +7,14 @@ from frappe.tests import IntegrationTestCase
 from frappe.tests.test_model_utils import set_user
 from frappe.utils import add_to_date
 
+from unittest.mock import patch
+
+from tnt_seal_management.tnt_seal_management.api.customer_tagging_bookings import _get_eligible_account_managers
 from tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking import (
+	assign_to_me,
 	approve_booking,
 	reject_booking,
+	submit_to_finance,
 )
 
 
@@ -49,6 +54,41 @@ class IntegrationTestTaggingBooking(IntegrationTestCase):
 				booking.finance_pcb_remarks = "Trying to force approval"
 				booking.save(ignore_permissions=True)
 
+	def test_account_manager_can_claim_unassigned_customer_portal_booking(self):
+		booking = self._make_booking(
+			status="Pending Account Manager Review",
+			booking_source="Customer Portal",
+			account_manager=None,
+		)
+
+		with test_user(roles=["Account Manager"], commit=True) as user:
+			with set_user(user.name):
+				assign_to_me(booking.name)
+
+		self.assertEqual(frappe.db.get_value("Tagging Booking", booking.name, "account_manager"), user.name)
+
+	def test_customer_portal_booking_must_be_claimed_before_submit_to_finance(self):
+		booking = self._make_booking(
+			status="Pending Account Manager Review",
+			booking_source="Customer Portal",
+			account_manager=None,
+		)
+
+		with test_user(roles=["Account Manager"], commit=True) as user:
+			with set_user(user.name), self.assertRaises(frappe.ValidationError):
+				submit_to_finance(booking.name)
+
+	def test_get_eligible_account_managers_returns_empty_without_users(self):
+		with patch("tnt_seal_management.tnt_seal_management.api.customer_tagging_bookings.frappe.get_all") as mocked_get_all:
+			mocked_get_all.side_effect = [[], []]
+			self.assertEqual(_get_eligible_account_managers(), [])
+
+	def test_get_eligible_account_managers_returns_enabled_system_users(self):
+		with patch("tnt_seal_management.tnt_seal_management.api.customer_tagging_bookings.frappe.get_all") as mocked_get_all:
+			mocked_get_all.side_effect = [["am@example.com"], [{"name": "am@example.com"}]]
+			result = _get_eligible_account_managers()
+			self.assertEqual(result[0]["name"], "am@example.com")
+
 	def _ensure_role(self, role_name):
 		if frappe.db.exists("Role", role_name):
 			return
@@ -61,7 +101,7 @@ class IntegrationTestTaggingBooking(IntegrationTestCase):
 			}
 		).insert(ignore_permissions=True)
 
-	def _make_booking(self, status="Draft"):
+	def _make_booking(self, status="Draft", booking_source="Account Manager", account_manager=None):
 		return frappe.get_doc(
 			{
 				"doctype": "Tagging Booking",
@@ -71,6 +111,8 @@ class IntegrationTestTaggingBooking(IntegrationTestCase):
 				"contact_person_name": "Jane Doe",
 				"contact_person_phone": "+254700000000",
 				"booking_status": status,
+				"booking_source": booking_source,
+				"account_manager": account_manager,
 			}
 		).insert(ignore_permissions=True)
 

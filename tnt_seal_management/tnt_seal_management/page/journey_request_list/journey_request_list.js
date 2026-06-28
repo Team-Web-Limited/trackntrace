@@ -42,7 +42,6 @@ function _jrl_build_page(page) {
 		["Pending CC Approval", __("Pending CC Approval")],
 		["Journey Ready", __("Journey Ready")],
 		["Untagging", __("Untagging")],
-		["Pending Untagging Approval", __("Pending Untagging Approval")],
 		["Rejected", __("Rejected")],
 		["Cancelled", __("Cancelled")],
 	];
@@ -197,7 +196,7 @@ function _jrl_render_stats(page, summary) {
 		</div>
 		<div class="jrl-stat-card jrl-stat--untagging">
 			<div class="jrl-stat-label">${__("Untagging")}</div>
-			<div class="jrl-stat-value">${(summary["Untagging"] || 0) + (summary["Pending Untagging Approval"] || 0)}</div>
+			<div class="jrl-stat-value">${summary["Untagging"] || 0}</div>
 		</div>
 		<div class="jrl-stat-card jrl-stat--rejected">
 			<div class="jrl-stat-label">${__("Rejected")}</div>
@@ -269,7 +268,7 @@ function _jrl_row_html(request) {
 function _jrl_status_class(status) {
 	if (status === "Journey Ready") return "approved";
 	if (status === "Rejected" || status === "Cancelled") return "rejected";
-	if (status === "Pending Control Room Approval" || status === "Pending CC Approval" || status === "Pending Untagging Approval") return "pending";
+	if (status === "Pending Control Room Approval" || status === "Pending CC Approval") return "pending";
 	if (status === "Tagging") return "tagging";
 	if (status === "Untagging") return "untagging";
 	return "draft";
@@ -705,7 +704,7 @@ function _jrl_inject_styles() {
 		}
 		.jrl-actions { display: flex; gap: 8px; padding-bottom: 1px; }
 		.jrl-table-scroll { overflow-x: auto; }
-		.jrl-table { width: 100%; min-width: 800px; border-collapse: collapse; }
+		.jrl-table { width: 100%; min-width: 1100px; border-collapse: collapse; }
 		.jrl-table th,
 		.jrl-table td {
 			padding: 10px 12px;
@@ -715,6 +714,7 @@ function _jrl_inject_styles() {
 			color: var(--text-color, #334155);
 			font-size: 14px;
 			line-height: 1.45;
+			white-space: nowrap;
 		}
 		.jrl-table th {
 			position: sticky;
@@ -762,6 +762,7 @@ function _jrl_inject_styles() {
 			padding: 6px 11px;
 			font-size: 12px;
 			font-weight: 800;
+			white-space: nowrap;
 		}
 		.jrl-badge--approved { background: #dcfce7; color: #166534; }
 		.jrl-badge--rejected { background: #fee2e2; color: #b91c1c; }

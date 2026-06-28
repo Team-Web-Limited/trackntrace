@@ -18,7 +18,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Action",
-   "options": "Submitted\nSubmitted to Control Room\nControl Room Approved\nControl Room Rejected\nTagging Completed\nApproved\nRejected\nSubmitted Untagging to Control Room\nUntagging Approved\nUntagging Rejected\nSubmitted Seal Return to Control Room\nSeal Return Approved\nSeal Return Rejected",
+   "options": "Submitted\nSubmitted to Control Room\nControl Room Approved\nControl Room Rejected\nTagging Completed\nApproved\nRejected\nSubmitted Untagging to Control Room\nUntagging Approved\nUntagging Rejected\nUntagging Confirmed\nSubmitted Seal Return to Control Room\nSeal Return Approved\nSeal Return Rejected\nSeal Return Confirmed",
    "read_only": 1
   },
   {

@@ -108,6 +108,7 @@
   "arrival_remarks",
   "arrival_row_2_section",
   "untagging_status",
+  "seal_unlock_method",
   "arrival_row_2_column",
   "untagging_confirmation",
   "arrival_row_3_section",
@@ -128,10 +129,7 @@
   "return_location",
   "seal_condition_after_journey",
   "seal_return_column",
-  "control_room_approval",
   "seal_return_confirmed_by_technician",
-  "seal_return_control_room_approver",
-  "seal_return_control_room_approval_date_time",
   "seal_return_evidence_section",
   "seal_return_entry_document",
   "seal_return_evidence_column",
@@ -204,7 +202,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Journey Status",
-   "options": "Draft\nPending Finance PCB Approval\nFinance PCB Approved\nFinance PCB Rejected\nTeam Lead Assigned\nTechnician Assigned\nPre-Tagging\nTagging Request Booked\nTagging In Progress\nTagged\nPost-Tagging\nReady for Journey\nIn Transit\nArrived\nUntagging In Progress\nUntagged\nAwaiting Seal Return\nAwaiting Control Room Approval\nCompleted\nCancelled",
+   "options": "Draft\nPending Finance PCB Approval\nFinance PCB Approved\nFinance PCB Rejected\nTeam Lead Assigned\nTechnician Assigned\nPre-Tagging\nTagging Request Booked\nTagging In Progress\nTagged\nPost-Tagging\nReady for Journey\nIn Transit\nArrived\nUntagging In Progress\nUntagged\nAwaiting Seal Return\nCompleted\nCancelled",
    "read_only": 1
   },
   {
@@ -675,8 +673,16 @@
    "fieldname": "untagging_status",
    "fieldtype": "Select",
    "label": "Untagging Status",
-   "options": "Pending\nIn Progress\nCompleted",
+   "options": "Pending\nIn Progress\nCompleted\nNot Required",
    "read_only": 1
+  },
+  {
+   "fieldname": "seal_unlock_method",
+   "fieldtype": "Select",
+   "label": "Seal Unlock Method",
+   "options": "\nPhysical\nRemote",
+   "read_only": 1,
+   "description": "How the seal was unlocked at arrival. Physical unlock routes through the untagging cycle; Remote unlock skips untagging and goes straight to seal return."
   },
   {
    "fieldname": "arrival_row_3_section",
@@ -781,31 +787,10 @@
   },
   {
    "default": "0",
-   "description": "Set automatically once Control Room approves the seal return.",
-   "fieldname": "control_room_approval",
-   "fieldtype": "Check",
-   "label": "Seal Returned (Control Room Approved)",
-   "read_only": 1
-  },
-  {
-   "default": "0",
-   "description": "The technician's own (non-authoritative) confirmation that the seal was returned in good condition.",
+   "description": "The technician confirmation that the seal was physically returned.",
    "fieldname": "seal_return_confirmed_by_technician",
    "fieldtype": "Check",
    "label": "Confirmed by Technician",
-   "read_only": 1
-  },
-  {
-   "fieldname": "seal_return_control_room_approver",
-   "fieldtype": "Link",
-   "label": "Seal Return Control Room Approver",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "fieldname": "seal_return_control_room_approval_date_time",
-   "fieldtype": "Datetime",
-   "label": "Seal Return Approval Date and Time",
    "read_only": 1
   },
   {

@@ -86,7 +86,7 @@ function _bm_render(page, j) {
 				<h4>${__("Charge")}</h4>
 				<div class="bm-total">${money(j.total_charge)}</div>
 				<div class="bm-rows">
-					${_bm_row(__("Billing Rule"), j.billing_rule || "—")}
+					${_bm_row(__("Billing Rule"), frappe.utils.escape_html(j.billing_rule_name || j.billing_rule || "—"))}
 					${_bm_row(__("Billable Days"), cint(j.billable_days))}
 					${_bm_row(__("First Period"), `${cint(j.first_period_days)} ${__("days")} · ${money(j.first_period_amount)}`)}
 					${_bm_row(__("Extra Days"), `${cint(j.extra_days)} × ${money(j.extra_day_rate)} = ${money(j.extra_day_amount)}`)}

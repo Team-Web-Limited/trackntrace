@@ -13,6 +13,10 @@ frappe.ui.form.on("PCB Job Order", {
 
 		if (frm.is_new()) return;
 
+		const is_cancelled = frm.doc.job_order_status === "Cancelled";
+		frm.set_df_property("assigned_pcb_team_leader", "read_only", is_cancelled ? 1 : 0);
+		frm.set_df_property("remarks", "read_only", is_cancelled ? 1 : 0);
+
 		// Finance PCB doesn't act on assignments — hide the shortcut from them,
 		// but keep it for System Managers (who may also hold the Finance PCB role).
 		const hide_open_assignment =

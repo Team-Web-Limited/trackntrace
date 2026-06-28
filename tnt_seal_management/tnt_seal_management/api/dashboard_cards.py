@@ -17,24 +17,15 @@ CARD_COUNT_RULES = {
 		"doctype": "Seal Journey",
 		"rules": [
 			{
-				"roles": ["Finance PCB"],
-				"label": "Pending your approval",
-				"filters": {"journey_status": "Pending Finance PCB Approval"},
-			},
-			{
-				"roles": ["Operations Control Room"],
-				"label": "In transit",
-				"filters": {"journey_status": "In Transit"},
-			},
-			{
-				"roles": ["System Manager", "Management", "Seal System Administrator"],
-				"label": "Active journeys",
-				"filters": {
-					"journey_status": [
-						"not in",
-						["Completed", "Cancelled", "Finance PCB Rejected"],
-					]
-				},
+				"roles": [
+					"Finance PCB",
+					"Operations Control Room",
+					"System Manager",
+					"Management",
+					"Seal System Administrator",
+				],
+				"label": "Not completed",
+				"filters": {"journey_status": ["!=", "Completed"]},
 			},
 		],
 	},
@@ -58,6 +49,7 @@ CARD_COUNT_RULES = {
 					"journey_request_status": [
 						"in",
 						[
+							"Draft",
 							"Pending Control Room Approval",
 							"Tagging",
 							"Pending CC Approval",
@@ -72,6 +64,7 @@ CARD_COUNT_RULES = {
 					"journey_request_status": [
 						"in",
 						[
+							"Draft",
 							"Pending Control Room Approval",
 							"Tagging",
 							"Pending CC Approval",
@@ -85,11 +78,6 @@ CARD_COUNT_RULES = {
 		"doctype": "Journey Request",
 		"rules": [
 			{
-				"roles": ["Operations Control Room"],
-				"label": "Untagging approvals",
-				"filters": {"journey_request_status": "Pending Untagging Approval"},
-			},
-			{
 				"roles": ["Field Technician"],
 				"label": "Untagging work",
 				"filters": {"journey_request_status": "Untagging"},
@@ -100,29 +88,24 @@ CARD_COUNT_RULES = {
 				"filters": {
 					"journey_request_status": [
 						"in",
-						["Untagging", "Pending Untagging Approval"],
+						["Untagging"],
 					]
 				},
 			},
 		],
 	},
 	# Second badge on the journey-request card — the seal-return work the FT owns
-	# after untagging is approved (see journey_request.submit_seal_return_to_control_room).
+	# after untagging is confirmed (see journey_request.confirm_seal_return).
 	"journey-request-seal-return": {
 		"doctype": "Journey Request",
 		"rules": [
-			{
-				"roles": ["Operations Control Room"],
-				"label": "Seal return approvals",
-				"filters": {"journey_request_status": "Pending Seal Return Approval"},
-			},
 			{
 				"roles": ["Field Technician"],
 				"label": "Seal return work",
 				"filters": {
 					"journey_request_status": [
 						"in",
-						["Untagging Approved", "Pending Seal Return Approval"],
+						["Awaiting Seal Return"],
 					]
 				},
 			},
@@ -132,7 +115,7 @@ CARD_COUNT_RULES = {
 				"filters": {
 					"journey_request_status": [
 						"in",
-						["Untagging Approved", "Pending Seal Return Approval"],
+						["Awaiting Seal Return"],
 					]
 				},
 			},
@@ -144,15 +127,12 @@ CARD_COUNT_RULES = {
 			{
 				"roles": ["Operations Control Room", "System Manager", "Management"],
 				"label": "Pending your approval",
-				# Covers all three gates Control Room owns: the original tagging-stage
-				# approval, the untagging-stage approval and the seal-return approval.
+				# Covers the tagging-stage approval gate.
 				"filters": {
 					"journey_request_status": [
 						"in",
 						[
 							"Pending Control Room Approval",
-							"Pending Untagging Approval",
-							"Pending Seal Return Approval",
 						],
 					]
 				},
@@ -209,13 +189,18 @@ CARD_COUNT_RULES = {
 			},
 			{
 				"roles": ["Account Manager"],
-				"label": "Your drafts",
-				"filters": {"booking_status": "Draft"},
+				"label": "Pending your review",
+				"filters": {"booking_status": "Pending Account Manager Review"},
 			},
 			{
 				"roles": ["System Manager", "Management"],
 				"label": "Pending approval",
-				"filters": {"booking_status": "Pending Finance PCB Approval"},
+				"filters": {
+					"booking_status": [
+						"in",
+						["Pending Account Manager Review", "Pending Finance PCB Approval"],
+					]
+				},
 			},
 		],
 	},
@@ -224,8 +209,10 @@ CARD_COUNT_RULES = {
 		"rules": [
 			{
 				"roles": ["Finance PCB"],
-				"label": "Unassigned",
-				"filters": {"job_order_status": "Unassigned"},
+				"label": "Awaiting approval",
+				"filters": {
+					"job_order_status": ["not in", ["Completed", "Cancelled"]]
+				},
 			},
 			{
 				"roles": ["PCB Team Leader"],
@@ -262,7 +249,25 @@ CARD_COUNT_RULES = {
 				"label": "Awaiting untagging assignment",
 				"filters": {
 					"request_type": "Untagging",
-					"assignment_status": "Awaiting Untagging Assignment",
+					"assignment_status": "Pending Untagging Assignment",
+				},
+			},
+		],
+	},
+	# Third badge on the Assignments card — seal retrieval requests raised when a
+	# seal is unlocked remotely at arrival (see
+	# pcb_assignment.create_seal_return_request). Untagging is skipped, so the
+	# seal still has to be collected from the client. Scoped to request_type
+	# "Seal Return".
+	"assignment-seal-return": {
+		"doctype": "PCB Assignment",
+		"rules": [
+			{
+				"roles": ["PCB Team Leader", "System Manager", "Management"],
+				"label": "Awaiting retrieval assignment",
+				"filters": {
+					"request_type": "Seal Return",
+					"assignment_status": "Pending Seal Return Assignment",
 				},
 			},
 		],
@@ -291,14 +296,14 @@ CARD_COUNT_RULES = {
 		"doctype": "Seal Device",
 		"rules": [
 			{
-				"roles": ["Operations Control Room", "Seal System Administrator"],
-				"label": "In journey",
-				"filters": {"current_status": "In Journey"},
-			},
-			{
-				"roles": ["System Manager", "Management"],
-				"label": "Available devices",
-				"filters": {"current_status": "Available"},
+				"roles": [
+					"Operations Control Room",
+					"Seal System Administrator",
+					"System Manager",
+					"Management",
+				],
+				"label": "Total devices",
+				"filters": {},
 			},
 		],
 	},

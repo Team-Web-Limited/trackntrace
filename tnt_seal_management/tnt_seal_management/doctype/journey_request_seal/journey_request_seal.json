@@ -9,6 +9,7 @@
  "field_order": [
   "seal_device",
   "seal_number",
+  "parent_seal",
   "serial_number",
   "tag_status",
   "lock_status",
@@ -35,6 +36,15 @@
    "label": "Seal Serial Number",
    "read_only": 1,
    "columns": 2
+  },
+  {
+   "fieldname": "parent_seal",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Parent Seal",
+   "options": "Seal Device",
+   "columns": 2,
+   "description": "Attach this seal as a sub-seal (sublock) of another seal on this journey. Leave blank for a standalone/parent seal."
   },
   {
    "fetch_from": "seal_device.serial_number",

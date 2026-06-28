@@ -236,9 +236,11 @@ function get_card_html(card) {
 	}
 
 	// The Assignments card splits its count into Tagging (Pending Tag-Operator
-	// assignments) and Untagging (untagging requests raised on arrival — see
-	// dashboard_cards.py's "assignment-list" and "assignment-untagging"
-	// entries), each labeled. This is the PCB Team Leader's single workspace.
+	// assignments), Untagging (untagging requests raised on arrival) and
+	// Retrieval (seal-return requests raised when a seal is unlocked remotely —
+	// see dashboard_cards.py's "assignment-list", "assignment-untagging" and
+	// "assignment-seal-return" entries), each labeled. This is the PCB Team
+	// Leader's single workspace.
 	if (card.route === "assignment-list") {
 		return `
 			<div class="tsm-card${primaryClass}" data-route="${route}">
@@ -252,6 +254,10 @@ function get_card_html(card) {
 						<div class="tsm-badge-stat">
 							<span class="tsm-count tsm-count--arrival is-hidden" data-count="assignment-untagging"></span>
 							<span class="tsm-badge-label">${__("Untagging")}</span>
+						</div>
+						<div class="tsm-badge-stat">
+							<span class="tsm-count tsm-count--arrival is-hidden" data-count="assignment-seal-return"></span>
+							<span class="tsm-badge-label">${__("Retrieval")}</span>
 						</div>
 					</div>
 				</div>

@@ -40,7 +40,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Request Type",
-   "options": "Tagging\nUntagging",
+   "options": "Tagging\nUntagging\nSeal Return",
    "read_only": 1,
    "reqd": 1
   },
@@ -54,7 +54,7 @@
    "unique": 1
   },
   {
-   "depends_on": "eval:doc.request_type==\"Untagging\"",
+   "depends_on": "eval:[\"Untagging\",\"Seal Return\"].includes(doc.request_type)",
    "fieldname": "seal_journey",
    "fieldtype": "Link",
    "label": "Seal Journey",
@@ -87,7 +87,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Actions",
-   "options": "Pending\nAssigned\nAwaiting Untagging Assignment\nTO Assigned for Untagging\nUntagging Assigned\nCancelled",
+   "options": "Pending\nAssigned\nPending Untagging Assignment\nUntagging Assigned\nPending Seal Return Assignment\nSeal Return Assigned\nCancelled",
    "read_only": 1,
    "reqd": 1
   },
