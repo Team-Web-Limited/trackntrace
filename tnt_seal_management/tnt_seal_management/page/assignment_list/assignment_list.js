@@ -109,6 +109,7 @@ function _asg_build_page(page) {
 		},
 		render_input: true,
 	});
+	// Set initial value to empty string
 
 	const delayedSearch = _asg_debounce(() => {
 		page.asg_state.search = ($(page.body).find(".asg-search").val() || "").trim();
