@@ -19,11 +19,17 @@ _FIELDS = [
 	"currency", "billing_period_type", "is_global_default",
 	"first_period_days", "first_period_amount", "extra_day_rate",
 	"effective_from", "effective_to", "creation",
+	"approval_status", "approved_by", "approved_on", "approval_remarks",
 ]
 
 
+def _can_approve_billing_rate():
+	roles = set(frappe.get_roles())
+	return "Managing Director" in roles or "System Manager" in roles or frappe.session.user == "Administrator"
+
+
 @frappe.whitelist()
-def get_billing_rate_list(search=None, billing_type="All", active="All", page=1, page_length=25):
+def get_billing_rate_list(search=None, billing_type="All", active="All", approval="All", page=1, page_length=25):
 	page = max(1, int(page or 1))
 	page_length = max(1, min(int(page_length or 25), 100))
 
@@ -34,6 +40,8 @@ def get_billing_rate_list(search=None, billing_type="All", active="All", page=1,
 		filters.append(["active", "=", 1])
 	elif active == "Inactive":
 		filters.append(["active", "=", 0])
+	if approval not in ("All", None, ""):
+		filters.append(["approval_status", "=", approval])
 
 	or_filters = []
 	if search:
@@ -64,6 +72,7 @@ def get_billing_rate_list(search=None, billing_type="All", active="All", page=1,
 		"page": page,
 		"page_length": page_length,
 		"summary": _summary(),
+		"can_approve": _can_approve_billing_rate(),
 	}
 
 
@@ -73,24 +82,29 @@ def _summary():
 
 	return {
 		"All": count(),
-		"Default": count([["billing_type", "=", "Default"]]),
-		"Special": count([["billing_type", "=", "Special"]]),
+		"Subscription": count([["billing_type", "=", "Subscription"]]),
+		"Leasing": count([["billing_type", "=", "Leasing"]]),
 		"Active": count([["active", "=", 1]]),
 		"Inactive": count([["active", "=", 0]]),
 		"GlobalDefault": count([["is_global_default", "=", 1]]),
+		# Rules Finance PCB has set (created or edited) that the Managing
+		# Director has not yet signed off on — needs visibility on the list.
+		"PendingApproval": count([["billing_type", "=", "Subscription"], ["approval_status", "=", "Pending Approval"]]),
+		"Approved": count([["billing_type", "=", "Subscription"], ["approval_status", "=", "Approved"]]),
+		"Rejected": count([["billing_type", "=", "Subscription"], ["approval_status", "=", "Rejected"]]),
 	}
 
 
 # ---------------------------------------------------------------------------
-# Mass-assign billing rules to customers via Excel
+# Mass-assign Subscription billing rules to customers via Excel
 #
 # Rules are configured in Seal Billing Rate; this only writes the
 # Customer <-> Billing Rule link (Customer Billing Assignment), the same as the
 # "Set Billing" modal on Current Customer List — just for many customers at
-# once. Default and Special use separate sheets/templates because they
-# validate differently: a Default rule is expected to repeat across many rows
-# (a shared rate card), while a Special rule is a private, per-customer
-# contract and must not be reused across rows in the same import.
+# once. Subscription-only: a Subscription rule is a shared rate card and is
+# expected to repeat across many rows. Leasing has no bulk-assign path — it's a
+# private, per-customer contract entered directly in the Set Billing modal,
+# which creates the customer's own rule rather than referencing a shared one.
 # ---------------------------------------------------------------------------
 
 ASSIGNMENT_TEMPLATE_COLUMNS = ["Customer", "Billing Rule", "Period From Date", "Period To Date"]
@@ -103,38 +117,22 @@ def _ensure_billing_access():
 
 
 @frappe.whitelist()
-def download_default_assignment_template():
+def download_subscription_assignment_template():
 	_ensure_billing_access()
 	rows = [
 		ASSIGNMENT_TEMPLATE_COLUMNS,
 		["CUST-00001", "Default Monthly", "2026-01-01", "2026-12-31"],
 	]
-	build_xlsx_response(rows, "Default Billing Assignment Template")
+	build_xlsx_response(rows, "Subscription Billing Assignment Template")
 
 
 @frappe.whitelist()
-def download_special_assignment_template():
+def import_subscription_assignments(file_url):
 	_ensure_billing_access()
-	rows = [
-		ASSIGNMENT_TEMPLATE_COLUMNS,
-		["CUST-00042", "Apex Transit — Special Contract", "2026-01-01", "2026-12-31"],
-	]
-	build_xlsx_response(rows, "Special Billing Assignment Template")
+	return _import_assignments(file_url)
 
 
-@frappe.whitelist()
-def import_default_assignments(file_url):
-	_ensure_billing_access()
-	return _import_assignments(file_url, "Default")
-
-
-@frappe.whitelist()
-def import_special_assignments(file_url):
-	_ensure_billing_access()
-	return _import_assignments(file_url, "Special")
-
-
-def _import_assignments(file_url, billing_type):
+def _import_assignments(file_url):
 	if not file_url:
 		frappe.throw(_("Attach an Excel file before importing."))
 
@@ -150,7 +148,6 @@ def _import_assignments(file_url, billing_type):
 
 	updated = 0
 	errors = []
-	seen_rules = set()
 
 	for row_no, row in enumerate(rows[1:], start=2):
 		if _is_blank(row):
@@ -170,14 +167,7 @@ def _import_assignments(file_url, billing_type):
 				frappe.throw(_("Billing Rule is required."))
 
 			customer_name = _resolve_customer(customer_value)
-			rule = _resolve_rule(rule_value, billing_type)
-
-			if billing_type == "Special":
-				if rule.name in seen_rules:
-					frappe.throw(
-						_("Special rule {0} is assigned to more than one row in this file.").format(rule.name)
-					)
-				seen_rules.add(rule.name)
+			rule = _resolve_rule(rule_value)
 
 			_upsert_customer_assignment(
 				customer_name,
@@ -207,23 +197,25 @@ def _resolve_customer(value):
 	frappe.throw(_("Customer name {0} matches more than one customer — use the Customer ID instead.").format(value))
 
 
-def _resolve_rule(value, billing_type):
-	if frappe.db.exists("Seal Billing Rate", {"name": value, "billing_type": billing_type, "active": 1}):
+def _resolve_rule(value):
+	rule_filters = {"billing_type": "Subscription", "active": 1, "approval_status": "Approved"}
+
+	if frappe.db.exists("Seal Billing Rate", {"name": value, **rule_filters}):
 		return frappe._dict(name=value)
 
 	matches = frappe.get_all(
 		"Seal Billing Rate",
-		filters={"billing_rule_name": value, "billing_type": billing_type, "active": 1},
+		filters={"billing_rule_name": value, **rule_filters},
 		fields=["name"],
 		limit=2,
 	)
 	if len(matches) == 1:
 		return matches[0]
 	if not matches:
-		frappe.throw(_("Active {0} billing rule {1} not found.").format(billing_type, value))
+		frappe.throw(_("Active, approved Subscription billing rule {0} not found.").format(value))
 	frappe.throw(
-		_("Billing rule name {0} matches more than one active {1} rule — rename them or use the rule ID.").format(
-			value, billing_type
+		_("Billing rule name {0} matches more than one active, approved Subscription rule — rename them or use the rule ID.").format(
+			value
 		)
 	)
 

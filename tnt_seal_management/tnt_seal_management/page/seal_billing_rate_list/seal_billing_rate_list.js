@@ -9,10 +9,12 @@ frappe.pages["seal-billing-rate-list"].on_page_load = function (wrapper) {
 		search: "",
 		billing_type: "All",
 		active: "All",
+		approval: "All",
 		page: 1,
 		page_length: 25,
 		total: 0,
 		request_id: 0,
+		can_approve: false,
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
@@ -32,14 +34,21 @@ frappe.pages["seal-billing-rate-list"].on_page_load = function (wrapper) {
 function _sbr_build_page(page) {
 	const typeStatuses = [
 		["All", __("All Rates")],
-		["Default", __("Default")],
-		["Special", __("Special")],
+		["Subscription", __("Subscription")],
+		["Leasing", __("Leasing")],
 	];
 
 	const activeStatuses = [
 		["All", __("All")],
 		["Active", __("Active")],
 		["Inactive", __("Inactive")],
+	];
+
+	const approvalStatuses = [
+		["All", __("All")],
+		["Pending Approval", __("Pending Approval")],
+		["Approved", __("Approved")],
+		["Rejected", __("Rejected")],
 	];
 
 	$(page.body).html(`
@@ -78,6 +87,22 @@ function _sbr_build_page(page) {
 									<div class="sbr-filter-item ${val === "All" ? "active" : ""}" data-filter="active" data-status="${frappe.utils.escape_html(val)}" data-label="${frappe.utils.escape_html(lbl)}">
 										${frappe.utils.escape_html(lbl)}
 										<span class="sbr-fcount" data-fcount-active="${frappe.utils.escape_html(val)}">0</span>
+									</div>
+								`).join("")}
+							</div>
+						</div>
+
+						<div class="sbr-filter-dropdown">
+							<button class="sbr-filter-btn" data-filter="approval">
+								<span class="sbr-approval-btn-label">${__("All")}</span>
+								<span class="sbr-approval-btn-count">0</span>
+								<span class="sbr-filter-arrow">&#9662;</span>
+							</button>
+							<div class="sbr-filter-menu" data-menu="approval">
+								${approvalStatuses.map(([val, lbl]) => `
+									<div class="sbr-filter-item ${val === "All" ? "active" : ""}" data-filter="approval" data-status="${frappe.utils.escape_html(val)}" data-label="${frappe.utils.escape_html(lbl)}">
+										${frappe.utils.escape_html(lbl)}
+										<span class="sbr-fcount" data-fcount-approval="${frappe.utils.escape_html(val)}">0</span>
 									</div>
 								`).join("")}
 							</div>
@@ -135,6 +160,9 @@ function _sbr_build_page(page) {
 		if (filter === "type") {
 			page.sbr_state.billing_type = val;
 			$(page.body).find(".sbr-filter-btn-label").text(lbl);
+		} else if (filter === "approval") {
+			page.sbr_state.approval = val;
+			$(page.body).find(".sbr-approval-btn-label").text(lbl);
 		} else {
 			page.sbr_state.active = val;
 			$(page.body).find(".sbr-active-btn-label").text(lbl);
@@ -153,6 +181,15 @@ function _sbr_build_page(page) {
 		if (name) frappe.set_route("Form", "Seal Billing Rate", name);
 	});
 
+	$(page.body).on("click", ".sbr-approve-btn", function (event) {
+		event.stopPropagation();
+		_sbr_approve_rule(page, $(this).data("name"));
+	});
+	$(page.body).on("click", ".sbr-reject-btn", function (event) {
+		event.stopPropagation();
+		_sbr_reject_rule(page, $(this).data("name"));
+	});
+
 	$(page.body).on("click", ".sbr-page-btn", function () {
 		if ($(this).prop("disabled")) return;
 		page.sbr_state.page = Number.parseInt($(this).data("page"), 10);
@@ -169,6 +206,7 @@ function _sbr_load(page) {
 			search: page.sbr_state.search,
 			billing_type: page.sbr_state.billing_type,
 			active: page.sbr_state.active,
+			approval: page.sbr_state.approval,
 			page: page.sbr_state.page,
 			page_length: page.sbr_state.page_length,
 		},
@@ -177,6 +215,7 @@ function _sbr_load(page) {
 			_sbr_set_loading(page, false);
 			const data = r.message || {};
 			page.sbr_state.total = data.total || 0;
+			page.sbr_state.can_approve = !!data.can_approve;
 			_sbr_render_stats(page, data.summary || {});
 			_sbr_render_table(page, data.rates || []);
 			_sbr_render_pagination(page);
@@ -195,13 +234,13 @@ function _sbr_render_stats(page, summary) {
 			<div class="sbr-stat-label">${__("All")}</div>
 			<div class="sbr-stat-value">${summary.All || 0}</div>
 		</div>
-		<div class="sbr-stat-card sbr-stat--default">
-			<div class="sbr-stat-label">${__("Default")}</div>
-			<div class="sbr-stat-value">${summary.Default || 0}</div>
+		<div class="sbr-stat-card sbr-stat--subscription">
+			<div class="sbr-stat-label">${__("Subscription")}</div>
+			<div class="sbr-stat-value">${summary.Subscription || 0}</div>
 		</div>
-		<div class="sbr-stat-card sbr-stat--special">
-			<div class="sbr-stat-label">${__("Special")}</div>
-			<div class="sbr-stat-value">${summary.Special || 0}</div>
+		<div class="sbr-stat-card sbr-stat--leasing">
+			<div class="sbr-stat-label">${__("Leasing")}</div>
+			<div class="sbr-stat-value">${summary.Leasing || 0}</div>
 		</div>
 		<div class="sbr-stat-card sbr-stat--active">
 			<div class="sbr-stat-label">${__("Active")}</div>
@@ -211,14 +250,24 @@ function _sbr_render_stats(page, summary) {
 			<div class="sbr-stat-label">${__("Inactive")}</div>
 			<div class="sbr-stat-value">${summary.Inactive || 0}</div>
 		</div>
+		<div class="sbr-stat-card sbr-stat--pending-approval">
+			<div class="sbr-stat-label">${__("Pending Approval")}</div>
+			<div class="sbr-stat-value">${summary.PendingApproval || 0}</div>
+		</div>
 	`;
 	if (page.sbr_stats_bar) {
 		page.sbr_stats_bar.html(html);
 	}
 
 	// update dropdown item counts
-	const typeMap = { "All": summary.All || 0, "Default": summary.Default || 0, "Special": summary.Special || 0 };
+	const typeMap = { "All": summary.All || 0, "Subscription": summary.Subscription || 0, "Leasing": summary.Leasing || 0 };
 	const activeMap = { "All": summary.All || 0, "Active": summary.Active || 0, "Inactive": summary.Inactive || 0 };
+	const approvalMap = {
+		"All": summary.All || 0,
+		"Pending Approval": summary.PendingApproval || 0,
+		"Approved": summary.Approved || 0,
+		"Rejected": summary.Rejected || 0,
+	};
 
 	$(page.body).find("[data-fcount-type]").each(function () {
 		$(this).text(typeMap[$(this).data("fcountType")] ?? 0);
@@ -226,9 +275,13 @@ function _sbr_render_stats(page, summary) {
 	$(page.body).find("[data-fcount-active]").each(function () {
 		$(this).text(activeMap[$(this).data("fcountActive")] ?? 0);
 	});
+	$(page.body).find("[data-fcount-approval]").each(function () {
+		$(this).text(approvalMap[$(this).data("fcountApproval")] ?? 0);
+	});
 
 	$(page.body).find(".sbr-filter-btn-count").text(typeMap[page.sbr_state.billing_type] ?? 0);
 	$(page.body).find(".sbr-active-btn-count").text(activeMap[page.sbr_state.active] ?? 0);
+	$(page.body).find(".sbr-approval-btn-count").text(approvalMap[page.sbr_state.approval] ?? 0);
 }
 
 function _sbr_render_table(page, rates) {
@@ -255,16 +308,17 @@ function _sbr_render_table(page, rates) {
 				<th>${__("Effective From")}</th>
 				<th>${__("Effective To")}</th>
 				<th>${__("Status")}</th>
+				<th>${__("Approval")}</th>
 			</tr></thead>
-			<tbody>${rates.map(_sbr_row_html).join("")}</tbody>
+			<tbody>${rates.map((rate) => _sbr_row_html(page, rate)).join("")}</tbody>
 		</table>
 	`);
 }
 
-function _sbr_row_html(rate) {
+function _sbr_row_html(page, rate) {
 	const isActive = cint(rate.active);
 	const isGlobal = cint(rate.is_global_default);
-	const typeClass = (rate.billing_type || "default").toLowerCase();
+	const typeClass = (rate.billing_type || "subscription").toLowerCase();
 	const firstAmt = rate.first_period_amount
 		? frappe.format(rate.first_period_amount, { fieldtype: "Currency" })
 		: "—";
@@ -292,7 +346,32 @@ function _sbr_row_html(rate) {
 			<td>${frappe.utils.escape_html(effFrom)}</td>
 			<td>${frappe.utils.escape_html(effTo)}</td>
 			<td><span class="sbr-badge sbr-badge--${isActive ? "active" : "inactive"}">${isActive ? __("Active") : __("Inactive")}</span></td>
+			<td>${_sbr_approval_cell_html(page, rate)}</td>
 		</tr>
+	`;
+}
+
+// Managing Director approval — Leasing rules are auto-approved (private,
+// per-customer contracts set from Current Customer List) and never show
+// approve/reject actions. Subscription rules Pending Approval or Rejected can
+// be acted on by whoever holds the Managing Director role.
+function _sbr_approval_cell_html(page, rate) {
+	const status = rate.approval_status || "Pending Approval";
+	const statusClass = status.toLowerCase().replace(/\s+/g, "-");
+	const badge = `<span class="sbr-approval-badge sbr-approval--${statusClass}">${frappe.utils.escape_html(__(status))}</span>`;
+
+	if (rate.billing_type === "Leasing" || !page.sbr_state.can_approve || status === "Approved") {
+		return badge;
+	}
+
+	return `
+		<div class="sbr-approval-cell">
+			${badge}
+			<div class="sbr-approval-actions">
+				<button class="sbr-approve-btn" data-name="${frappe.utils.escape_html(rate.name)}">${__("Approve")}</button>
+				<button class="sbr-reject-btn" data-name="${frappe.utils.escape_html(rate.name)}">${__("Reject")}</button>
+			</div>
+		</div>
 	`;
 }
 
@@ -322,35 +401,81 @@ function _sbr_clear(page) {
 		search: "",
 		billing_type: "All",
 		active: "All",
+		approval: "All",
 		page: 1,
 	});
 	$(page.body).find(".sbr-search").val("");
 	$(page.body).find(".sbr-filter-item").removeClass("active");
 	$(page.body).find('.sbr-filter-item[data-filter="type"][data-status="All"]').addClass("active");
 	$(page.body).find('.sbr-filter-item[data-filter="active"][data-status="All"]').addClass("active");
+	$(page.body).find('.sbr-filter-item[data-filter="approval"][data-status="All"]').addClass("active");
 	$(page.body).find(".sbr-filter-btn-label").text(__("All Rates"));
 	$(page.body).find(".sbr-active-btn-label").text(__("All"));
+	$(page.body).find(".sbr-approval-btn-label").text(__("All"));
 	_sbr_load(page);
 }
 
+// Managing Director approve/reject actions — call the doctype's own
+// whitelisted methods (same convention as Seal Journey.mark_journey_billed)
+// rather than editing the document's fields directly from this list.
+function _sbr_approve_rule(page, name) {
+	frappe.confirm(
+		__("Approve this billing rule? It will become usable for customer assignment."),
+		() => {
+			frappe.call({
+				method: "tnt_seal_management.tnt_seal_management.doctype.seal_billing_rate.seal_billing_rate.approve_seal_billing_rate",
+				args: { name },
+				freeze: true,
+				freeze_message: __("Approving…"),
+				callback() {
+					frappe.show_alert({ message: __("Billing rule approved"), indicator: "green" });
+					_sbr_load(page);
+				},
+				error() {
+					frappe.show_alert({ message: __("Could not approve billing rule"), indicator: "red" }, 5);
+				},
+			});
+		}
+	);
+}
+
+function _sbr_reject_rule(page, name) {
+	frappe.prompt(
+		[{ fieldtype: "Small Text", fieldname: "remarks", label: __("Reason for rejection") }],
+		(values) => {
+			frappe.call({
+				method: "tnt_seal_management.tnt_seal_management.doctype.seal_billing_rate.seal_billing_rate.reject_seal_billing_rate",
+				args: { name, remarks: values.remarks || null },
+				freeze: true,
+				freeze_message: __("Rejecting…"),
+				callback() {
+					frappe.show_alert({ message: __("Billing rule rejected"), indicator: "orange" });
+					_sbr_load(page);
+				},
+				error() {
+					frappe.show_alert({ message: __("Could not reject billing rule"), indicator: "red" }, 5);
+				},
+			});
+		},
+		__("Reject Billing Rule"),
+		__("Reject")
+	);
+}
+
 // Mass Assign Billing — bulk version of the "Set Billing" modal on Current
-// Customer List. Imports only write the Customer <-> Billing Rule link
-// (Customer Billing Assignment); rule terms are configured in Seal Billing
-// Rate. Default and Special use separate templates/imports because a Default
-// rule is expected to repeat across rows while a Special rule must stay
-// unique to one customer per import.
-const SBR_TEMPLATE_URL = {
-	Default: "/api/method/tnt_seal_management.tnt_seal_management.api.seal_billing_rate_list.download_default_assignment_template",
-	Special: "/api/method/tnt_seal_management.tnt_seal_management.api.seal_billing_rate_list.download_special_assignment_template",
-};
-const SBR_IMPORT_METHOD = {
-	Default: "tnt_seal_management.tnt_seal_management.api.seal_billing_rate_list.import_default_assignments",
-	Special: "tnt_seal_management.tnt_seal_management.api.seal_billing_rate_list.import_special_assignments",
-};
+// Customer List, Subscription-only. Imports only write the Customer <-> Billing
+// Rule link (Customer Billing Assignment); rule terms are configured in Seal
+// Billing Rate. A Subscription rule is a shared rate card and is expected to
+// repeat across many rows. Leasing has no bulk-assign path here — it's a
+// private, per-customer contract set directly from the Set Billing modal.
+const SBR_SUBSCRIPTION_TEMPLATE_URL =
+	"/api/method/tnt_seal_management.tnt_seal_management.api.seal_billing_rate_list.download_subscription_assignment_template";
+const SBR_SUBSCRIPTION_IMPORT_METHOD =
+	"tnt_seal_management.tnt_seal_management.api.seal_billing_rate_list.import_subscription_assignments";
 
 function _sbr_show_mass_assign_dialog(page) {
 	const dialog = new frappe.ui.Dialog({
-		title: __("Mass Assign Billing"),
+		title: __("Mass Assign Subscription Billing"),
 		size: "large",
 		fields: [
 			{
@@ -358,26 +483,17 @@ function _sbr_show_mass_assign_dialog(page) {
 				fieldtype: "HTML",
 				options: `
 					<div class="sbr-import-help">
-						<p>${__("Assigns an existing, active billing rule to many customers at once. Rule terms (period type, amounts, validity) are configured on the rule itself in Seal Billing Rate — this only sets the assignment.")}</p>
+						<p>${__("Assigns an existing, active Subscription rate card to many customers at once. Rule terms (period type, amounts, validity) are configured on the rule itself in Seal Billing Rate — this only sets the assignment. Leasing rates are private per customer and are set from the Set Billing modal on Current Customer List instead.")}</p>
 						<p><b>${__("Excel columns")}</b></p>
 						<ul>
 							<li><b>Customer</b> ${__("(required — Customer ID or Customer Name)")}</li>
-							<li><b>Billing Rule</b> ${__("(required — must be an active rule of the chosen billing type)")}</li>
+							<li><b>Billing Rule</b> ${__("(required — must be an active Subscription rule)")}</li>
 							<li>Period From Date ${__("(optional)")}</li>
 							<li>Period To Date ${__("(optional — must fall within the rule's own Effective From/To window)")}</li>
 						</ul>
 						<button class="btn btn-xs btn-default sbr-template-btn" type="button">${__("Download Excel Template")}</button>
 					</div>
 				`,
-			},
-			{
-				fieldname: "billing_type",
-				fieldtype: "Select",
-				label: __("Billing Type"),
-				options: ["Default", "Special"],
-				default: "Default",
-				reqd: 1,
-				description: __("Default: a shared rate card, the same rule may repeat across rows. Special: a private per-customer rule — must not repeat within one import."),
 			},
 			{
 				fieldname: "file_url",
@@ -390,7 +506,7 @@ function _sbr_show_mass_assign_dialog(page) {
 		primary_action_label: __("Import"),
 		primary_action(values) {
 			frappe.call({
-				method: SBR_IMPORT_METHOD[values.billing_type],
+				method: SBR_SUBSCRIPTION_IMPORT_METHOD,
 				args: { file_url: values.file_url },
 				freeze: true,
 				freeze_message: __("Importing billing assignments…"),
@@ -404,8 +520,7 @@ function _sbr_show_mass_assign_dialog(page) {
 	});
 
 	dialog.$wrapper.find(".sbr-template-btn").on("click", () => {
-		const billingType = dialog.get_value("billing_type") || "Default";
-		window.open(SBR_TEMPLATE_URL[billingType], "_blank");
+		window.open(SBR_SUBSCRIPTION_TEMPLATE_URL, "_blank");
 	});
 
 	dialog.show();
@@ -485,10 +600,11 @@ function _sbr_inject_styles() {
 			background: var(--card-bg, #fff);
 			white-space: nowrap;
 		}
-		.sbr-header-stats .sbr-stat--default  { border-top-color: var(--sbr-blue); }
-		.sbr-header-stats .sbr-stat--special   { border-top-color: #7c3aed; }
+		.sbr-header-stats .sbr-stat--subscription  { border-top-color: var(--sbr-blue); }
+		.sbr-header-stats .sbr-stat--leasing   { border-top-color: #7c3aed; }
 		.sbr-header-stats .sbr-stat--active    { border-top-color: #16a34a; }
 		.sbr-header-stats .sbr-stat--inactive  { border-top-color: #64748b; }
+		.sbr-header-stats .sbr-stat--pending-approval { border-top-color: #d97706; }
 		.sbr-header-stats .sbr-stat-label {
 			color: #0369a1;
 			font-weight: 800;
@@ -709,8 +825,8 @@ function _sbr_inject_styles() {
 			font-weight: 800;
 			white-space: nowrap;
 		}
-		.sbr-type--default { background: #dbeafe; color: #1d4ed8; }
-		.sbr-type--special { background: #ede9fe; color: #6d28d9; }
+		.sbr-type--subscription { background: #dbeafe; color: #1d4ed8; }
+		.sbr-type--leasing { background: #ede9fe; color: #6d28d9; }
 		.sbr-badge {
 			display: inline-flex;
 			border-radius: 999px;
@@ -721,6 +837,39 @@ function _sbr_inject_styles() {
 		}
 		.sbr-badge--active   { background: #dcfce7; color: #166534; }
 		.sbr-badge--inactive { background: #e2e8f0; color: #475569; }
+		.sbr-approval-badge {
+			display: inline-flex;
+			border-radius: 999px;
+			padding: 5px 10px;
+			font-size: 11px;
+			font-weight: 800;
+			white-space: nowrap;
+		}
+		.sbr-approval--pending-approval { background: #fef3c7; color: #92400e; }
+		.sbr-approval--approved         { background: #dcfce7; color: #166534; }
+		.sbr-approval--rejected         { background: #fee2e2; color: #991b1b; }
+		.sbr-approval-cell {
+			display: flex;
+			flex-direction: column;
+			gap: 6px;
+			align-items: flex-start;
+		}
+		.sbr-approval-actions {
+			display: flex;
+			gap: 6px;
+		}
+		.sbr-approve-btn, .sbr-reject-btn {
+			border-radius: 6px;
+			padding: 3px 10px;
+			font-size: 11px;
+			font-weight: 700;
+			cursor: pointer;
+			border: 1px solid transparent;
+		}
+		.sbr-approve-btn { background: #16a34a; color: #fff; }
+		.sbr-approve-btn:hover { background: #15803d; }
+		.sbr-reject-btn { background: #fff; color: #991b1b; border-color: #fecaca; }
+		.sbr-reject-btn:hover { background: #fef2f2; }
 		.sbr-empty {
 			display: flex;
 			flex-direction: column;

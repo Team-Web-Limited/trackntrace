@@ -77,7 +77,7 @@ const TNT_DASHBOARD_CARDS = [
 	{
 		title: "Warehouses",
 		icon: "🏬",
-		route: "List/Physical Warehouse/List",
+		route: "List/Warehouse/List",
 		roles: [
 			"System Manager",
 			"Seal System Administrator",
@@ -132,6 +132,18 @@ const TNT_DASHBOARD_CARDS = [
 		roles: ["System Manager", "Finance PCB", "Management"],
 	},
 	{
+		title: "Completed Journeys",
+		icon: "📄",
+		route: "completed-journeys",
+		roles: [
+			"System Manager",
+			"Finance PCB",
+			"Management",
+			"Accounts Manager",
+			"Accounts User",
+		],
+	},
+	{
 		title: "Tracking Dashboard",
 		icon: "🗺",
 		route: "seal-tracking-dashboard",
@@ -181,6 +193,7 @@ const CARDS_WITHOUT_COUNT_LABELS = new Set([
 	"vehicle-list",
 	"seal-device-dashboard",
 	"seal-billing-rate-list",
+	"completed-journeys",
 ]);
 
 function bind_actions(page) {

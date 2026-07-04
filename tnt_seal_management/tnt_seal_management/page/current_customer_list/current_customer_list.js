@@ -312,23 +312,20 @@ function _customer_open_billing_modal(page, customer) {
 function _customer_show_billing_dialog(page, data) {
 	const cur = data.current || {};
 
-	// Rules are configured in Seal Billing Rate — this modal only assigns one
-	// of the active rules (by billing type) to the customer.
-	const ruleLists = {
-		Default: data.default_rules || [],
-		Special: data.special_rules || [],
-	};
-	const ruleMaps = {
-		Default: Object.fromEntries(ruleLists.Default.map((r) => [r.billing_rule_name || r.name, r])),
-		Special: Object.fromEntries(ruleLists.Special.map((r) => [r.billing_rule_name || r.name, r])),
-	};
-	const ruleOptions = {
-		Default: ruleLists.Default.map((r) => r.billing_rule_name || r.name),
-		Special: ruleLists.Special.map((r) => r.billing_rule_name || r.name),
-	};
+	// Subscription rules are configured in Seal Billing Rate and picked from a
+	// shared list here. Leasing is a private, per-customer contract — there is
+	// nothing to pick, so its terms are entered directly below and saved as the
+	// customer's own auto-named rule ("<Customer> BR").
+	const subscriptionRules = data.subscription_rules || [];
+	const subscriptionRuleMap = Object.fromEntries(
+		subscriptionRules.map((r) => [r.billing_rule_name || r.name, r])
+	);
+	const subscriptionRuleOptions = subscriptionRules.map((r) => r.billing_rule_name || r.name);
 
-	const initialType = cur.billing_type || "Default";
-	const currentLabel = cur.rule ? (cur.rule.billing_rule_name || cur.rule.name) : null;
+	const initialType = cur.billing_type || "Subscription";
+	const currentLabel =
+		cur.billing_type === "Subscription" && cur.rule ? (cur.rule.billing_rule_name || cur.rule.name) : null;
+	const currentLeasingTerms = cur.billing_type === "Leasing" ? cur.rule || {} : {};
 
 	const dialog = new frappe.ui.Dialog({
 		title: __("Set Billing — {0}", [data.customer_name]),
@@ -337,52 +334,90 @@ function _customer_show_billing_dialog(page, data) {
 				fieldtype: "Select",
 				fieldname: "billing_type",
 				label: __("Billing Type"),
-				options: ["Default", "Special"],
+				options: ["Subscription", "Leasing"],
 				reqd: 1,
 				default: initialType,
-				description: __("Default uses a shared rate card. Special is a private, per-customer rate."),
+				description: __("Subscription uses a shared rate card. Leasing is a private, per-customer rate entered here."),
 			},
 			{ fieldtype: "Column Break" },
 			{
 				fieldtype: "Select",
 				fieldname: "billing_rule_label",
 				label: __("Billing Rule"),
-				options: ruleOptions[initialType],
-				reqd: 1,
-				default: currentLabel || ruleOptions[initialType][0] || null,
+				options: subscriptionRuleOptions,
+				default: currentLabel || subscriptionRuleOptions[0] || null,
 				description: __("Configure rule terms in Seal Billing Rate. This only assigns the rule."),
+				depends_on: 'eval:doc.billing_type=="Subscription"',
+				mandatory_depends_on: 'eval:doc.billing_type=="Subscription"',
 			},
-			{ fieldtype: "Section Break", label: __("Rule Details (read-only)") },
+			{
+				fieldtype: "Section Break",
+				label: __("Rate Terms"),
+				description: __(
+					"Saved as this customer's own rate — \"{0} BR\".",
+					[data.customer_name]
+				),
+			},
 			{
 				fieldtype: "Select",
 				fieldname: "billing_period_type",
 				label: __("Billing Period Type"),
 				read_only: 1,
-				depends_on: 'eval:doc.billing_type!="Special"',
+				depends_on: 'eval:doc.billing_type=="Subscription"',
 			},
-			{ fieldtype: "Int", fieldname: "first_period_days", label: __("First Period Days"), read_only: 1 },
+			{
+				fieldtype: "Select",
+				fieldname: "leasing_currency",
+				label: __("Currency"),
+				options: "\nKES\nUSD",
+				default: currentLeasingTerms.currency || "KES",
+				depends_on: 'eval:doc.billing_type=="Leasing"',
+			},
 			{ fieldtype: "Column Break" },
-			{ fieldtype: "Currency", fieldname: "first_period_amount", label: __("First Period Amount"), read_only: 1 },
-			{ fieldtype: "Currency", fieldname: "extra_day_rate", label: __("Extra Day Rate (per day)"), read_only: 1 },
+			{
+				fieldtype: "Int",
+				fieldname: "first_period_days",
+				label: __("First Period Days"),
+				default: currentLeasingTerms.first_period_days,
+			},
 			{ fieldtype: "Column Break" },
+			{
+				fieldtype: "Currency",
+				fieldname: "first_period_amount",
+				label: __("First Period Amount"),
+				default: currentLeasingTerms.first_period_amount,
+			},
+			{ fieldtype: "Column Break" },
+			{
+				fieldtype: "Currency",
+				fieldname: "extra_day_rate",
+				label: __("Extra Day Rate (per day)"),
+				default: currentLeasingTerms.extra_day_rate,
+			},
+			{
+				fieldtype: "Section Break",
+				label: __("Validity"),
+				description: __(
+					"For Subscription this is the shared rule's company-wide window (edit it in Seal Billing Rate). For Leasing this is the customer's own private rule's window, set directly here."
+				),
+			},
 			{
 				fieldtype: "Date",
 				fieldname: "rule_effective_from",
-				label: __("Rule Effective From"),
-				read_only: 1,
-				depends_on: 'eval:doc.billing_type!="Special"',
+				label: __("Effective From"),
+				default: currentLeasingTerms.effective_from || null,
 			},
+			{ fieldtype: "Column Break" },
 			{
 				fieldtype: "Date",
 				fieldname: "rule_effective_to",
-				label: __("Rule Effective To"),
-				read_only: 1,
-				depends_on: 'eval:doc.billing_type!="Special"',
+				label: __("Effective To"),
+				default: currentLeasingTerms.effective_to || null,
 			},
 			{
 				fieldtype: "Section Break",
 				label: __("Customer Period"),
-				description: __("The customer's own slice of the rule's validity window above — it cannot extend beyond it."),
+				description: __("The customer's own slice of the Validity window above — it cannot extend beyond it."),
 			},
 			{
 				fieldtype: "Date",
@@ -397,11 +432,164 @@ function _customer_show_billing_dialog(page, data) {
 				label: __("Period To Date"),
 				default: cur.period_to_date || null,
 			},
+
+			// Recurring, seal-count-based fees (PCB Journey Billing Patterns doc,
+			// Scenarios 4-6) — independent of journeys, backed by an ERPNext
+			// Subscription. Deliberately separate from the per-journey "Leasing"
+			// billing_type above. Hidden until "Manage Recurring Fees" is clicked,
+			// to keep this modal focused by default. A customer can carry both
+			// lines at once (Scenario 6 — merged into one invoice automatically
+			// since both live on the same Subscription).
+			{
+				fieldtype: "Section Break",
+				fieldname: "lease_section",
+				label: __("Recurring Lease Fee (leased seals)"),
+				hidden: 1,
+				description: __(
+					"A fixed fee per leased seal, billed on a recurring cycle regardless of journey activity — independent of the per-journey billing above."
+				),
+			},
+			{
+				fieldtype: "Data",
+				fieldname: "lease_status_display",
+				label: __("Lease Subscription Status"),
+				read_only: 1,
+				hidden: 1,
+			},
+			{ fieldtype: "Column Break", fieldname: "lease_col_1", hidden: 1 },
+			{
+				fieldtype: "Int",
+				fieldname: "lease_seal_count",
+				label: __("Number of Seals Leased"),
+				hidden: 1,
+			},
+			{ fieldtype: "Column Break", fieldname: "lease_col_2", hidden: 1 },
+			{
+				fieldtype: "Currency",
+				fieldname: "lease_rate_per_seal",
+				label: __("Rate per Seal"),
+				hidden: 1,
+			},
+			{ fieldtype: "Section Break", fieldname: "lease_section_2", hidden: 1 },
+			{
+				fieldtype: "Select",
+				fieldname: "lease_billing_interval",
+				label: __("Billing Interval"),
+				options: ["Month", "Quarter", "Year"],
+				default: "Month",
+				hidden: 1,
+			},
+			{ fieldtype: "Column Break", fieldname: "lease_col_3", hidden: 1 },
+			{
+				fieldtype: "Select",
+				fieldname: "lease_currency",
+				label: __("Currency"),
+				options: "\nKES\nUSD",
+				default: "KES",
+				hidden: 1,
+			},
+
+			// Scenario 5: owned seals, ongoing platform/service fee across the
+			// whole pool regardless of utilization.
+			{
+				fieldtype: "Section Break",
+				fieldname: "ownership_section",
+				label: __("Ownership Service Fee (owned seals)"),
+				hidden: 1,
+				description: __(
+					"A fixed service fee across the customer's owned seal pool, billed on a recurring cycle whether the seals are deployed or not."
+				),
+			},
+			{
+				fieldtype: "Data",
+				fieldname: "ownership_status_display",
+				label: __("Ownership Subscription Status"),
+				read_only: 1,
+				hidden: 1,
+			},
+			{ fieldtype: "Column Break", fieldname: "ownership_col_1", hidden: 1 },
+			{
+				fieldtype: "Int",
+				fieldname: "ownership_seal_count",
+				label: __("Number of Seals Owned"),
+				hidden: 1,
+			},
+			{ fieldtype: "Column Break", fieldname: "ownership_col_2", hidden: 1 },
+			{
+				fieldtype: "Currency",
+				fieldname: "ownership_rate_per_seal",
+				label: __("Service Fee Rate"),
+				hidden: 1,
+			},
+			{ fieldtype: "Section Break", fieldname: "ownership_section_2", hidden: 1 },
+			{
+				fieldtype: "Select",
+				fieldname: "ownership_billing_interval",
+				label: __("Billing Interval"),
+				options: ["Month", "Quarter", "Semi-Annual", "Year"],
+				default: "Month",
+				hidden: 1,
+			},
+			{ fieldtype: "Column Break", fieldname: "ownership_col_3", hidden: 1 },
+			{
+				fieldtype: "Select",
+				fieldname: "ownership_currency",
+				label: __("Currency"),
+				options: "\nKES\nUSD",
+				default: "KES",
+				hidden: 1,
+			},
 		],
+		secondary_action_label: __("Manage Recurring Fees"),
+		secondary_action() {
+			_customer_reveal_recurring_sections(page, dialog, data.customer);
+		},
 		primary_action_label: __("Save Billing"),
 		primary_action() {
 			const billingType = dialog.get_value("billing_type");
-			const rule = ruleMaps[billingType][dialog.get_value("billing_rule_label")];
+
+			const leaseArgs = _customer_collect_lease_args(dialog);
+			if (leaseArgs === false) return; // validation failed, message already shown
+			const ownershipArgs = _customer_collect_ownership_args(dialog);
+			if (ownershipArgs === false) return; // validation failed, message already shown
+			const recurringArgs = { leaseArgs, ownershipArgs };
+
+			if (billingType === "Leasing") {
+				const days = dialog.get_value("first_period_days");
+				const amount = dialog.get_value("first_period_amount");
+				const extraRate = dialog.get_value("extra_day_rate");
+				if (!days || amount === "" || amount === null || extraRate === "" || extraRate === null) {
+					frappe.show_alert(
+						{ message: __("Enter First Period Days, First Period Amount and Extra Day Rate."), indicator: "red" },
+						5
+					);
+					return;
+				}
+				const leasingRule = {
+					effective_from: dialog.get_value("rule_effective_from"),
+					effective_to: dialog.get_value("rule_effective_to"),
+				};
+				if (!_customer_validate_period_bounds(dialog, leasingRule)) return;
+				_customer_submit_leasing_billing(
+					page,
+					data.customer,
+					{
+						first_period_days: days,
+						first_period_amount: amount,
+						extra_day_rate: extraRate,
+						currency: dialog.get_value("leasing_currency") || "KES",
+						effective_from: leasingRule.effective_from,
+						effective_to: leasingRule.effective_to,
+						period_from_date: dialog.get_value("period_from_date"),
+						period_to_date: dialog.get_value("period_to_date"),
+					},
+					dialog,
+					recurringArgs
+				);
+				return;
+			}
+
+			const rule = subscriptionRuleMap[dialog.get_value("billing_rule_label")];
 			if (!rule) {
 				frappe.show_alert({ message: __("Choose a billing rule."), indicator: "red" }, 5);
 				return;
@@ -414,37 +602,270 @@ function _customer_show_billing_dialog(page, data) {
 				billingType,
 				dialog.get_value("period_from_date"),
 				dialog.get_value("period_to_date"),
-				dialog
+				dialog,
+				recurringArgs
 			);
 		},
 	});
 
-	const applyRuleDetails = () => {
-		const billingType = dialog.get_value("billing_type");
-		const rule = ruleMaps[billingType][dialog.get_value("billing_rule_label")];
+	const applySubscriptionRuleDetails = () => {
+		const rule = subscriptionRuleMap[dialog.get_value("billing_rule_label")];
 		dialog.set_value("billing_period_type", rule ? rule.billing_period_type : "");
+		dialog.set_value("rule_effective_from", rule ? rule.effective_from : "");
+		dialog.set_value("rule_effective_to", rule ? rule.effective_to : "");
 		dialog.set_value("first_period_days", rule ? rule.first_period_days : "");
 		dialog.set_value("first_period_amount", rule ? rule.first_period_amount : "");
 		dialog.set_value("extra_day_rate", rule ? rule.extra_day_rate : "");
-		dialog.set_value("rule_effective_from", rule ? rule.effective_from : "");
-		dialog.set_value("rule_effective_to", rule ? rule.effective_to : "");
 	};
 
-	const refreshRuleOptions = () => {
-		const billingType = dialog.get_value("billing_type");
-		const options = ruleOptions[billingType] || [];
-		dialog.set_df_property("billing_rule_label", "options", options);
-		if (!options.includes(dialog.get_value("billing_rule_label"))) {
-			dialog.set_value("billing_rule_label", options[0] || "");
+	const applyFieldModeForType = () => {
+		const isSubscription = dialog.get_value("billing_type") === "Subscription";
+		["first_period_days", "first_period_amount", "extra_day_rate", "rule_effective_from", "rule_effective_to"].forEach(
+			(fieldname) => {
+				dialog.set_df_property(fieldname, "read_only", isSubscription ? 1 : 0);
+			}
+		);
+		if (isSubscription) {
+			applySubscriptionRuleDetails();
+		} else {
+			// Leasing: restore this customer's own saved terms rather than
+			// whatever a previously-selected Subscription rule copied in — or,
+			// for a brand new Leasing rate, default the Validity window to the
+			// current calendar year (matches Seal Billing Rate's own default).
+			const year = frappe.datetime.now_date().split("-")[0];
+			dialog.set_value("first_period_days", currentLeasingTerms.first_period_days || "");
+			dialog.set_value("first_period_amount", currentLeasingTerms.first_period_amount || "");
+			dialog.set_value("extra_day_rate", currentLeasingTerms.extra_day_rate || "");
+			dialog.set_value("rule_effective_from", currentLeasingTerms.effective_from || `${year}-01-01`);
+			dialog.set_value("rule_effective_to", currentLeasingTerms.effective_to || `${year}-12-31`);
 		}
-		applyRuleDetails();
 	};
 
-	dialog.fields_dict.billing_type.df.onchange = refreshRuleOptions;
-	dialog.fields_dict.billing_rule_label.df.onchange = applyRuleDetails;
+	dialog.fields_dict.billing_type.df.onchange = applyFieldModeForType;
+	dialog.fields_dict.billing_rule_label.df.onchange = applySubscriptionRuleDetails;
 
 	dialog.show();
-	applyRuleDetails();
+	applyFieldModeForType();
+}
+
+// Fetches the customer's existing Lease + Ownership subscription lines (if
+// any) and reveals both hidden sections in place, rather than opening a
+// second dialog — keeps everything in the one Set Billing modal per
+// customer. A customer can fill in either, both (Scenario 6), or neither.
+function _customer_reveal_recurring_sections(page, dialog, customer) {
+	if (dialog.recurring_sections_revealed) return;
+
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.seal_lease_billing.get_customer_lease_subscription",
+		args: { customer },
+		freeze: true,
+		callback(r) {
+			const info = r.message || {};
+			dialog.set_value("lease_status_display", info.lease_status || __("Not activated"));
+			dialog.set_value("lease_seal_count", info.seal_count || null);
+			dialog.set_value("lease_rate_per_seal", info.rate_per_seal || null);
+			dialog.set_value("lease_billing_interval", info.billing_interval || "Month");
+			dialog.set_value("lease_currency", info.currency || "KES");
+
+			[
+				"lease_section",
+				"lease_status_display",
+				"lease_col_1",
+				"lease_seal_count",
+				"lease_col_2",
+				"lease_rate_per_seal",
+				"lease_section_2",
+				"lease_billing_interval",
+				"lease_col_3",
+				"lease_currency",
+			].forEach((fieldname) => dialog.set_df_property(fieldname, "hidden", 0));
+		},
+		error() {
+			frappe.show_alert({ message: __("Could not load lease subscription details"), indicator: "red" }, 5);
+		},
+	});
+
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.seal_lease_billing.get_customer_ownership_subscription",
+		args: { customer },
+		freeze: true,
+		callback(r) {
+			const info = r.message || {};
+			dialog.set_value("ownership_status_display", info.ownership_status || __("Not activated"));
+			dialog.set_value("ownership_seal_count", info.seal_count || null);
+			dialog.set_value("ownership_rate_per_seal", info.rate_per_seal || null);
+			dialog.set_value("ownership_billing_interval", info.billing_interval || "Month");
+			dialog.set_value("ownership_currency", info.currency || "KES");
+
+			[
+				"ownership_section",
+				"ownership_status_display",
+				"ownership_col_1",
+				"ownership_seal_count",
+				"ownership_col_2",
+				"ownership_rate_per_seal",
+				"ownership_section_2",
+				"ownership_billing_interval",
+				"ownership_col_3",
+				"ownership_currency",
+			].forEach((fieldname) => dialog.set_df_property(fieldname, "hidden", 0));
+
+			dialog.recurring_sections_revealed = true;
+			dialog.set_secondary_action_label(__("Recurring Fees Shown"));
+			dialog.get_secondary_btn().prop("disabled", true);
+		},
+		error() {
+			frappe.show_alert({ message: __("Could not load ownership subscription details"), indicator: "red" }, 5);
+		},
+	});
+}
+
+// Reads the (possibly hidden) lease fields off the dialog. Returns null when
+// the section was never revealed or was left blank (nothing to save), a
+// terms object when filled in, or false on a validation failure (a message
+// has already been shown, so the caller should abort the whole save).
+function _customer_collect_lease_args(dialog) {
+	if (!dialog.recurring_sections_revealed) return null;
+
+	const seal_count = dialog.get_value("lease_seal_count");
+	const rate_per_seal = dialog.get_value("lease_rate_per_seal");
+	const hasSealCount = seal_count !== "" && seal_count !== null && seal_count !== undefined;
+	const hasRate = rate_per_seal !== "" && rate_per_seal !== null && rate_per_seal !== undefined;
+
+	if (!hasSealCount && !hasRate) return null; // revealed but left blank — nothing to do
+
+	if (!hasSealCount || !hasRate) {
+		frappe.show_alert(
+			{ message: __("Enter both Number of Seals Leased and Rate per Seal, or leave the Recurring Lease Fee section blank."), indicator: "red" },
+			6
+		);
+		return false;
+	}
+
+	return {
+		seal_count,
+		rate_per_seal,
+		billing_interval: dialog.get_value("lease_billing_interval") || "Month",
+		currency: dialog.get_value("lease_currency") || "KES",
+	};
+}
+
+// Same shape as _customer_collect_lease_args, for the Ownership Service Fee section.
+function _customer_collect_ownership_args(dialog) {
+	if (!dialog.recurring_sections_revealed) return null;
+
+	const seal_count = dialog.get_value("ownership_seal_count");
+	const rate_per_seal = dialog.get_value("ownership_rate_per_seal");
+	const hasSealCount = seal_count !== "" && seal_count !== null && seal_count !== undefined;
+	const hasRate = rate_per_seal !== "" && rate_per_seal !== null && rate_per_seal !== undefined;
+
+	if (!hasSealCount && !hasRate) return null; // revealed but left blank — nothing to do
+
+	if (!hasSealCount || !hasRate) {
+		frappe.show_alert(
+			{ message: __("Enter both Number of Seals Owned and Service Fee Rate, or leave the Ownership Service Fee section blank."), indicator: "red" },
+			6
+		);
+		return false;
+	}
+
+	return {
+		seal_count,
+		rate_per_seal,
+		billing_interval: dialog.get_value("ownership_billing_interval") || "Month",
+		currency: dialog.get_value("ownership_currency") || "KES",
+	};
+}
+
+// Shared tail end of both billing-save paths: saves the Lease and/or
+// Ownership subscription lines (whichever the caller collected) before
+// closing the dialog and reloading the list, so "Save Billing" acts as one
+// combined save. Both lines land on the same Subscription — Scenario 6.
+function _customer_finish_billing_save(page, dialog, customer, billingMessage, recurringArgs) {
+	const { leaseArgs, ownershipArgs } = recurringArgs || {};
+	if (!leaseArgs && !ownershipArgs) {
+		dialog.hide();
+		frappe.show_alert({ message: billingMessage, indicator: "green" });
+		_customer_load(page);
+		return;
+	}
+
+	const calls = [];
+	if (leaseArgs) {
+		calls.push(
+			frappe.call({
+				method: "tnt_seal_management.tnt_seal_management.api.seal_lease_billing.set_customer_lease_subscription",
+				args: {
+					customer,
+					seal_count: leaseArgs.seal_count,
+					rate_per_seal: leaseArgs.rate_per_seal,
+					billing_interval: leaseArgs.billing_interval,
+					currency: leaseArgs.currency,
+				},
+				freeze: true,
+				freeze_message: __("Saving lease subscription…"),
+			})
+		);
+	}
+	if (ownershipArgs) {
+		calls.push(
+			frappe.call({
+				method: "tnt_seal_management.tnt_seal_management.api.seal_lease_billing.set_customer_ownership_subscription",
+				args: {
+					customer,
+					seal_count: ownershipArgs.seal_count,
+					rate_per_seal: ownershipArgs.rate_per_seal,
+					billing_interval: ownershipArgs.billing_interval,
+					currency: ownershipArgs.currency,
+				},
+				freeze: true,
+				freeze_message: __("Saving ownership service fee…"),
+			})
+		);
+	}
+
+	Promise.all(calls)
+		.then(() => {
+			dialog.hide();
+			frappe.show_alert({ message: __("{0} Recurring fees saved.", [billingMessage]), indicator: "green" });
+			_customer_load(page);
+		})
+		.catch(() => {
+			dialog.hide();
+			frappe.show_alert(
+				{ message: __("{0}, but a recurring fee could not be saved.", [billingMessage]), indicator: "orange" },
+				6
+			);
+			_customer_load(page);
+		});
+}
+
+function _customer_submit_leasing_billing(page, customer, terms, dialog, recurringArgs) {
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.current_customers.set_customer_billing",
+		args: {
+			customer,
+			billing_type: "Leasing",
+			first_period_days: terms.first_period_days,
+			first_period_amount: terms.first_period_amount,
+			extra_day_rate: terms.extra_day_rate,
+			currency: terms.currency,
+			rule_effective_from: terms.effective_from || null,
+			rule_effective_to: terms.effective_to || null,
+			period_from_date: terms.period_from_date || null,
+			period_to_date: terms.period_to_date || null,
+		},
+		freeze: true,
+		freeze_message: __("Saving billing…"),
+		callback(r) {
+			const name = (r.message && r.message.billing_rule_name) || "";
+			const message = name ? __("Billing set to {0}.", [name]) : __("Billing updated.");
+			_customer_finish_billing_save(page, dialog, customer, message, recurringArgs);
+		},
+		error() {
+			frappe.show_alert({ message: __("Could not save billing"), indicator: "red" }, 5);
+		},
+	});
 }
 
 // Keeps the customer's period inside the rule's company-wide validity window
@@ -474,7 +895,7 @@ function _customer_validate_period_bounds(dialog, rule) {
 	return true;
 }
 
-function _customer_submit_billing(page, customer, billingRule, billingType, periodFromDate, periodToDate, dialog) {
+function _customer_submit_billing(page, customer, billingRule, billingType, periodFromDate, periodToDate, dialog, recurringArgs) {
 	frappe.call({
 		method: "tnt_seal_management.tnt_seal_management.api.current_customers.set_customer_billing",
 		args: {
@@ -487,15 +908,9 @@ function _customer_submit_billing(page, customer, billingRule, billingType, peri
 		freeze: true,
 		freeze_message: __("Saving billing…"),
 		callback(r) {
-			dialog.hide();
 			const name = (r.message && r.message.billing_rule_name) || "";
-			frappe.show_alert({
-				message: name
-					? __("Billing set to {0}", [name])
-					: __("Billing updated"),
-				indicator: "green",
-			});
-			_customer_load(page);
+			const message = name ? __("Billing set to {0}.", [name]) : __("Billing updated.");
+			_customer_finish_billing_save(page, dialog, customer, message, recurringArgs);
 		},
 		error() {
 			frappe.show_alert({ message: __("Could not save billing"), indicator: "red" }, 5);
@@ -784,6 +1199,7 @@ function _customer_inject_styles() {
 			border-color: #f59e0b;
 			background: #fffbeb;
 		}
+
 		.ccl-billing-btn--special .ccl-billing-tag {
 			background: #fef3c7;
 			color: #92400e;

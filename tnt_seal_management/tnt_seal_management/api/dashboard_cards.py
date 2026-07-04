@@ -282,13 +282,13 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
-	"List/Physical Warehouse/List": {
-		"doctype": "Physical Warehouse",
+	"List/Warehouse/List": {
+		"doctype": "Warehouse",
 		"rules": [
 			{
 				"roles": ["Operations Control Room", "Seal System Administrator", "System Manager", "Management"],
 				"label": "Total warehouses",
-				"filters": {},
+				"filters": {"is_group": 0, "disabled": 0},
 			},
 		],
 	},

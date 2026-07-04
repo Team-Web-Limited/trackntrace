@@ -71,7 +71,9 @@ def _resolve_assignment(assignment_type, field, value, on_date):
 
 def _global_default_rule():
 	return frappe.db.get_value(
-		"Seal Billing Rate", {"is_global_default": 1, "active": 1}, "name"
+		"Seal Billing Rate",
+		{"is_global_default": 1, "active": 1, "approval_status": "Approved"},
+		"name",
 	)
 
 
@@ -79,10 +81,15 @@ def _rule_is_usable(rule_name, on_date):
 	rule = frappe.db.get_value(
 		"Seal Billing Rate",
 		rule_name,
-		["active", "effective_from", "effective_to"],
+		["active", "approval_status", "effective_from", "effective_to"],
 		as_dict=True,
 	)
 	if not rule or not rule.active:
+		return False
+	# A rule pending (re-)approval by the Managing Director cannot be used for
+	# billing, even if a customer already has an active assignment pointing to
+	# it — e.g. its terms were edited after approval and reset to Pending.
+	if rule.approval_status != "Approved":
 		return False
 	return _date_valid(rule.effective_from, rule.effective_to, on_date)
 
@@ -100,23 +107,31 @@ def _date_valid(effective_from, effective_to, on_date):
 # Calculation
 # ---------------------------------------------------------------------------
 
-def compute_billing_amount(rule, total_days):
+def compute_billing_amount(rule, total_days, seal_count=1):
 	"""Apply the single normalized billing formula. ``rule`` is a dict/doc with
 	first_period_days/first_period_amount/extra_day_rate (+ name/billing_period_type/
-	currency). ``total_days`` is the inclusive billable day count."""
+	currency). ``total_days`` is the inclusive billable day count.
+
+	Billing is per seal: the formula yields the charge for a single seal
+	(``per_seal_amount``), and ``total_amount`` multiplies that by ``seal_count``
+	— a journey can carry several seals and each is billed. The breakdown fields
+	(first_period_amount, extra_day_rate, extra_day_amount) stay per-seal."""
 	first_period_days = cint(rule.get("first_period_days"))
 	first_period_amount = flt(rule.get("first_period_amount"))
 	extra_day_rate = flt(rule.get("extra_day_rate"))
 	total_days = cint(total_days)
+	seal_count = max(cint(seal_count), 1)
 
 	if total_days <= first_period_days:
 		extra_days = 0
 		extra_day_amount = 0.0
-		total_amount = first_period_amount
+		per_seal_amount = first_period_amount
 	else:
 		extra_days = total_days - first_period_days
 		extra_day_amount = extra_days * extra_day_rate
-		total_amount = first_period_amount + extra_day_amount
+		per_seal_amount = first_period_amount + extra_day_amount
+
+	total_amount = per_seal_amount * seal_count
 
 	return {
 		"billing_rule": rule.get("name"),
@@ -128,6 +143,8 @@ def compute_billing_amount(rule, total_days):
 		"extra_days": extra_days,
 		"extra_day_rate": extra_day_rate,
 		"extra_day_amount": extra_day_amount,
+		"seal_count": seal_count,
+		"per_seal_amount": per_seal_amount,
 		"total_amount": total_amount,
 	}
 
@@ -140,11 +157,12 @@ def get_billable_days(start_date, return_date):
 
 
 @frappe.whitelist()
-def calculate_billing(customer, start_date, return_date=None, on_date=None):
+def calculate_billing(customer, start_date, return_date=None, on_date=None, seal_count=1):
 	"""Resolve the applicable rule for ``customer`` and compute the charge over
 	``start_date`` -> ``return_date`` (inclusive). When ``return_date`` is not yet
 	known the result is left ``pending`` (no amount). ``on_date`` controls which
-	rule version applies and defaults to ``start_date``."""
+	rule version applies and defaults to ``start_date``. ``seal_count`` bills each
+	seal on the journey (per-seal charging)."""
 	if not start_date:
 		frappe.throw(_("Start Date is required to calculate billing."))
 
@@ -168,11 +186,11 @@ def calculate_billing(customer, start_date, return_date=None, on_date=None):
 
 	if not return_date:
 		# Final billing needs a return date; surface the rule but keep it pending.
-		result = compute_billing_amount(rule, 0)
+		result = compute_billing_amount(rule, 0, seal_count)
 		result.update({"status": "pending", "billable_days": None, "total_amount": None})
 		return result
 
 	billable_days = get_billable_days(start_date, return_date)
-	result = compute_billing_amount(rule, billable_days)
+	result = compute_billing_amount(rule, billable_days, seal_count)
 	result["status"] = "final"
 	return result

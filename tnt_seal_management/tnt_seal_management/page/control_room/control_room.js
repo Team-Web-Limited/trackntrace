@@ -58,7 +58,7 @@ frappe.pages["control-room"].on_page_load = function (wrapper) {
 		if (page.control_room_state.tab === "alert") _control_room_start_alert_polling(page);
 	}
 
-	// Stop the alert poll if the user navigates away from this page entirely
+	// Stop the alert poll if the user navigates away from this page entirely 
 	// (switching tabs within the page is handled in the .cr-tab click handler).
 	$(document).on("page-change", () => _control_room_stop_alert_polling(page));
 };

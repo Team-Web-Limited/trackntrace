@@ -52,7 +52,7 @@ class SealAcquisition(Document):
 			row.db_set("seal_device", seal_device, update_modified=False)
 			set_seal_custody(
 				seal_device,
-				"Custody Point",
+				"Warehouse",
 				self.target_warehouse,
 				remarks=f"Received via Seal Acquisition {self.name}",
 			)

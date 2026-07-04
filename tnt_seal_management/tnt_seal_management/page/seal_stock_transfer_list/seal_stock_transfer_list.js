@@ -170,7 +170,8 @@ function _sst_make_warehouse_control(page, selector, placeholder) {
 		df: {
 			fieldname: selector.replace(".", ""),
 			fieldtype: "Link",
-			options: "Physical Warehouse",
+			options: "Warehouse",
+			get_query: () => ({ filters: { is_group: 0, disabled: 0 } }),
 			placeholder,
 		},
 		render_input: true,
@@ -351,8 +352,8 @@ function _sst_show_import_dialog(page) {
 					</div>
 				`,
 			},
-			{ fieldname: "source_warehouse", fieldtype: "Link", label: __("Source Warehouse"), options: "Physical Warehouse", reqd: 1 },
-			{ fieldname: "target_warehouse", fieldtype: "Link", label: __("Target Warehouse"), options: "Physical Warehouse", reqd: 1 },
+			{ fieldname: "source_warehouse", fieldtype: "Link", label: __("Source Warehouse"), options: "Warehouse", get_query: () => ({ filters: { is_group: 0, disabled: 0 } }), reqd: 1 },
+			{ fieldname: "target_warehouse", fieldtype: "Link", label: __("Target Warehouse"), options: "Warehouse", get_query: () => ({ filters: { is_group: 0, disabled: 0 } }), reqd: 1 },
 			{ fieldname: "transfer_date", fieldtype: "Date", label: __("Transfer Date"), default: frappe.datetime.get_today(), reqd: 1 },
 			{
 				fieldname: "file_url",

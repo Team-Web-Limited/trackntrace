@@ -53,7 +53,7 @@ def execute():
 		doc = frappe.get_doc(
 			{
 				"doctype": "Seal Billing Rate",
-				"billing_type": "Default",
+				"billing_type": "Subscription",
 				"active": 1,
 				"currency": "KES",
 				"remarks": "Seeded default rule — review the amounts before use.",

@@ -90,7 +90,7 @@ def _validate_transferable_seal(seal_device, source_warehouse):
 				seal_device, seal.current_status
 			)
 		)
-	if seal.current_custody_type and seal.current_custody_type != "Custody Point":
+	if seal.current_custody_type and seal.current_custody_type != "Warehouse":
 		frappe.throw(_("Seal {0} is not currently in warehouse custody.").format(seal_device))
 	if seal.current_custodian and seal.current_custodian != source_warehouse:
 		frappe.throw(
@@ -131,7 +131,7 @@ def receive_transfer(docname):
 	for row in doc.seals:
 		set_seal_custody(
 			row.seal_device,
-			"Custody Point",
+			"Warehouse",
 			doc.target_warehouse,
 			remarks=f"Received via Seal Stock Transfer {doc.name}",
 		)

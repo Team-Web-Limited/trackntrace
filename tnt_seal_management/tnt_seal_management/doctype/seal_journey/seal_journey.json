@@ -27,6 +27,9 @@
   "container_number",
   "origin",
   "destination",
+  "file_number",
+  "departure_card_number",
+  "retrieval_card_number",
   "approval_tab",
   "approval_timeline",
   "finance_pcb_approval_status",
@@ -149,6 +152,9 @@
   "extra_day_rate",
   "extra_day_amount",
   "billing_total_section",
+  "seal_count",
+  "per_seal_amount",
+  "billing_total_column_break",
   "total_charge",
   "billing_settlement_section",
   "invoice_reference",
@@ -241,6 +247,22 @@
    "fieldtype": "Data",
    "label": "Destination",
    "read_only": 1
+  },
+  {
+   "fieldname": "file_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "File Number"
+  },
+  {
+   "fieldname": "departure_card_number",
+   "fieldtype": "Data",
+   "label": "Departure Card Number"
+  },
+  {
+   "fieldname": "retrieval_card_number",
+   "fieldtype": "Data",
+   "label": "Retrieval Card Number"
   },
   {
    "fieldname": "approval_tab",
@@ -902,6 +924,25 @@
    "fieldtype": "Section Break"
   },
   {
+   "description": "Number of seals billed on this journey. Each seal is charged.",
+   "fieldname": "seal_count",
+   "fieldtype": "Int",
+   "label": "Billable Seals",
+   "read_only": 1
+  },
+  {
+   "description": "Charge for a single seal before multiplying by the number of seals.",
+   "fieldname": "per_seal_amount",
+   "fieldtype": "Currency",
+   "label": "Amount per Seal",
+   "read_only": 1
+  },
+  {
+   "fieldname": "billing_total_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Amount per Seal × Billable Seals.",
    "fieldname": "total_charge",
    "fieldtype": "Currency",
    "label": "Total Charge",
@@ -1038,7 +1079,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-25 00:00:00.000000",
+ "modified": "2026-07-02 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Journey",

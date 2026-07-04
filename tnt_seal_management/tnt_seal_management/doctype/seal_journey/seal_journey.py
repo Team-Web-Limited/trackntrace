@@ -180,7 +180,8 @@ class SealJourney(Document):
 			end_date = getdate(self.billing_start_date)
 
 		total_days = (getdate(end_date) - getdate(self.billing_start_date)).days + 1
-		result = compute_billing_amount(rule, total_days)
+		seal_count = self._billable_seal_count()
+		result = compute_billing_amount(rule, total_days, seal_count)
 
 		self.billing_rule = rule.name
 		self.billable_days = result["billable_days"]
@@ -189,8 +190,19 @@ class SealJourney(Document):
 		self.extra_days = result["extra_days"]
 		self.extra_day_rate = result["extra_day_rate"]
 		self.extra_day_amount = result["extra_day_amount"]
+		self.seal_count = result["seal_count"]
+		self.per_seal_amount = result["per_seal_amount"]
 		self.total_charge = result["total_amount"]
 		self.billing_status = "Pending Billing"
+
+	def _billable_seal_count(self):
+		"""Number of seals billed on this journey. Each seal in ``journey_seals``
+		is charged; fall back to 1 when only the primary ``assigned_seal`` is set
+		and the child table hasn't been populated yet."""
+		count = len(self.get("journey_seals") or [])
+		if count:
+			return count
+		return 1 if self.assigned_seal else 0
 
 	def enforce_arrival_field_locks(self):
 		"""Untagging Confirmation / Seal Unlocked Confirmation / Arrival Remarks may
@@ -239,6 +251,8 @@ class SealJourney(Document):
 		self.extra_days = 0
 		self.extra_day_rate = 0
 		self.extra_day_amount = 0
+		self.seal_count = 0
+		self.per_seal_amount = 0
 		self.total_charge = 0
 		self.billing_status = status
 

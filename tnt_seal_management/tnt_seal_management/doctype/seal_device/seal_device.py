@@ -14,6 +14,7 @@ class SealDevice(Document):
 # target doctype that yields a human-friendly label for the custodian.
 _CUSTODY_LABEL_FIELD = {
 	"Custody Point": "custody_point_name",
+	"Warehouse": "warehouse_name",
 	"PCB Job Order": "name",
 	"User": "full_name",
 	"Customer": "customer_name",
@@ -21,6 +22,7 @@ _CUSTODY_LABEL_FIELD = {
 
 _CUSTODY_TYPE_PREFIX = {
 	"Custody Point": "Warehouse",
+	"Warehouse": "Warehouse",
 	"PCB Job Order": "Job Order",
 	"User": "Person",
 	"Customer": "Customer",

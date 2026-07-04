@@ -170,7 +170,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Current Custody Type",
-   "options": "\nCustody Point\nPCB Job Order\nUser\nCustomer"
+   "options": "\nCustody Point\nWarehouse\nPCB Job Order\nUser\nCustomer"
   },
   {
    "description": "The actual record holding the seal right now (warehouse, job order, technician/team leader, or customer).",
@@ -388,7 +388,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-25 00:00:00.000000",
+ "modified": "2026-07-02 00:00:01.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Device",
