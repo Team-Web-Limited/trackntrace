@@ -381,7 +381,7 @@ function _render_seal_device_table(page) {
 				<tr>
 					<th>${__("Seal")}</th>
 					<th>${__("Status")}</th>
-					<th>${__("Branch")}</th>
+					<th>${__("Warehouse")}</th>
 					<th>${__("Journey")}</th>
 					<th>${__("Technician")}</th>
 					<th>${__("Vehicle")}</th>
@@ -579,7 +579,14 @@ function _inject_seal_device_styles() {
 			line-height: 1;
 		}
 
-		.sd-panel,
+		.sd-panel {
+			width: 100%;
+			border: 1px solid rgba(14, 165, 233, .2);
+			border-radius: 22px;
+			background: var(--card-bg, #fff);
+			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
+			margin-bottom: 20px;
+		}
 		.sd-table-panel {
 			width: 100%;
 			overflow: hidden;
@@ -587,14 +594,20 @@ function _inject_seal_device_styles() {
 			border-radius: 22px;
 			background: var(--card-bg, #fff);
 			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
+			position: sticky;
+			top: 60px;
 		}
-		.sd-panel { margin-bottom: 20px; }
-		.sd-table-panel { position: sticky; top: 60px; }
 		.sd-table-scroll { overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 200px); }
 		.sd-table-scroll::-webkit-scrollbar { height: 10px; }
 		.sd-table-scroll::-webkit-scrollbar-thumb { background: #bae6fd; border-radius: 999px; }
 
-		.sd-toolbar { padding: 18px; border-bottom: 1px solid #e0f2fe; background: #f0f9ff; }
+		.sd-toolbar {
+			padding: 18px;
+			border-bottom: 1px solid #e0f2fe;
+			background: #f0f9ff;
+			border-top-left-radius: 21px;
+			border-top-right-radius: 21px;
+		}
 		.sd-toolbar-top { display: flex; align-items: center; gap: 12px; }
 		.sd-search-inline { flex: 1; display: flex; align-items: center; margin: 0; }
 		.sd-search-inline input {

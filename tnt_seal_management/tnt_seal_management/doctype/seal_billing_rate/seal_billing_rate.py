@@ -29,8 +29,6 @@ APPROVAL_WATCHED_FIELDS = (
 	"first_period_days",
 	"first_period_amount",
 	"extra_day_rate",
-	"effective_from",
-	"effective_to",
 )
 
 
@@ -38,7 +36,6 @@ class SealBillingRate(Document):
 	def validate(self):
 		self.set_period_days_from_range()
 		self.validate_pricing()
-		self.validate_validity_dates()
 		self.validate_single_global_default()
 		self.validate_approval_status()
 
@@ -76,11 +73,6 @@ class SealBillingRate(Document):
 			frappe.throw(_("First Period Amount cannot be negative."))
 		if flt(self.extra_day_rate) < 0:
 			frappe.throw(_("Extra Day Rate cannot be negative."))
-
-	def validate_validity_dates(self):
-		if self.effective_from and self.effective_to:
-			if getdate(self.effective_to) < getdate(self.effective_from):
-				frappe.throw(_("Effective To Date cannot be before Effective From Date."))
 
 	def validate_single_global_default(self):
 		if self.billing_type == "Leasing":

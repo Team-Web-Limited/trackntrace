@@ -4,13 +4,14 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import getdate
+from frappe.utils import cint, getdate
 
 
 class CustomerBillingAssignment(Document):
 	def validate(self):
 		self.validate_target()
 		self.validate_validity_dates()
+		self.validate_seal_ownership()
 
 	def validate_target(self):
 		if self.assignment_type == "Customer":
@@ -29,27 +30,9 @@ class CustomerBillingAssignment(Document):
 			if getdate(self.effective_to) < getdate(self.effective_from):
 				frappe.throw(_("Effective To Date cannot be before Effective From Date."))
 
-		if not self.billing_rule:
-			return
-
-		rule = frappe.db.get_value(
-			"Seal Billing Rate", self.billing_rule, ["effective_from", "effective_to"], as_dict=True
-		)
-		if not rule:
-			return
-
-		# The rule's own Validity section is the company-wide window the rule may be
-		# used in at all; this assignment's dates are the customer's slice of that
-		# window and can never extend past it.
-		if rule.effective_from and self.effective_from and getdate(self.effective_from) < getdate(rule.effective_from):
-			frappe.throw(
-				_("Effective From Date cannot be before the billing rule's Effective From Date ({0}).").format(
-					frappe.format(rule.effective_from, {"fieldtype": "Date"})
-				)
-			)
-		if rule.effective_to and self.effective_to and getdate(self.effective_to) > getdate(rule.effective_to):
-			frappe.throw(
-				_("Effective To Date cannot be after the billing rule's Effective To Date ({0}).").format(
-					frappe.format(rule.effective_to, {"fieldtype": "Date"})
-				)
-			)
+	def validate_seal_ownership(self):
+		if self.outright_purchase:
+			if cint(self.owned_seal_count) <= 0:
+				frappe.throw(_("Enter the Number of Seals Owned for an Outright Purchase."))
+		else:
+			self.owned_seal_count = 0

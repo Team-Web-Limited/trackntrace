@@ -41,6 +41,11 @@ portal_menu_items = [
 		"reference_doctype": "Tagging Booking",
 		"role": "Customer",
 	},
+	{
+		"title": "Docs",
+		"route": "/docs",
+		"role": "Customer",
+	},
 ]
 
 # include js, css files in header of web form

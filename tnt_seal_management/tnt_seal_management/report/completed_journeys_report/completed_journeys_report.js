@@ -29,7 +29,7 @@ frappe.query_reports["Completed Journeys Report"] = {
 			label: __("Period"),
 			fieldtype: "Select",
 			options: ["Custom", "Daily", "Weekly", "Monthly"],
-			default: "Monthly",
+			default: "Custom",
 			on_change: function (report) {
 				apply_period(report);
 				report.refresh();
@@ -39,7 +39,7 @@ frappe.query_reports["Completed Journeys Report"] = {
 			fieldname: "from_date",
 			label: __("From Date"),
 			fieldtype: "Date",
-			default: frappe.datetime.month_start(),
+			default: "2026-01-01",
 			reqd: 1,
 		},
 		{

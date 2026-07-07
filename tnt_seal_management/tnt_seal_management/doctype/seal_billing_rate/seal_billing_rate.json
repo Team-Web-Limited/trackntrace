@@ -22,10 +22,6 @@
   "first_period_amount",
   "pricing_column_break",
   "extra_day_rate",
-  "validity_section",
-  "effective_from",
-  "validity_column_break",
-  "effective_to",
   "approval_section",
   "approval_status",
   "approved_by",
@@ -133,27 +129,6 @@
    "fieldname": "extra_day_rate",
    "fieldtype": "Currency",
    "label": "Extra Day Rate"
-  },
-  {
-   "fieldname": "validity_section",
-   "fieldtype": "Section Break",
-   "label": "Validity"
-  },
-  {
-   "depends_on": "eval:doc.billing_type=='Subscription'",
-   "fieldname": "effective_from",
-   "fieldtype": "Date",
-   "label": "Effective From Date"
-  },
-  {
-   "fieldname": "validity_column_break",
-   "fieldtype": "Column Break"
-  },
-  {
-   "depends_on": "eval:doc.billing_type=='Subscription'",
-   "fieldname": "effective_to",
-   "fieldtype": "Date",
-   "label": "Effective To Date"
   },
   {
    "fieldname": "approval_section",

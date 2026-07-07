@@ -5,7 +5,20 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
+from tnt_seal_management.tnt_seal_management.api.current_customers import (
+	TAX_CATEGORY_NORMAL,
+	TAX_CATEGORY_EXEMPT,
+	TAX_CATEGORY_ZERO_RATED,
+)
+
 VAT_RATE = 0.16
+
+# Tax Exempt and Zero Rated customers both owe no VAT on their total payable.
+_ZERO_VAT_CATEGORIES = frozenset({TAX_CATEGORY_EXEMPT, TAX_CATEGORY_ZERO_RATED})
+
+
+def _vat_rate_for_category(tax_category):
+	return 0.0 if tax_category in _ZERO_VAT_CATEGORIES else VAT_RATE
 
 
 def execute(filters=None):
@@ -33,6 +46,10 @@ def get_columns():
 		{"label": _("Departure Card Number"), "fieldname": "departure_card_number", "fieldtype": "Data", "width": 150},
 		{"label": _("Retrieval Card Number"), "fieldname": "retrieval_card_number", "fieldtype": "Data", "width": 150},
 		{"label": _("Amount"), "fieldname": "total_charge", "fieldtype": "Currency", "width": 120},
+		# Scenario 6 — additional leasing charge for seals leased beyond an
+		# outright-purchase customer's owned pool (see
+		# billing.resolve_customer_extra_billing / seal_journey.set_extra_billing).
+		{"label": _("Extra Billing"), "fieldname": "extra_billing_amount", "fieldtype": "Currency", "width": 120},
 	]
 
 
@@ -84,6 +101,7 @@ def get_data(filters):
 			"first_period_amount",
 			"extra_day_amount",
 			"seal_count",
+			"extra_billing_amount",
 		],
 		# Group by customer first so journeys for the same customer are
 		# consolidated together; completion date orders each customer's block.
@@ -147,17 +165,26 @@ def make_total_row(customer, group, is_grand_total=False):
 
 
 def make_billing_summary_rows(group):
-	"""Normal Charges / Extra Charges / Total Cost / VAT / Total Payable, for
-	one customer's journeys — first_period_amount and extra_day_amount are
-	stored per-seal, so scale each by the journey's seal_count before summing."""
+	"""Normal Charges / Extra Charges / Extra Billing / Total Cost / VAT / Total
+	Payable, for one customer's journeys — first_period_amount and
+	extra_day_amount are stored per-seal, so scale each by the journey's
+	seal_count before summing. extra_billing_amount (Scenario 6 — see
+	billing.resolve_customer_extra_billing) is already a per-journey total, not
+	per-seal, so it's summed as-is and folded into Total Cost alongside
+	total_charge. VAT is skipped for Tax Exempt / Zero Rated customers (see
+	``_vat_rate_for_category``)."""
 
 	def scaled(fieldname, j):
 		return flt(j.get(fieldname)) * max(cint(j.get("seal_count")), 1)
 
+	tax_category = frappe.db.get_value("Customer", group[0]["customer"], "custom_tax_category") or TAX_CATEGORY_NORMAL
+	vat_rate = _vat_rate_for_category(tax_category)
+
 	normal_charges = sum(scaled("first_period_amount", j) for j in group)
 	extra_charges = sum(scaled("extra_day_amount", j) for j in group)
-	total_cost = sum(flt(j.get("total_charge")) for j in group)
-	vat = total_cost * VAT_RATE
+	extra_billing_total = sum(flt(j.get("extra_billing_amount")) for j in group)
+	total_cost = sum(flt(j.get("total_charge")) for j in group) + extra_billing_total
+	vat = total_cost * vat_rate
 	total_payable = total_cost + vat
 
 	def summary_row(label, amount, is_payable=False):
@@ -172,13 +199,22 @@ def make_billing_summary_rows(group):
 			"is_payable_row": is_payable,
 		}
 
-	return [
+	vat_label = _("VAT @{0}%").format(int(vat_rate * 100))
+	if tax_category != TAX_CATEGORY_NORMAL:
+		vat_label = f"{vat_label} ({_(tax_category)})"
+
+	rows = [
 		summary_row(_("Normal Charges"), normal_charges),
 		summary_row(_("Extra Charges for Extra Days"), extra_charges),
-		summary_row(_("Total Cost"), total_cost),
-		summary_row(_("VAT @{0}%").format(int(VAT_RATE * 100)), vat),
-		summary_row(_("Total Payable"), total_payable, is_payable=True),
 	]
+	if extra_billing_total:
+		rows.append(summary_row(_("Extra Billing (leased seals)"), extra_billing_total))
+	rows.extend([
+		summary_row(_("Total Cost"), total_cost),
+		summary_row(vat_label, vat),
+		summary_row(_("Total Payable"), total_payable, is_payable=True),
+	])
+	return rows
 
 
 def get_seals_by_journey(journey_names):

@@ -11,7 +11,12 @@ Finance to review before issuing.
 Two plan "kinds" share one generic upsert core (`_upsert_subscription_line`):
 
 - Scenario 4 — "Seal Lease Fee": a fixed rate per *leased* seal, billed
-  Month/Quarter/Year regardless of journey activity.
+  Week/Month/Quarter/Semi-Annual/Year regardless of journey activity. Its
+  seal_count/rate_per_seal are captured on the Billing tab itself (Set
+  Billing modal's Seal Ownership section) rather than here — see
+  applySeatBasedRateOverride in current_customer_list.js, which also forces
+  the customer's Rate Terms amount to seal_count × rate_per_seal. This
+  module still owns activating/updating the actual recurring Subscription.
 - Scenario 5 — "Seal Ownership Service Fee": a fixed rate per *owned* seal
   (the customer bought the hardware outright and only pays an ongoing
   platform/service fee), billed Month/Quarter/Semi-Annual/Year across the
@@ -33,26 +38,25 @@ OWNERSHIP_ITEM = "Seal Ownership Service Fee"
 SUBSCRIPTION_COMPANY = "Track and Trace Ltd"
 SUBSCRIPTION_COST_CENTER = "PCB Business - TD"
 
-# UI offers Month/Quarter/Semi-Annual/Year; Subscription Plan only has
-# Day/Week/Month/Year, so Quarter and Semi-Annual are expressed as a Month
-# interval with a multi-month count.
+# UI offers Week/Month/Quarter/Semi-Annual/Year (mirroring Seal Billing
+# Rate's Billing Period Type — see BILLING_PERIOD_TO_LEASE_INTERVAL in
+# current_customer_list.js); Subscription Plan only has Day/Week/Month/Year,
+# so Quarter and Semi-Annual are expressed as a Month interval with a
+# multi-month count.
 INTERVAL_MAP = {
+	"Week": ("Week", 1),
 	"Month": ("Month", 1),
 	"Quarter": ("Month", 3),
 	"Semi-Annual": ("Month", 6),
 	"Year": ("Year", 1),
 }
 INTERVAL_REVERSE = {
+	("Week", 1): "Week",
 	("Month", 1): "Month",
 	("Month", 3): "Quarter",
 	("Month", 6): "Semi-Annual",
 	("Year", 1): "Year",
 }
-
-# Backwards-compatible aliases — Scenario 4 originally shipped without
-# Semi-Annual (leasing contracts are Month/Quarter/Year only).
-LEASE_INTERVAL_MAP = {k: v for k, v in INTERVAL_MAP.items() if k != "Semi-Annual"}
-LEASE_INTERVAL_REVERSE = INTERVAL_REVERSE
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +99,19 @@ def _upsert_subscription_line(
 	on the SAME Subscription rather than creating a second one."""
 	interval, interval_count = INTERVAL_MAP[billing_interval]
 	customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
+
+	# ERPNext's Subscription.validate_party_billing_currency requires every
+	# plan row's currency to match the party's own default_currency (falling
+	# back to the Company's, e.g. KES) — a Subscription can't mix currencies.
+	# Since Currency here is chosen per customer in the Set Billing modal, keep
+	# the Customer's default_currency in step with it, or ERPNext throws
+	# "Unsupported Subscription Plans" on save. Cache is cleared so ERPNext's
+	# own frappe.get_cached_value call (inside the same request) sees it.
+	if currency:
+		current_default = frappe.get_cached_value("Customer", customer, "default_currency")
+		if current_default != currency:
+			frappe.db.set_value("Customer", customer, "default_currency", currency)
+			frappe.clear_document_cache("Customer", customer)
 
 	sub = _find_customer_subscription(customer)
 	row, plan = _find_plan_row_for_item(sub, item_code)
@@ -188,6 +205,22 @@ def _get_subscription_line_info(customer, item_code):
 	}
 
 
+def customer_has_seat_subscription(customer):
+	"""True if the customer has an active recurring Seal Lease Fee (Scenario 4)
+	or Seal Ownership Service Fee (Scenario 5) line — either means their base
+	seat count is billed on a recurring cycle, not per journey. Used by
+	Seal Journey.set_billing to zero the per-journey base charge for such
+	customers (see doctype/seal_journey/seal_journey.py)."""
+	sub = _find_customer_subscription(customer)
+	if not sub:
+		return False
+	_, lease_plan = _find_plan_row_for_item(sub, LEASE_ITEM)
+	if lease_plan:
+		return True
+	_, ownership_plan = _find_plan_row_for_item(sub, OWNERSHIP_ITEM)
+	return bool(ownership_plan)
+
+
 def _current_journey_billing(customer):
 	from tnt_seal_management.tnt_seal_management.api.current_customers import RULE_DISPLAY_FIELDS
 
@@ -252,8 +285,8 @@ def set_customer_lease_subscription(
 		frappe.throw(_("Enter the Number of Seals Leased."))
 	if rate_per_seal in (None, "") or flt(rate_per_seal) < 0:
 		frappe.throw(_("Enter the Rate per Seal."))
-	if billing_interval not in LEASE_INTERVAL_MAP:
-		frappe.throw(_("Billing Interval must be one of Month, Quarter, Year."))
+	if billing_interval not in INTERVAL_MAP:
+		frappe.throw(_("Billing Interval must be one of Week, Month, Quarter, Semi-Annual, Year."))
 
 	sub, plan = _upsert_subscription_line(
 		customer, LEASE_ITEM, "Seal Lease Fee", seal_count, rate_per_seal, billing_interval, currency, start_date

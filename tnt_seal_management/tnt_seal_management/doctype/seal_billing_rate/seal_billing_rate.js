@@ -12,10 +12,6 @@ const PERIOD_TYPE_DAYS = {
 };
 
 frappe.ui.form.on("Seal Billing Rate", {
-	onload(frm) {
-		_default_validity_to_current_year(frm);
-	},
-
 	refresh(frm) {
 		_apply_period_type(frm);
 		_lock_leasing_rule(frm);
@@ -178,15 +174,6 @@ function _add_approval_actions(frm) {
 			__("Reject")
 		);
 	});
-}
-
-// Prefill Validity to the current calendar year on a new rule — a sensible
-// starting contract window that the user can freely change before saving.
-function _default_validity_to_current_year(frm) {
-	if (!frm.is_new()) return;
-	const year = frappe.datetime.now_date().split("-")[0];
-	if (!frm.doc.effective_from) frm.set_value("effective_from", `${year}-01-01`);
-	if (!frm.doc.effective_to) frm.set_value("effective_to", `${year}-12-31`);
 }
 
 // Inclusive whole-day span between two date strings: Jun 1 -> Jun 10 = 10.

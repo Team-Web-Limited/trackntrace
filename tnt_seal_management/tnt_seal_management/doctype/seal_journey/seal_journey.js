@@ -25,7 +25,7 @@ frappe.ui.form.on("Seal Journey", {
 
 	refresh(frm) {
 		frm.add_custom_button(__("Back"), () => {
-			frappe.set_route("journey-monitoring");
+			frappe.set_route("seal-journey-list");
 		});
 
 		_lock_pre_tagging_checklist(frm);

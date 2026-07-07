@@ -1,0 +1,176 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Role-Based Manuals") }}{% endblock %}
+
+{% block script %}
+<script src="/docs/roles.js"></script>
+{% endblock %}
+
+{% block page_content %}
+<div class="docs-layout dark-theme">
+	<!-- Sidebar -->
+	<aside class="docs-sidebar">
+		<nav class="docs-nav">
+			<ul class="nav-list">
+				<li class="nav-item">
+					<a href="/docs" class="nav-link text-muted small"><i class="fa fa-arrow-left mr-2"></i>Back to Hub</a>
+				</li>
+				<li class="nav-item mb-3">
+					<a href="/docs/features" class="nav-link text-info"><i class="fa fa-cogs mr-2"></i>Switch to Features</a>
+				</li>
+				
+				<li class="nav-header mt-3 px-4 text-muted small font-weight-bold text-uppercase">Roles</li>
+				
+				<li class="nav-item">
+					<a href="#role-customer" class="nav-link">Customer Portal User</a>
+				</li>
+				<li class="nav-item">
+					<a href="#role-customer-care" class="nav-link">Customer Care Agent</a>
+				</li>
+				<li class="nav-item">
+					<a href="#role-agent" class="nav-link">Field Tagging Agent</a>
+				</li>
+				<li class="nav-item">
+					<a href="#role-operator" class="nav-link">Control Room Operator</a>
+				</li>
+				<li class="nav-item">
+					<a href="#role-finance" class="nav-link">Finance Manager</a>
+				</li>
+				<li class="nav-item">
+					<a href="#role-admin" class="nav-link">System Administrator</a>
+				</li>
+			</ul>
+		</nav>
+	</aside>
+
+	<!-- Main Content -->
+	<main class="docs-main">
+		<div class="docs-content">
+			
+			<section id="role-customer" class="docs-section pb-4">
+				<h2 class="docs-title">Customer Portal User</h2>
+				<p class="docs-paragraph text-muted">
+					Manual for external clients submitting seal requests and monitoring active shipments.
+				</p>
+				<h3 class="h4 mt-5 text-light font-weight-normal">Portal Onboarding</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Clients gain access to the Customer Portal via invitation emails sent by system managers. Once authenticated, the portal provides a self-service tagging booking interface.
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Booking Requests:</strong> Submit origin locations, destinations, scheduled date/times, and required quantities of e-seals.</li>
+					<li class="mb-2"><strong>Tracking Logs:</strong> View history logs of active and completed journey requests associated with the client's corporate account.</li>
+				</ul>
+			</section>
+
+			<section id="role-customer-care" class="docs-section mt-5 pt-5 border-top border-secondary">
+				<h2 class="docs-title">Customer Care Agent</h2>
+				<p class="docs-paragraph text-muted">
+					Guide for Customer Care representatives managing client accounts, onboarding external portal users, and coordinating transit dispatches.
+				</p>
+				<h3 class="h4 mt-5 text-light font-weight-normal">1. Customer Onboarding & Support</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Customer Care serves as the primary liaison between external shipping clients and the logistics team. Core responsibilities include:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Client Onboarding:</strong> Verify client details, configure portal credentials, and issue invitations for Customer Portal access.</li>
+					<li class="mb-2"><strong>Booking Assistance:</strong> Assist customers with submitting booking requests, updating transit information, and responding to scheduling changes.</li>
+				</ul>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal">2. Journey Setup & Coordination</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Customer Care coordinates dispatch details to ensure they match active transport operations:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Reviewing Bookings:</strong> Cross-check client requests for container details, transport routes, and contact numbers.</li>
+					<li class="mb-2"><strong>Pre-Transit Approvals:</strong> Once details are verified, register your user approval in the <code>Customer Care Section</code>. Fill in the <code>Customer Care Remarks</code> to record any deviations or special instructions, and save to stamp your name and approval time.</li>
+				</ul>
+			</section>
+
+			<section id="role-agent" class="docs-section mt-5 pt-5 border-top border-secondary">
+				<h2 class="docs-title">Field Tagging Agent</h2>
+				<p class="docs-paragraph text-muted">
+					Guide for physical lock installation, checklists execution, and border/port untagging operations.
+				</p>
+				<h3 class="h4 mt-5 text-light font-weight-normal">Technician Responsibilities</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Field agents are localized at ports and borders. They receive assignments and physically manage the seal hardware.
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Inspecting Devices:</strong> Running the mandatory pre-tagging checklists (battery level checks, SIM cards active states, mechanical housing checks).</li>
+					<li class="mb-2"><strong>Latch Mount & Lock:</strong> Mount and physically lock e-seals onto shipping container handle bars, then check the coordinates lock toggle in the desk to trigger the geofence start boundary.</li>
+					<li class="mb-2"><strong>Untagging Operations:</strong> Receive unlocking jobs at destinations, physically remove the hardware, and return it safely to regional storage points.</li>
+				</ul>
+			</section>
+
+			<section id="role-operator" class="docs-section mt-5 pt-5 border-top border-secondary">
+				<h2 class="docs-title">Control Room Operator</h2>
+				<p class="docs-paragraph text-muted">
+					Protocol for monitoring transits, resolving exceptions, and handling tampering alarms.
+				</p>
+				<h3 class="h4 mt-5 text-light font-weight-normal">Operations Room Workflows</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Operators keep constant track of active transits via the Live Map Dashboard:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Tamper Alerts:</strong> Respond immediately to seal-cut, battery depletion, or geo-deviance alert flags.</li>
+					<li class="mb-2"><strong>Checkpoints Verification:</strong> Manually clear exception markers if drivers report legitimate route deviations (e.g., detour due to road maintenance).</li>
+				</ul>
+			</section>
+
+			<section id="role-finance" class="docs-section mt-5 pt-5 border-top border-secondary">
+				<h2 class="docs-title">Finance Manager</h2>
+				<p class="docs-paragraph text-muted">
+					Managing client contracts, seal billing rates, and reviewing monthly statement summaries.
+				</p>
+				<h3 class="h4 mt-5 text-light font-weight-normal">Invoicing and Approvals</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Ensuring all tracking operations are billed accurately according to contracts:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Financial Authorizations:</strong> Review and sign off on customer bookings to generate job orders.</li>
+					<li class="mb-2"><strong>Rate Master:</strong> Set up and manage standard or customer-specific billing profiles.</li>
+				</ul>
+			</section>
+
+			<section id="role-admin" class="docs-section mt-5 pt-5 border-top border-secondary">
+				<h2 class="docs-title">System Administrator</h2>
+				<p class="docs-paragraph text-muted">
+					Configuring API keys, user management, and setting up master checkpoints.
+				</p>
+				<h3 class="h4 mt-5 text-light font-weight-normal">App Configuration</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Maintains the foundational backend of the custom app:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>API Settings:</strong> Map cellular telemetry parameters, set cron job intervals, and adjust SMS/Email notification templates.</li>
+					<li class="mb-2"><strong>Master Data:</strong> Manage checkpoints, vehicle lists, and device acquisitions.</li>
+				</ul>
+			</section>
+
+			<!-- Pagination / Next Prev -->
+			<div class="docs-pagination mt-5 pt-4 d-flex justify-content-between align-items-center" style="border-top: 1px solid #424242;">
+				<a href="#" class="docs-nav-link prev-link invisible">
+					<div class="text-left d-flex align-items-center">
+						<i class="fa fa-chevron-left mr-3 text-muted"></i>
+						<div>
+							<span class="d-block small text-muted text-uppercase mb-1">Previous</span>
+							<span class="font-weight-normal text-light prev-label">—</span>
+						</div>
+					</div>
+				</a>
+				<a href="#role-agent" class="docs-nav-link next-link">
+					<div class="text-right d-flex align-items-center">
+						<div class="mr-3">
+							<span class="d-block small text-muted text-uppercase mb-1">Next</span>
+							<span class="font-weight-normal text-info next-label">Field Tagging Agent</span>
+						</div>
+						<i class="fa fa-chevron-right text-info"></i>
+					</div>
+				</a>
+			</div>
+		</div>
+	</main>
+</div>
+
+{% include "tnt_seal_management/www/docs/docs_styles.html" %}
+{% endblock %}

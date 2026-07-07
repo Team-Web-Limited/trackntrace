@@ -19,8 +19,33 @@ from tnt_seal_management.tnt_seal_management.api.seal_lease_billing import (
 	OWNERSHIP_ITEM,
 	INTERVAL_REVERSE,
 )
+from tnt_seal_management.tnt_seal_management.api.current_customers import (
+	TAX_CATEGORY_NORMAL,
+	TAX_CATEGORY_EXEMPT,
+	TAX_CATEGORY_ZERO_RATED,
+)
 
 VAT_RATE = 0.16
+
+# Tax Exempt and Zero Rated customers both owe no VAT on their total payable —
+# they differ for statutory reporting, not for this calculation.
+_ZERO_VAT_CATEGORIES = frozenset({TAX_CATEGORY_EXEMPT, TAX_CATEGORY_ZERO_RATED})
+
+
+def _get_customer_tax_categories(customer_names):
+	"""Return {customer: tax_category}, defaulting to Normal Tax when unset."""
+	if not customer_names:
+		return {}
+	rows = frappe.get_all(
+		"Customer",
+		filters={"name": ["in", list(customer_names)]},
+		fields=["name", "custom_tax_category"],
+	)
+	return {r.name: r.custom_tax_category or TAX_CATEGORY_NORMAL for r in rows}
+
+
+def _vat_rate_for_category(tax_category):
+	return 0.0 if tax_category in _ZERO_VAT_CATEGORIES else VAT_RATE
 
 # Human labels for the recurring subscription line items (Scenarios 4-6).
 _RECURRING_ITEM_LABELS = {
@@ -39,6 +64,7 @@ _FIELDS = [
 	"assigned_seal", "file_number", "days_taken", "days_taken_display",
 	"contact_person_name", "departure_card_number", "retrieval_card_number",
 	"total_charge", "first_period_amount", "extra_day_amount", "seal_count",
+	"extra_billing_amount", "extra_billing_seal_count",
 ]
 
 
@@ -50,6 +76,49 @@ def get_completed_journeys(from_date=None, to_date=None, customer=None):
 
 	journeys = _fetch_journeys(from_date, to_date, customer)
 	return _build_customer_groups(journeys, customer)
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def get_valid_customers_for_filter(doctype, txt, searchfield, start, page_len, filters):
+	from_date = filters.get("from_date")
+	to_date = filters.get("to_date")
+	to_datetime = f"{to_date} 23:59:59" if to_date else None
+
+	conditions = ["journey_status = 'Completed'"]
+	values = []
+
+	if from_date and to_datetime:
+		conditions.append("completion_date_time between %s and %s")
+		values.extend([from_date, to_datetime])
+	elif from_date:
+		conditions.append("completion_date_time >= %s")
+		values.append(from_date)
+	elif to_datetime:
+		conditions.append("completion_date_time <= %s")
+		values.append(to_datetime)
+
+	condition_str = " and ".join(conditions) if conditions else "1=1"
+
+	journey_customers = frappe.db.sql(f"""
+		select distinct customer from `tabSeal Journey`
+		where {condition_str}
+	""", tuple(values), as_dict=True)
+
+	valid_customers = {r.customer for r in journey_customers if r.customer}
+	
+	recurring = _get_recurring_fees_by_customer(None)
+	valid_customers.update(recurring.keys())
+
+	if not valid_customers:
+		return []
+
+	return frappe.db.sql(f"""
+		select name from `tabCustomer`
+		where name in %s and name like %s
+		order by name asc
+		limit %s, %s
+	""", (tuple(valid_customers), f"%{txt}%", cint(start), cint(page_len)))
 
 
 def _require_billing_permission():
@@ -136,27 +205,57 @@ def _build_customer_groups(journeys, customer_filter=None):
 			groups[cust] = []
 			order.append(cust)
 
+	tax_category_by_customer = _get_customer_tax_categories(order)
+
 	customers = []
-	all_recurring = []
 	for c in order:
 		group = groups[c]
 		recurring = recurring_by_customer.get(c, [])
-		all_recurring.extend(recurring)
+		tax_category = tax_category_by_customer.get(c, TAX_CATEGORY_NORMAL)
 		customers.append({
 			"customer": c,
 			"journeys": group,
 			"journey_count": len(group),
 			"total_days_taken": sum(flt(j.get("days_taken")) for j in group),
 			"recurring_fees": recurring,
-			"summary": _billing_summary(group, recurring),
+			"tax_category": tax_category,
+			"summary": _billing_summary(group, recurring, tax_category),
 		})
 
 	grand_total = None
 	if len(customers) > 1:
-		grand_total = _billing_summary(journeys, all_recurring)
+		# Customers can carry different tax categories, so the grand total is
+		# summed from each customer's own already-correctly-rated summary
+		# rather than recomputed with a single VAT rate.
+		grand_total = _sum_summaries([c["summary"] for c in customers])
 		grand_total["journey_count"] = len(journeys)
 
 	return {"customers": customers, "grand_total": grand_total}
+
+
+def _sum_summaries(summaries):
+	total_cost = sum(s["total_cost"] for s in summaries)
+	vat = sum(s["vat"] for s in summaries)
+
+	# Customers can carry different tax categories, so there is no single VAT
+	# rate to report once mixed — a blended average (e.g. "VAT @11%") reads as
+	# a real rate and confuses. When every customer shares the same rate we
+	# still show it; otherwise the client just labels the line "VAT".
+	distinct_rates = {s["vat_rate"] for s in summaries}
+	mixed_vat_rates = len(distinct_rates) > 1
+
+	return {
+		"normal_charges": sum(s["normal_charges"] for s in summaries),
+		"extra_charges": sum(s["extra_charges"] for s in summaries),
+		"journey_total": sum(s["journey_total"] for s in summaries),
+		"extra_billing_total": sum(s["extra_billing_total"] for s in summaries),
+		"recurring_total": sum(s["recurring_total"] for s in summaries),
+		"total_cost": total_cost,
+		"vat_rate": None if mixed_vat_rates else next(iter(distinct_rates), 0.0),
+		"mixed_vat_rates": mixed_vat_rates,
+		"vat": vat,
+		"total_payable": total_cost + vat,
+	}
 
 
 def _get_recurring_fees_by_customer(customer_filter=None):
@@ -214,13 +313,19 @@ def _get_recurring_fees_by_customer(customer_filter=None):
 	return fees_by_customer
 
 
-def _billing_summary(group, recurring=None):
-	"""Normal Charges / Extra Charges / Recurring Fees / Total Cost / VAT / Total
-	Payable for a set of journeys plus any recurring subscription fees.
-	first_period_amount and extra_day_amount are stored per-seal on Seal Journey,
-	so scale each by the journey's seal_count before summing (mirrors how
-	total_charge itself is computed)."""
+def _billing_summary(group, recurring=None, tax_category=None):
+	"""Normal Charges / Extra Charges / Extra Billing / Recurring Fees / Total
+	Cost / VAT / Total Payable for a set of journeys plus any recurring
+	subscription fees. first_period_amount and extra_day_amount are stored
+	per-seal on Seal Journey, so scale each by the journey's seal_count before
+	summing (mirrors how total_charge itself is computed). extra_billing_amount
+	(Scenario 6 — leased seals beyond an outright-purchase customer's owned
+	pool, see billing.resolve_customer_extra_billing) is already a per-journey
+	total, not per-seal, so it's summed as-is. Tax Exempt / Zero Rated
+	customers owe no VAT — see ``_vat_rate_for_category``."""
 	recurring = recurring or []
+	tax_category = tax_category or TAX_CATEGORY_NORMAL
+	vat_rate = _vat_rate_for_category(tax_category)
 
 	def scaled(fieldname, j):
 		return flt(j.get(fieldname)) * max(cint(j.get("seal_count")), 1)
@@ -228,18 +333,93 @@ def _billing_summary(group, recurring=None):
 	normal_charges = sum(scaled("first_period_amount", j) for j in group)
 	extra_charges = sum(scaled("extra_day_amount", j) for j in group)
 	journey_total = sum(flt(j.get("total_charge")) for j in group)
+	extra_billing_total = sum(flt(j.get("extra_billing_amount")) for j in group)
 	recurring_total = sum(flt(f["amount"]) for f in recurring)
-	total_cost = journey_total + recurring_total
-	vat = total_cost * VAT_RATE
+	total_cost = journey_total + extra_billing_total + recurring_total
+	vat = total_cost * vat_rate
 	total_payable = total_cost + vat
 
 	return {
 		"normal_charges": normal_charges,
 		"extra_charges": extra_charges,
 		"journey_total": journey_total,
+		"extra_billing_total": extra_billing_total,
 		"recurring_total": recurring_total,
 		"total_cost": total_cost,
-		"vat_rate": VAT_RATE,
+		"tax_category": tax_category,
+		"vat_rate": vat_rate,
 		"vat": vat,
 		"total_payable": total_payable,
 	}
+
+@frappe.whitelist()
+def export_pdf(html, filename):
+	from frappe.utils.pdf import get_pdf
+	
+	options = {
+		"page-size": "A4",
+		"orientation": "Landscape",
+		"margin-top": "15mm",
+		"margin-right": "15mm",
+		"margin-bottom": "15mm",
+		"margin-left": "15mm"
+	}
+	
+	frappe.local.response.filename = f"{filename}.pdf"
+	frappe.local.response.filecontent = get_pdf(html, options=options)
+	frappe.local.response.type = "pdf"
+
+@frappe.whitelist()
+def export_xlsx(data, filename):
+	import json
+	from io import BytesIO
+
+	import openpyxl
+	from openpyxl.styles import Font
+
+	from frappe.desk.utils import provide_binary_file
+
+	data_list = json.loads(data)
+
+	# Labels whose rows should be bolded
+	bold_labels = {
+		"Customer", "Total Journeys", "Total Days Taken",
+		"Journey",  # column header row
+		"Summary", "Recurring Subscription Fees",
+		"Normal Charges", "Extra Charges for Extra Days",
+		"Extra Billing (leased seals)",
+		"Total Cost", "Total Payable",
+	}
+	# Also bold any row whose first cell starts with "VAT"
+	bold_font = Font(name="Calibri", bold=True)
+
+	wb = openpyxl.Workbook()
+	ws = wb.active
+	ws.title = filename[:31] if filename else "Sheet1"
+
+	for row_data in data_list:
+		ws.append(row_data if row_data else [])
+
+	# Apply bold formatting
+	for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
+		first_val = row[0].value
+		if first_val and (
+			str(first_val) in bold_labels
+			or str(first_val).startswith("VAT")
+		):
+			for cell in row:
+				cell.font = bold_font
+
+	# Auto-fit column widths (approximate)
+	for col in ws.columns:
+		max_len = 0
+		col_letter = col[0].column_letter
+		for cell in col:
+			if cell.value:
+				max_len = max(max_len, len(str(cell.value)))
+		ws.column_dimensions[col_letter].width = min(max_len + 3, 40)
+
+	xlsx_file = BytesIO()
+	wb.save(xlsx_file)
+	provide_binary_file(filename, "xlsx", xlsx_file.getvalue())
+

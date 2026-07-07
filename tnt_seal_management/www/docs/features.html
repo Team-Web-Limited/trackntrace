@@ -1,0 +1,483 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Features Guide") }}{% endblock %}
+
+{% block script %}
+<script src="/docs/features.js"></script>
+{% endblock %}
+
+{% block page_content %}
+<div class="docs-layout dark-theme">
+	<!-- Sidebar -->
+	<aside class="docs-sidebar">
+		<nav class="docs-nav">
+			<ul class="nav-list">
+				<li class="nav-item">
+					<a href="/docs" class="nav-link text-muted small"><i class="fa fa-arrow-left mr-2"></i>Back to Hub</a>
+				</li>
+				<li class="nav-item mb-3">
+					<a href="/docs/roles" class="nav-link text-info"><i class="fa fa-users mr-2"></i>Switch to Roles</a>
+				</li>
+				<li class="nav-header mt-3 px-4 text-muted small font-weight-bold text-uppercase">Features</li>
+				
+				<li class="nav-item has-children">
+					<a href="#intro-setup" class="nav-link nav-link-toggle">
+						Introduction & Setup <i class="fa fa-chevron-right toggle-icon"></i>
+					</a>
+					<ul class="nav-sublist d-none">
+						<li class="nav-subitem"><a href="#what-is-tnt" class="nav-sublink">What is TNT?</a></li>
+						<li class="nav-subitem"><a href="#navigation" class="nav-sublink">Getting Started</a></li>
+						<li class="nav-subitem"><a href="#master-data" class="nav-sublink">Master Data</a></li>
+					</ul>
+				</li>
+				<li class="nav-item has-children">
+					<a href="#customer-bookings" class="nav-link nav-link-toggle">
+						Customer Bookings <i class="fa fa-chevron-right toggle-icon"></i>
+					</a>
+					<ul class="nav-sublist d-none">
+						<li class="nav-subitem"><a href="#customer-portal" class="nav-sublink">Customer Portal</a></li>
+						<li class="nav-subitem"><a href="#managing-bookings" class="nav-sublink">Managing Bookings</a></li>
+						<li class="nav-subitem"><a href="#journey-requests" class="nav-sublink">Journey Requests</a></li>
+					</ul>
+				</li>
+				<li class="nav-item has-children">
+					<a href="#inventory-devices" class="nav-link nav-link-toggle">
+						Inventory & Devices <i class="fa fa-chevron-right toggle-icon"></i>
+					</a>
+					<ul class="nav-sublist d-none">
+						<li class="nav-subitem"><a href="#device-directory" class="nav-sublink">Devices Directory</a></li>
+						<li class="nav-subitem"><a href="#acquisitions" class="nav-sublink">Seal Acquisitions</a></li>
+						<li class="nav-subitem"><a href="#stock-transfers" class="nav-sublink">Stock Transfers</a></li>
+					</ul>
+				</li>
+				<li class="nav-item has-children">
+					<a href="#field-operations" class="nav-link nav-link-toggle">
+						Field Operations <i class="fa fa-chevron-right toggle-icon"></i>
+					</a>
+					<ul class="nav-sublist d-none">
+						<li class="nav-subitem"><a href="#job-orders" class="nav-sublink">PCB Job Orders</a></li>
+						<li class="nav-subitem"><a href="#assignments" class="nav-sublink">Agent Assignments</a></li>
+						<li class="nav-subitem"><a href="#checklists" class="nav-sublink">Pre-Tagging Checks</a></li>
+					</ul>
+				</li>
+				<li class="nav-item">
+					<a href="#control-room" class="nav-link">Control Room & Tracking</a>
+				</li>
+				<li class="nav-item">
+					<a href="#billing-finance" class="nav-link">Billing & Finance</a>
+				</li>
+			</ul>
+		</nav>
+	</aside>
+
+	<!-- Main Content -->
+	<main class="docs-main">
+		<div class="docs-content">
+			
+			<section id="intro-setup" class="docs-section pb-4">
+				<h2 class="docs-title">Introduction & Setup</h2>
+				<p class="docs-paragraph text-muted">
+					Get acquainted with the core architecture of the TNT (Track & Trace) Seal Management system and set up the foundation data required for daily operations.
+				</p>
+
+				<div class="alert alert-info bg-dark border-secondary text-light mt-4 p-4 rounded" style="background-color: #2b2b2b !important; border-left: 4px solid #4dd0e1 !important;" id="what-is-tnt">
+					<h5 class="text-info font-weight-normal"><i class="fa fa-info-circle mr-2"></i>What is TNT Seal Management?</h5>
+					<p class="small mb-0 mt-2 text-light-muted">
+						TNT Seal Management is a cargo security and transit tracking platform. It integrates electronic hardware seals (e-seals) with custom workflows to monitor transit routes, detect geofence violations, trigger immediate tampering alerts, and manage client invoicing.
+					</p>
+				</div>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal" id="navigation">System Workspaces & Navigation</h3>
+				<p class="docs-paragraph small text-light-muted">
+					All management tasks are performed inside the Frappe Desk. Users with designated roles (System Manager, Operations Control Room, Field Technician, Customer Care) can access the system.
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Global Search (Ctrl + G):</strong> Use this shortcut to quickly find doctypes like <code>Vehicle</code>, <code>Seal Device</code>, or <code>Custody Point</code>.</li>
+					<li class="mb-2"><strong>Sidebar Modules:</strong> Jump directly to the custom dashboard modules like <strong>Control Room</strong> or <strong>Billing Manage</strong>.</li>
+				</ul>
+
+				<h3 class="h4 mt-5 mb-4 text-light font-weight-normal" id="master-data">Master Data Setup Checklist</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Before configuring seals or dispatching journeys, ensure you have set up the following foundation records:
+				</p>
+
+				<div class="row mt-4">
+					<!-- Custody Points -->
+					<div class="col-md-6 mb-4">
+						<div class="card bg-dark border-secondary h-100" style="background-color: #2b2b2b !important;">
+							<div class="card-body">
+								<h5 class="text-info font-weight-normal"><i class="fa fa-warehouse mr-2"></i>1. Custody Points (Warehouses)</h5>
+								<p class="small text-light-muted mt-2">
+									Define physical storage hubs, custom warehouses, or regional branches where seals are stored when not in transit.
+								</p>
+								<ul class="small text-light-muted pl-3">
+									<li><strong>Is Main Warehouse:</strong> Flag this to denote final drop-off points for untagged returned devices.</li>
+									<li><strong>Geofence Radius (m):</strong> Set a matching radius (default: 300m) to automatically trigger custodian updates when seals enter geographical limits.</li>
+								</ul>
+							</div>
+						</div>
+					</div>
+
+					<!-- Vehicles -->
+					<div class="col-md-6 mb-4">
+						<div class="card bg-dark border-secondary h-100" style="background-color: #2b2b2b !important;">
+							<div class="card-body">
+								<h5 class="text-info font-weight-normal"><i class="fa fa-truck mr-2"></i>2. Vehicles</h5>
+								<p class="small text-light-muted mt-2">
+									Register all transit trucks or fleet assets that carry cargo requiring seal tracking.
+								</p>
+								<ul class="small text-light-muted pl-3">
+									<li><strong>Naming Expression:</strong> Naming follows the automated format <code>VEH-YYYY-MM-#####</code>.</li>
+									<li><strong>Vehicle Status:</strong> Mark as <code>Active</code>, <code>Maintenance</code>, or <code>Inactive</code> depending on fleet availability.</li>
+								</ul>
+							</div>
+						</div>
+					</div>
+
+					<!-- Transport Locations -->
+					<div class="col-md-6 mb-4">
+						<div class="card bg-dark border-secondary h-100" style="background-color: #2b2b2b !important;">
+							<div class="card-body">
+								<h5 class="text-info font-weight-normal"><i class="fa fa-map-marker-alt mr-2"></i>3. Transport Locations</h5>
+								<p class="small text-light-muted mt-2">
+									Log key transit checkpoints along routes, ports, border posts, and custom depots. You can define checkpoints at <code class="text-info">/app/transport-location</code> by searching for <strong>transport-location</strong> in the global search.
+								</p>
+								<ul class="small text-light-muted pl-3">
+									<li><strong>Location Types:</strong> Support for Ports, Inland Container Depots, Border Posts, Weighbridges, and Cities/Towns.</li>
+									<li><strong>Country Limits:</strong> Map locations across standard East African jurisdictions (Kenya, Uganda, Tanzania, Rwanda, Burundi, DR Congo).</li>
+								</ul>
+							</div>
+						</div>
+					</div>
+
+					<!-- Seal Devices -->
+					<div class="col-md-6 mb-4">
+						<div class="card bg-dark border-secondary h-100" style="background-color: #2b2b2b !important;">
+							<div class="card-body">
+								<h5 class="text-info font-weight-normal"><i class="fa fa-microchip mr-2"></i>4. Seal Devices</h5>
+								<p class="small text-light-muted mt-2">
+									Establish tracking units by entering physical seal serial keys and registering hardware IDs.
+								</p>
+								<ul class="small text-light-muted pl-3">
+									<li><strong>Hardware Mapping:</strong> Associate e-seals with unique <code>Device ID</code> and <code>IMEI Number</code> parameters for GPS API telemetry sync.</li>
+									<li><strong>Status Tracking:</strong> Displays real-time device health: battery levels, lock status (Locked/Unlocked), and current custodian status.</li>
+								</ul>
+							</div>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<section id="customer-bookings" class="docs-section mt-5 pt-5 border-top border-secondary">
+				<h2 class="docs-title">Customer Bookings</h2>
+				<p class="docs-paragraph text-muted">
+					Manage incoming seal tagging requests, verify financial clearances, and initiate the trip dispatching workflow.
+				</p>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal">The Booking Lifecycle</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Every seal tracking journey starts with a Customer Booking request. The diagram/flow below highlights the key transition milestones:
+				</p>
+
+				<div class="p-3 border border-secondary rounded my-4" style="background-color: #2b2b2b !important;">
+					<div class="d-flex justify-content-between flex-wrap text-center small text-light-muted">
+						<div class="p-2 flex-grow-1 border-right border-secondary">
+							<span class="d-block text-info font-weight-bold">1. Request</span>
+							Submitted via Portal or Account Manager
+						</div>
+						<div class="p-2 flex-grow-1 border-right border-secondary">
+							<span class="d-block text-info font-weight-bold">2. Review</span>
+							Pending Account Manager & Finance Review
+						</div>
+						<div class="p-2 flex-grow-1 border-right border-secondary">
+							<span class="d-block text-info font-weight-bold">3. Job Order</span>
+							Approved and PCB Job Order is generated
+						</div>
+						<div class="p-2 flex-grow-1">
+							<span class="d-block text-info font-weight-bold">4. Journey Request</span>
+							Matched to Vehicle, Driver, & Route
+						</div>
+					</div>
+				</div>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal" id="customer-portal">1. Submitting a Booking Request</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Tagging requests can enter the system via two distinct sources:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Customer Web Portal:</strong> External clients log in directly and submit requests specifying the location, date/time, and on-site contact details. These bookings carry the <code>Customer Portal</code> source flag and are set to <code>Draft</code>.</li>
+					<li class="mb-2"><strong>Account Managers:</strong> Internal account reps can log a booking manually on behalf of a customer in the Desk, entering client associations and scheduling details.</li>
+				</ul>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal" id="managing-bookings">2. Verification & Financial Approval</h3>
+				<p class="docs-paragraph small text-light-muted">
+					To prevent unauthorized dispatches, bookings require authorization before field technicians are mobilized:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Account Manager Review:</strong> The booking is reviewed internally to ensure details match the client contract.</li>
+					<li class="mb-2"><strong>Finance PCB Approval:</strong> Users with the <code>Finance PCB</code> role review the billing rates and approve the request. Once confirmed, the booking status transitions to <code>Finance PCB Approved</code>.</li>
+				</ul>
+
+				<div class="alert alert-warning bg-dark border-secondary text-light mt-4 p-4 rounded" style="background-color: #2b2b2b !important; border-left: 4px solid #f57c00 !important;">
+					<h5 class="text-warning font-weight-normal"><i class="fa fa-exclamation-triangle mr-2"></i>Permission Restrictions</h5>
+					<p class="small mb-0 mt-2 text-light-muted">
+						Only users with the <strong>Finance PCB</strong> role can update the approval sections. Standard users, account managers, and field technicians can view but not edit approval statuses or remarks.
+					</p>
+				</div>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal">3. Generating the PCB Job Order</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Upon financial approval, a <strong>PCB Job Order</strong> (<code>JO-YYYY-MM-#####</code>) is automatically created and linked to the booking record. The Job Order manages field assignments and scheduled times, mapping the scheduled date, location, and site contact details from the original booking.
+				</p>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal" id="journey-requests">4. Journey Request Setup</h3>
+				<p class="docs-paragraph small text-light-muted">
+					The final step in the booking workflow is matching the Job Order to a physical vehicle and trip route to build the <strong>Journey Request</strong>:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Vehicle & Container Association:</strong> Link the specific tracking vehicle and enter the cargo container number (required).</li>
+					<li class="mb-2"><strong>Route Definition:</strong> Set the trip <code>Origin</code> and final <code>Destination</code>, and list any mandatory intermediate transit <code>Checkpoints</code>.</li>
+					<li class="mb-2"><strong>Driver Contact:</strong> Capture the active driver's phone number to maintain communication during tracking.</li>
+					<li class="mb-2"><strong>Seals Required:</strong> Input the quantity of electronic locks (seals) to be attached for this tracking journey.</li>
+				</ul>
+			</section>
+
+			<section id="inventory-devices" class="docs-section mt-5 pt-5 border-top border-secondary">
+				<h2 class="docs-title">Inventory & Devices</h2>
+				<p class="docs-paragraph text-muted">
+					Procure seals, manage regional stock transfers, and oversee physical hardware lifecycles.
+				</p>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal" id="device-directory">1. Seal Devices Registry</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Every tracking unit in the system is managed inside the <strong>Seal Device</strong> doctype. This directory logs the hardware attributes and live telematics:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Unique Identity:</strong> Managed via a primary `Device ID` and mapped to its cellular/telemetry `IMEI Number` (mandatory field).</li>
+					<li class="mb-2"><strong>State Management:</strong> Shows the lock/unlock states of physical latches and tracks real-time battery voltage percentages.</li>
+					<li class="mb-2"><strong>Custody Status:</strong> Keeps track of the device's physical custodian (e.g., whether it is held by an individual Field Technician, assigned to an active transit vehicle, or stored in a specific Custody Point).</li>
+				</ul>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal" id="acquisitions">2. Ingesting New Inventory (Seal Acquisitions)</h3>
+				<p class="docs-paragraph small text-light-muted">
+					New hardware batches bought from vendors are registered using the **Seal Acquisition** (<code>SA-YYYY-MM-#####</code>) document:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Receipt Details:</strong> Form requests require documenting the Supplier link, Invoice/PO reference, Received Date, and receiving target Custody Point warehouse.</li>
+					<li class="mb-2"><strong>Batch Ingestion:</strong> Seal records are linked in the `Seals Received` child table where serials, device IDs, and IMEIs are entered.</li>
+					<li class="mb-2"><strong>Ingestion Statuses:</strong>
+						<ul class="pl-3 mt-1">
+							<li><code>Draft</code>: Pending review. Sealing devices are inactive in backend lookups.</li>
+							<li><code>Quality Check</code>: Batch requires quality review. Devices cannot be dispatched to field agents.</li>
+							<li><code>Received / Available</code>: Stock is committed. Seal records are activated and marked as <code>Available</code> at the target Custody Point.</li>
+						</ul>
+					</li>
+				</ul>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal" id="stock-transfers">3. Internal Stock Transfers</h3>
+				<p class="docs-paragraph small text-light-muted">
+					To move device stock between regional warehouses (e.g., from the main container port depot to an inland border custody point), users use the **Seal Stock Transfer** (<code>SST-YYYY-MM-#####</code>) doctype:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Initiating Transfers:</strong> Select the Source Warehouse and Target Warehouse, and insert the specific devices into the `Seals` child table. When submitted, the transfer state updates to <code>In Transit</code>, and the seals are locked from active field dispatches.</li>
+					<li class="mb-2"><strong>Completing Transfers:</strong> Upon physical arrival at the destination warehouse, the receiving officer clicks the <code>Receive</code> action. The document status updates to <code>Received</code>, logging the <code>Received Date</code> and custodian changes, and releasing the devices to <code>Available</code> status at the target Custody Point.</li>
+				</ul>
+			</section>
+
+			<section id="field-operations" class="docs-section mt-5 pt-5 border-top border-secondary">
+				<h2 class="docs-title">Field Operations (PCB)</h2>
+				<p class="docs-paragraph text-muted">
+					Coordinate the physical lifecycle of e-seals in the field, allocate technician resources, and verify pre-tagging inspection parameters.
+				</p>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal" id="job-orders">1. Technician Assignments & Dispatch</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Once a <strong>PCB Job Order</strong> is generated, it must be assigned to an active field technician. This is managed by the <strong>PCB Team Leader</strong> using the <strong>PCB Assignment</strong> (<code>ASG-YYYY-MM-#####</code>) doctype:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Request Types:</strong> Assignments are categorized by operation type:
+						<ul class="pl-3 mt-1">
+							<li><code>Tagging</code>: Physical installation and lock-activation of seals at the origin point.</li>
+							<li><code>Untagging</code>: Safe unlocking and physical removal of seals at the trip destination.</li>
+							<li><code>Seal Return</code>: Handing back the recovered physical seal to a main regional warehouse.</li>
+						</ul>
+					</li>
+					<li class="mb-2"><strong>Assignment Status:</strong> Monitored from <code>Pending</code> to <code>Assigned</code>, ensuring each step of the journey's physical handling is allocated to a technician.</li>
+				</ul>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal" id="assignments">2. Execution: Pre-Tagging Inspection Checklists</h3>
+				<p class="docs-paragraph small text-light-muted">
+					To ensure telemetry hardware integrity and minimize transit tracking errors, field technicians must run inspections using the **Pre-Tagging Checklist** table before activating a tracking journey:
+				</p>
+
+				<div class="card bg-dark border-secondary my-4" style="background-color: #2b2b2b !important;" id="checklists">
+					<div class="card-body">
+						<h5 class="text-info font-weight-normal small mb-3"><i class="fa fa-clipboard-check mr-2"></i>Standard Pre-Tagging Checks</h5>
+						<div class="row text-light-muted small">
+							<div class="col-md-6 mb-2">
+								<i class="fa fa-check text-info mr-2"></i><strong>Device Battery:</strong> Confirm battery level is above 80% charge.
+							</div>
+							<div class="col-md-6 mb-2">
+								<i class="fa fa-check text-info mr-2"></i><strong>Sim Card status:</strong> Verify cellular network sync and GSM transmission state.
+							</div>
+							<div class="col-md-6 mb-2">
+								<i class="fa fa-check text-info mr-2"></i><strong>Physical Condition:</strong> Inspect device housing and lock cable for mechanical damage.
+							</div>
+							<div class="col-md-6 mb-2">
+								<i class="fa fa-check text-info mr-2"></i><strong>Mounting Points:</strong> Check container or truck handle points for secure lock attachment.
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<p class="docs-paragraph small text-light-muted">
+					All checklist lines are populated from pre-tagging templates and must be flagged as <code>Completed</code> in the Journey Request child table before the tagging transaction is submitted.
+				</p>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal">3. Completing Physical Tagging</h3>
+				<p class="docs-paragraph small text-light-muted">
+					During the physical attachment process, the field technician must perform the following inputs:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Document Uploads:</strong> Upload copies of customs declarations or shipping manifests to the <code>Entry Pictures</code> table, and attach high-resolution photo proof of the installed, locked seal under <code>Tagging Pictures</code>.</li>
+					<li class="mb-2"><strong>Actual Tagging Timestamp:</strong> Log the exact date and time the seal was secured.</li>
+					<li class="mb-2"><strong>GPS Coordinates Lock:</strong> Once the seal is locked, check off the <code>Tagging Completed</code> checkbox. The system will automatically query the seal device's GPS and pull the current coordinates into the <code>Tagging Location</code> field to serve as the geofence origin point.</li>
+				</ul>
+			</section>
+
+			<section id="control-room" class="docs-section mt-5 pt-5 border-top border-secondary">
+				<h2 class="docs-title">Control Room & Tracking</h2>
+				<p class="docs-paragraph text-muted">
+					Monitor active transport journeys, track real-time telemetry, and respond to security exceptions.
+				</p>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal">1. Live Journey Tracking (Seal Journey)</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Once a vehicle departs, its transit state is managed within the <strong>Seal Journey</strong> (<code>SJ-YYYY-MM-#####</code>) record. Operators can track real-time telematics from the <strong>Transit / API Tracking</strong> tab:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Device Telemetry:</strong> Features real-time values including <code>API Device Status</code>, <code>API Battery Level</code>, <code>API Speed</code>, and the last update timestamp.</li>
+					<li class="mb-2"><strong>Location Coordinates:</strong> Captures live <code>API Latitude</code> and <code>API Longitude</code> coordinates, automatically updating the current geofence mapping.</li>
+					<li class="mb-2"><strong>Connection Health:</strong> Connection drops or synchronization errors will log in the <code>API Sync Error</code> field, alerting operators to connectivity problems.</li>
+				</ul>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal">2. Alarm & Exception Management (Seal Alert Log)</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Security incidents or hardware problems trigger entries in the <strong>Seal Alert Log</strong> (<code>SAL-YYYY-MM-#####</code>) registry. Alerts come from two distinct streams:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>System Alerts:</strong> Internally triggered rules monitoring device timeouts (connectivity lost) or low battery levels (battery below 15%).</li>
+					<li class="mb-2"><strong>Uffizio Alerts:</strong> Live alerts pushed directly from external Uffizio telemetry feeds (e.g. casing tampering, cable-cut alarms, geofence deviations).</li>
+				</ul>
+
+				<div class="card bg-dark border-secondary my-4" style="background-color: #2b2b2b !important;">
+					<div class="card-body">
+						<h5 class="text-info font-weight-normal small mb-3"><i class="fa fa-bell-slash mr-2"></i>Alert Resolution Protocol</h5>
+						<p class="small text-light-muted">
+							When a critical or warning alert triggers, operators must execute the following clearing checklist:
+						</p>
+						<ul class="small text-light-muted pl-3">
+							<li class="mb-1"><strong>Acknowledge Alert:</strong> Toggle the <code>Acknowledged</code> checkbox, which automatically registers your username under <code>Acknowledged By</code> and stamps the current time.</li>
+							<li class="mb-1"><strong>Investigate & Resolve:</strong> Review the raw JSON payload in the <code>Raw Data</code> field, contact the driver/transporter if required, and log your resolution findings in <code>Acknowledgement Remarks</code>.</li>
+							<li class="mb-1"><strong>Close Status:</strong> Advance the <code>Resolution Status</code> from <code>Open</code> &rarr; <code>Underway</code> &rarr; <code>Resolved</code>.</li>
+						</ul>
+					</div>
+				</div>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal">3. Journey Completion & Untagging</h3>
+				<p class="docs-paragraph small text-light-muted">
+					When a vehicle arrives at its destination transport location, the final untagging checklist and return sequence are initiated:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Unlocking Method:</strong>
+						<ul class="pl-3 mt-1">
+							<li><code>Physical</code>: The Field Technician physically unlocks the seal at the border/port, logging the untagging start and completion timestamps.</li>
+							<li><code>Remote</code>: Operators trigger a remote lock-release from the control room console, skipping the manual untagging steps and moving directly to custody return.</li>
+						</ul>
+					</li>
+					<li class="mb-2"><strong>Operator Sign-Off:</strong> Operators review arrival remarks, check off the <code>Untagging Confirmation</code> and <code>Seal Unlocked Confirmation</code> toggles (exclusive permissions), and advance the status to <code>Awaiting Seal Return</code>.</li>
+				</ul>
+			</section>
+
+			<section id="billing-finance" class="docs-section mt-5 pt-5 border-top border-secondary">
+				<h2 class="docs-title">Billing & Finance</h2>
+				<p class="docs-paragraph text-muted">
+					Establish customer pricing rules, manage subscription contracts, and calculate journey-based lease expenses.
+				</p>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal">1. Setting up Subscription Rates (Seal Billing Rate)</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Electronic lock rentals are configured under the <strong>Seal Billing Rate</strong> doctype. This directory defines standard subscription terms:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Billing Periods:</strong> Supports Weekly, Monthly, Quarterly, Semi-Annually, Annually, Date Range, and Custom Days.</li>
+					<li class="mb-2"><strong>Pricing Parameters:</strong>
+						<ul class="pl-3 mt-1">
+							<li><code>First Period Days</code>: The initial days included in the subscription baseline (default: 5 days).</li>
+							<li><code>First Period Amount</code>: The cost charged for the baseline period (default: 1000 KES).</li>
+							<li><code>Extra Day Rate</code>: The daily penalty fee charged for every day exceeding the baseline period (default: 500 KES).</li>
+						</ul>
+					</li>
+					<li class="mb-2"><strong>Global Default:</strong> Marking a rule as the global default sets it as the system-wide fallback pricing rule.</li>
+				</ul>
+
+				<div class="alert alert-warning bg-dark border-secondary text-light mt-4 p-4 rounded" style="background-color: #2b2b2b !important; border-left: 4px solid #f57c00 !important;">
+					<h5 class="text-warning font-weight-normal"><i class="fa fa-shield-alt mr-2"></i>Executive Approval Required</h5>
+					<p class="small mb-0 mt-2 text-light-muted">
+						New subscription rules or changes to existing approved rates require sign-off from the <strong>Managing Director</strong>. The rule is set to <code>Pending Approval</code> upon creation and cannot be assigned to clients until its status advances to <code>Approved</code>.
+					</p>
+				</div>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal">2. Mapping Customers (Customer Billing Assignment)</h3>
+				<p class="docs-paragraph small text-light-muted">
+					Assign billing rules to specific clients or customer categories using the <strong>Customer Billing Assignment</strong> (<code>CBA-#####</code>) doctype:
+				</p>
+				<ul class="text-light-muted pl-4 small">
+					<li class="mb-2"><strong>Scope Mapping:</strong> Apply assignments to an individual <code>Customer</code> or an entire <code>Customer Group</code>.</li>
+					<li class="mb-2"><strong>Priority Weighting:</strong> Higher priority values override other matching rules when multiple assignments apply to the same client.</li>
+					<li class="mb-2"><strong>Outright Purchase Option:</strong> For clients who own their physical seal hardware, toggle the <code>Outright Purchase</code> checkbox and record the <code>Number of Seals Owned</code>. This flags the backend to skip lease charges for those units.</li>
+					<li class="mb-2"><strong>Contract Overrides:</strong> Define custom pricing without modifying shared billing rates using the <code>Rate Override</code> and <code>Currency Override</code> fields (exclusive to that client's assignment).</li>
+					<li class="mb-2"><strong>Extra Billing:</strong> For secondary leasing arrangements that run parallel to a customer's primary subscription, toggle the <code>Extra Billing Agreement</code> checkbox.</li>
+				</ul>
+
+				<h3 class="h4 mt-5 text-light font-weight-normal">3. Cost Calculations on Journey Completion</h3>
+				<p class="docs-paragraph small text-light-muted">
+					When a journey transitions to <code>Completed</code>, the backend automatically calculates the rental fees in the <strong>Billing</strong> tab:
+				</p>
+				<div class="p-3 border border-secondary rounded my-4" style="background-color: #2b2b2b !important;">
+					<p class="small text-info font-weight-bold mb-2">Billing Calculation Breakdown Formula:</p>
+					<code class="d-block small text-light-muted mb-2">Total Charge = (First Period Amount + (Extra Days * Extra Day Rate)) * Seal Count</code>
+					<ul class="small text-light-muted pl-3 mb-0">
+						<li><strong>Billable Days:</strong> The duration between billing start (tagging) and billing return (seal received at warehouse).</li>
+						<li><strong>Extra Days:</strong> Billable days exceeding the <code>First Period Days</code> parameter.</li>
+					</ul>
+				</div>
+			</section>
+
+			<!-- Pagination / Next Prev -->
+			<div class="docs-pagination mt-5 pt-4 d-flex justify-content-between align-items-center" style="border-top: 1px solid #424242;">
+				<a href="#" class="docs-nav-link prev-link invisible">
+					<div class="text-left d-flex align-items-center">
+						<i class="fa fa-chevron-left mr-3 text-muted"></i>
+						<div>
+							<span class="d-block small text-muted text-uppercase mb-1">Previous</span>
+							<span class="font-weight-normal text-light prev-label">—</span>
+						</div>
+					</div>
+				</a>
+				<a href="#customer-bookings" class="docs-nav-link next-link">
+					<div class="text-right d-flex align-items-center">
+						<div class="mr-3">
+							<span class="d-block small text-muted text-uppercase mb-1">Next</span>
+							<span class="font-weight-normal text-info next-label">Customer Bookings</span>
+						</div>
+						<i class="fa fa-chevron-right text-info"></i>
+					</div>
+				</a>
+			</div>
+		</div>
+	</main>
+</div>
+
+{% include "tnt_seal_management/www/docs/docs_styles.html" %}
+{% endblock %}

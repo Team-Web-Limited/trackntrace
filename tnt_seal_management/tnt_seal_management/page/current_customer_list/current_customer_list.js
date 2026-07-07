@@ -1,3 +1,18 @@
+// Maps Billing Period Type (Seal Billing Rate's own vocabulary — Weekly,
+// Monthly, Quarterly, Semi-Annually, Annually, Date Range, Days) to the
+// billing_interval values the Recurring Lease Fee Subscription understands
+// (see INTERVAL_MAP in api/seal_lease_billing.py). Date Range/Days describe a
+// per-journey period, not a recurring cadence, so they have no entry here —
+// _customer_collect_lease_args treats that as "can't activate the recurring
+// fee on this cycle" rather than guessing one.
+const BILLING_PERIOD_TO_LEASE_INTERVAL = {
+	Weekly: "Week",
+	Monthly: "Month",
+	Quarterly: "Quarter",
+	"Semi-Annually": "Semi-Annual",
+	Annually: "Year",
+};
+
 frappe.pages["current-customer-list"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
@@ -327,17 +342,57 @@ function _customer_show_billing_dialog(page, data) {
 		cur.billing_type === "Subscription" && cur.rule ? (cur.rule.billing_rule_name || cur.rule.name) : null;
 	const currentLeasingTerms = cur.billing_type === "Leasing" ? cur.rule || {} : {};
 
+	// Tax treatment for this customer — drives VAT on Completed Journeys and
+	// elsewhere. Rendered as radio buttons (Set Billing modal spec), not a
+	// Select, since there are only three mutually-exclusive options.
+	const TAX_RADIO_NAME = "ccl_tax_category";
+	const taxCategoryOptions = [
+		{ value: "Normal Tax (16% VAT)", label: __("Normal Tax (16% VAT)") },
+		{ value: "Tax Exempt", label: __("Tax Exempt") },
+		{ value: "Zero Rated", label: __("Zero Rated") },
+	];
+	const currentTaxCategory = data.tax_category || "Normal Tax (16% VAT)";
+
+	// Frappe's "Tab Break" fieldtype (frappe/public/js/frappe/form/tab.js)
+	// requires a real frm/doctype to build its DOM id — a plain frappe.ui.Dialog
+	// has neither, and crashes (`frappe.scrub(undefined)`). So "Billing" vs
+	// "Recurring Fees" is a hand-rolled two-pill nav instead: each pill just
+	// toggles the `hidden` flag on that page's named sections and re-runs
+	// ``dialog.refresh_sections()`` to fold/unfold them — the same primitive
+	// the existing lease/ownership reveal already relied on.
+	const BILLING_PAGE_SECTIONS = [
+		"billing_section_1",
+		"seal_ownership_section",
+		"tax_section",
+		"rate_terms_section",
+		"customer_period_section",
+	];
+	const RECURRING_PAGE_SECTIONS = [
+		"extra_billing_section",
+		"extra_rate_terms_section",
+		"extra_customer_period_section",
+	];
+
 	const dialog = new frappe.ui.Dialog({
 		title: __("Set Billing — {0}", [data.customer_name]),
 		fields: [
 			{
+				fieldtype: "HTML",
+				fieldname: "tab_nav_html",
+			},
+
+			{
+				fieldtype: "Section Break",
+				fieldname: "billing_section_1",
+				hide_border: 1,
+			},
+			{
 				fieldtype: "Select",
 				fieldname: "billing_type",
 				label: __("Billing Type"),
-				options: ["Subscription", "Leasing"],
+				options: cur.outright_purchase ? ["Subscription"] : ["Subscription", "Leasing"],
 				reqd: 1,
 				default: initialType,
-				description: __("Subscription uses a shared rate card. Leasing is a private, per-customer rate entered here."),
 			},
 			{ fieldtype: "Column Break" },
 			{
@@ -346,12 +401,90 @@ function _customer_show_billing_dialog(page, data) {
 				label: __("Billing Rule"),
 				options: subscriptionRuleOptions,
 				default: currentLabel || subscriptionRuleOptions[0] || null,
-				description: __("Configure rule terms in Seal Billing Rate. This only assigns the rule."),
 				depends_on: 'eval:doc.billing_type=="Subscription"',
 				mandatory_depends_on: 'eval:doc.billing_type=="Subscription"',
 			},
+
+			// Only relevant for Subscription customers — a customer who owns
+			// seals outright is always Subscription-billed per journey, so
+			// this section (and whether Leasing is even offered above) only
+			// makes sense once Subscription is picked (see
+			// applyBillingTypeOptionsForOwnership).
 			{
 				fieldtype: "Section Break",
+				fieldname: "seal_ownership_section",
+				label: __("Seal Ownership"),
+				depends_on: 'eval:doc.billing_type=="Subscription"',
+			},
+			{
+				fieldtype: "Check",
+				fieldname: "outright_purchase",
+				label: __("Outright Purchase"),
+				default: cur.outright_purchase ? 1 : 0,
+			},
+			{ fieldtype: "Column Break" },
+			{
+				fieldtype: "Int",
+				fieldname: "owned_seal_count",
+				label: __("Number of Seals Owned"),
+				default: cur.owned_seal_count || null,
+				depends_on: "eval:doc.outright_purchase",
+				mandatory_depends_on: "eval:doc.outright_purchase",
+			},
+			{ fieldtype: "Column Break" },
+			{
+				// The actual field backing the Recurring Ownership Service Fee
+				// subscription (Scenario 5) — symmetric to lease_rate_per_seal
+				// below, but a separate rate since owned and leased seats are
+				// priced independently. Together with owned_seal_count this
+				// drives the Rate Terms "Rate" preview — see
+				// applySeatBasedRateOverride. Loaded eagerly at dialog open by
+				// _customer_load_seat_data.
+				fieldtype: "Currency",
+				fieldname: "owned_rate_per_seal",
+				label: __("Rate per Seal (Owned)"),
+				options: "leasing_currency",
+				depends_on: "eval:doc.outright_purchase",
+			},
+			{ fieldtype: "Column Break" },
+			{
+				// The actual field backing the Recurring Lease Fee subscription
+				// (Scenario 4). Kept here, visible up front, so the count is
+				// captured as part of the normal Billing flow. Loaded eagerly at
+				// dialog open by _customer_load_seat_data (see its call site below).
+				fieldtype: "Int",
+				fieldname: "lease_seal_count",
+				label: __("Number of Seals Leased"),
+				depends_on: "eval:!doc.outright_purchase",
+			},
+			{ fieldtype: "Column Break" },
+			{
+				// Together with lease_seal_count, this drives the Rate under
+				// Rate Terms below: once both are filled, that amount is
+				// forced to lease_seal_count × lease_rate_per_seal instead of
+				// the picked rule's own rate or a manual entry — see
+				// applySeatBasedRateOverride. Still billed on whichever cycle
+				// Billing Period Type says (e.g. its default Monthly); only
+				// the amount is overridden, not the cycle.
+				fieldtype: "Currency",
+				fieldname: "lease_rate_per_seal",
+				label: __("Rate per Seal"),
+				options: "leasing_currency",
+				depends_on: "eval:!doc.outright_purchase",
+			},
+
+			{
+				fieldtype: "Section Break",
+				fieldname: "tax_section",
+				label: __("Tax"),
+			},
+			{
+				fieldtype: "HTML",
+				fieldname: "tax_category_html",
+			},
+			{
+				fieldtype: "Section Break",
+				fieldname: "rate_terms_section",
 				label: __("Rate Terms"),
 				description: __(
 					"Saved as this customer's own rate — \"{0} BR\".",
@@ -359,19 +492,26 @@ function _customer_show_billing_dialog(page, data) {
 				),
 			},
 			{
+				// Read-only mirror of the picked Billing Rule's period — for a
+				// leased-seat rate this doubles as the leasing billing cycle
+				// (pick Default Weekly → billed weekly, Default Monthly →
+				// monthly), which is why switching the rule is the intended way
+				// to change the cycle without touching the seat-based Rate.
 				fieldtype: "Select",
 				fieldname: "billing_period_type",
 				label: __("Billing Period Type"),
 				read_only: 1,
 				depends_on: 'eval:doc.billing_type=="Subscription"',
 			},
+			{ fieldtype: "Column Break" },
 			{
+				// Shown for both billing types: read-only (from the picked rule)
+				// for Subscription, editable for Leasing — see applyFieldModeForType.
 				fieldtype: "Select",
 				fieldname: "leasing_currency",
 				label: __("Currency"),
 				options: "\nKES\nUSD",
 				default: currentLeasingTerms.currency || "KES",
-				depends_on: 'eval:doc.billing_type=="Leasing"',
 			},
 			{ fieldtype: "Column Break" },
 			{
@@ -382,9 +522,14 @@ function _customer_show_billing_dialog(page, data) {
 			},
 			{ fieldtype: "Column Break" },
 			{
+				// `options` points at the Currency field (leasing_currency)
+				// holding this customer's chosen currency, so the symbol/
+				// formatting here (Sh vs $) follows it live instead of always
+				// showing the company's default currency.
 				fieldtype: "Currency",
 				fieldname: "first_period_amount",
 				label: __("First Period Amount"),
+				options: "leasing_currency",
 				default: currentLeasingTerms.first_period_amount,
 			},
 			{ fieldtype: "Column Break" },
@@ -392,32 +537,13 @@ function _customer_show_billing_dialog(page, data) {
 				fieldtype: "Currency",
 				fieldname: "extra_day_rate",
 				label: __("Extra Day Rate (per day)"),
+				options: "leasing_currency",
 				default: currentLeasingTerms.extra_day_rate,
 			},
 			{
 				fieldtype: "Section Break",
-				label: __("Validity"),
-				description: __(
-					"For Subscription this is the shared rule's company-wide window (edit it in Seal Billing Rate). For Leasing this is the customer's own private rule's window, set directly here."
-				),
-			},
-			{
-				fieldtype: "Date",
-				fieldname: "rule_effective_from",
-				label: __("Effective From"),
-				default: currentLeasingTerms.effective_from || null,
-			},
-			{ fieldtype: "Column Break" },
-			{
-				fieldtype: "Date",
-				fieldname: "rule_effective_to",
-				label: __("Effective To"),
-				default: currentLeasingTerms.effective_to || null,
-			},
-			{
-				fieldtype: "Section Break",
+				fieldname: "customer_period_section",
 				label: __("Customer Period"),
-				description: __("The customer's own slice of the Validity window above — it cannot extend beyond it."),
 			},
 			{
 				fieldtype: "Date",
@@ -433,126 +559,134 @@ function _customer_show_billing_dialog(page, data) {
 				default: cur.period_to_date || null,
 			},
 
-			// Recurring, seal-count-based fees (PCB Journey Billing Patterns doc,
-			// Scenarios 4-6) — independent of journeys, backed by an ERPNext
-			// Subscription. Deliberately separate from the per-journey "Leasing"
-			// billing_type above. Hidden until "Manage Recurring Fees" is clicked,
-			// to keep this modal focused by default. A customer can carry both
-			// lines at once (Scenario 6 — merged into one invoice automatically
-			// since both live on the same Subscription).
+			// Extra Billing (Scenario 6) — a per-journey leasing agreement layered
+			// ON TOP of this customer's Subscription, for outright-purchase
+			// customers who also lease extra seals. Same shape as the main
+			// Billing tab's Leasing terms (Rate Terms + Customer Period) minus
+			// Tax (already set above). Lives on its own "page"
+			// (RECURRING_PAGE_SECTIONS shown, BILLING_PAGE_SECTIONS hidden),
+			// gated to outright-purchase Subscription customers (see the tab-nav
+			// visibility in applyExtraBillingTabVisibility). Persisted as a
+			// second Customer Billing Assignment via set_customer_extra_billing.
 			{
 				fieldtype: "Section Break",
-				fieldname: "lease_section",
-				label: __("Recurring Lease Fee (leased seals)"),
+				fieldname: "extra_billing_section",
+				label: __("Extra Billing (leased seals)"),
 				hidden: 1,
-				description: __(
-					"A fixed fee per leased seal, billed on a recurring cycle regardless of journey activity — independent of the per-journey billing above."
-				),
+				hide_border: 1,
 			},
 			{
-				fieldtype: "Data",
-				fieldname: "lease_status_display",
-				label: __("Lease Subscription Status"),
-				read_only: 1,
+				// Child of extra_billing_section (kept non-empty so
+				// refresh_sections() doesn't fold it away while detail fields
+				// are still hidden pre-load).
+				fieldtype: "HTML",
+				fieldname: "recurring_loading_html",
 				hidden: 1,
 			},
-			{ fieldtype: "Column Break", fieldname: "lease_col_1", hidden: 1 },
 			{
-				fieldtype: "Int",
-				fieldname: "lease_seal_count",
-				label: __("Number of Seals Leased"),
+				fieldtype: "Check",
+				fieldname: "activate_extra_billing",
+				label: __("Activate Extra Billing"),
+				default: 0,
 				hidden: 1,
 			},
-			{ fieldtype: "Column Break", fieldname: "lease_col_2", hidden: 1 },
-			{
-				fieldtype: "Currency",
-				fieldname: "lease_rate_per_seal",
-				label: __("Rate per Seal"),
-				hidden: 1,
-			},
-			{ fieldtype: "Section Break", fieldname: "lease_section_2", hidden: 1 },
-			{
-				fieldtype: "Select",
-				fieldname: "lease_billing_interval",
-				label: __("Billing Interval"),
-				options: ["Month", "Quarter", "Year"],
-				default: "Month",
-				hidden: 1,
-			},
-			{ fieldtype: "Column Break", fieldname: "lease_col_3", hidden: 1 },
-			{
-				fieldtype: "Select",
-				fieldname: "lease_currency",
-				label: __("Currency"),
-				options: "\nKES\nUSD",
-				default: "KES",
-				hidden: 1,
-			},
-
-			// Scenario 5: owned seals, ongoing platform/service fee across the
-			// whole pool regardless of utilization.
 			{
 				fieldtype: "Section Break",
-				fieldname: "ownership_section",
-				label: __("Ownership Service Fee (owned seals)"),
-				hidden: 1,
-				description: __(
-					"A fixed service fee across the customer's owned seal pool, billed on a recurring cycle whether the seals are deployed or not."
-				),
-			},
-			{
-				fieldtype: "Data",
-				fieldname: "ownership_status_display",
-				label: __("Ownership Subscription Status"),
-				read_only: 1,
+				fieldname: "extra_rate_terms_section",
+				label: __("Rate Terms"),
+				depends_on: "eval:doc.activate_extra_billing",
 				hidden: 1,
 			},
-			{ fieldtype: "Column Break", fieldname: "ownership_col_1", hidden: 1 },
-			{
-				fieldtype: "Int",
-				fieldname: "ownership_seal_count",
-				label: __("Number of Seals Owned"),
-				hidden: 1,
-			},
-			{ fieldtype: "Column Break", fieldname: "ownership_col_2", hidden: 1 },
-			{
-				fieldtype: "Currency",
-				fieldname: "ownership_rate_per_seal",
-				label: __("Service Fee Rate"),
-				hidden: 1,
-			},
-			{ fieldtype: "Section Break", fieldname: "ownership_section_2", hidden: 1 },
 			{
 				fieldtype: "Select",
-				fieldname: "ownership_billing_interval",
-				label: __("Billing Interval"),
-				options: ["Month", "Quarter", "Semi-Annual", "Year"],
-				default: "Month",
-				hidden: 1,
-			},
-			{ fieldtype: "Column Break", fieldname: "ownership_col_3", hidden: 1 },
-			{
-				fieldtype: "Select",
-				fieldname: "ownership_currency",
+				fieldname: "extra_currency",
 				label: __("Currency"),
 				options: "\nKES\nUSD",
-				default: "KES",
+				hidden: 1,
+			},
+			{ fieldtype: "Column Break", fieldname: "extra_col_1", hidden: 1 },
+			{
+				fieldtype: "Int",
+				fieldname: "extra_first_period_days",
+				label: __("First Period Days"),
+				hidden: 1,
+			},
+			{ fieldtype: "Column Break", fieldname: "extra_col_2", hidden: 1 },
+			{
+				fieldtype: "Currency",
+				fieldname: "extra_first_period_amount",
+				label: __("First Period Amount"),
+				options: "extra_currency",
+				hidden: 1,
+			},
+			{ fieldtype: "Column Break", fieldname: "extra_col_3", hidden: 1 },
+			{
+				fieldtype: "Currency",
+				fieldname: "extra_extra_day_rate",
+				label: __("Extra Day Rate (per day)"),
+				options: "extra_currency",
+				hidden: 1,
+			},
+			{
+				fieldtype: "Section Break",
+				fieldname: "extra_customer_period_section",
+				label: __("Customer Period"),
+				depends_on: "eval:doc.activate_extra_billing",
+				hidden: 1,
+			},
+			{
+				fieldtype: "Date",
+				fieldname: "extra_period_from_date",
+				label: __("Period From Date"),
+				hidden: 1,
+			},
+			{ fieldtype: "Column Break", fieldname: "extra_col_4", hidden: 1 },
+			{
+				fieldtype: "Date",
+				fieldname: "extra_period_to_date",
+				label: __("Period To Date"),
 				hidden: 1,
 			},
 		],
-		secondary_action_label: __("Manage Recurring Fees"),
+		secondary_action_label: __("Manage Extra Billing"),
 		secondary_action() {
-			_customer_reveal_recurring_sections(page, dialog, data.customer);
+			_customer_show_recurring_page(dialog, data.customer);
 		},
 		primary_action_label: __("Save Billing"),
 		primary_action() {
 			const billingType = dialog.get_value("billing_type");
+			const taxCategory = _customer_get_tax_category(dialog);
 
 			const leaseArgs = _customer_collect_lease_args(dialog);
 			if (leaseArgs === false) return; // validation failed, message already shown
 			const ownershipArgs = _customer_collect_ownership_args(dialog);
 			if (ownershipArgs === false) return; // validation failed, message already shown
-			const recurringArgs = { leaseArgs, ownershipArgs };
+			const extraArgs = _customer_collect_extra_billing_args(dialog);
+			if (extraArgs === false) return; // validation failed, message already shown
+			const recurringArgs = { leaseArgs, ownershipArgs, extraArgs };
+
+			const outrightPurchase = dialog.get_value("outright_purchase") ? 1 : 0;
+			const ownedSealCount = dialog.get_value("owned_seal_count");
+			if (outrightPurchase && (!ownedSealCount || cint(ownedSealCount) <= 0)) {
+				frappe.show_alert(
+					{ message: __("Enter the Number of Seals Owned for an Outright Purchase."), indicator: "red" },
+					5
+				);
+				return;
+			}
+
+			if (outrightPurchase && billingType === "Leasing") {
+				frappe.show_alert(
+					{
+						message: __(
+							"Customers who own their seals outright cannot be billed as Leasing here. Use the Extra Billing tab instead."
+						),
+						indicator: "red",
+					},
+					5
+				);
+				return;
+			}
 
 			if (billingType === "Leasing") {
 				const days = dialog.get_value("first_period_days");
@@ -565,11 +699,7 @@ function _customer_show_billing_dialog(page, data) {
 					);
 					return;
 				}
-				const leasingRule = {
-					effective_from: dialog.get_value("rule_effective_from"),
-					effective_to: dialog.get_value("rule_effective_to"),
-				};
-				if (!_customer_validate_period_bounds(dialog, leasingRule)) return;
+				if (!_customer_validate_period_bounds(dialog)) return;
 				_customer_submit_leasing_billing(
 					page,
 					data.customer,
@@ -578,10 +708,11 @@ function _customer_show_billing_dialog(page, data) {
 						first_period_amount: amount,
 						extra_day_rate: extraRate,
 						currency: dialog.get_value("leasing_currency") || "KES",
-						effective_from: leasingRule.effective_from,
-						effective_to: leasingRule.effective_to,
 						period_from_date: dialog.get_value("period_from_date"),
 						period_to_date: dialog.get_value("period_to_date"),
+						tax_category: taxCategory,
+						outright_purchase: outrightPurchase,
+						owned_seal_count: outrightPurchase ? ownedSealCount : 0,
 					},
 					dialog,
 					recurringArgs
@@ -594,7 +725,7 @@ function _customer_show_billing_dialog(page, data) {
 				frappe.show_alert({ message: __("Choose a billing rule."), indicator: "red" }, 5);
 				return;
 			}
-			if (!_customer_validate_period_bounds(dialog, rule)) return;
+			if (!_customer_validate_period_bounds(dialog)) return;
 			_customer_submit_billing(
 				page,
 				data.customer,
@@ -603,119 +734,482 @@ function _customer_show_billing_dialog(page, data) {
 				dialog.get_value("period_from_date"),
 				dialog.get_value("period_to_date"),
 				dialog,
-				recurringArgs
+				recurringArgs,
+				taxCategory,
+				// Rate/Currency are editable for Subscription now — the backend
+				// only persists these as a per-customer override when they
+				// actually differ from the picked rule's own values.
+				dialog.get_value("first_period_amount"),
+				dialog.get_value("leasing_currency"),
+				outrightPurchase,
+				outrightPurchase ? ownedSealCount : 0
 			);
 		},
 	});
 
+	// Stashed on the instance so the standalone _customer_show_recurring_page
+	// helper (shared by the nav pill and the footer button) can reach them
+	// without needing them threaded through as extra parameters everywhere.
+	dialog.ccl_billing_sections = BILLING_PAGE_SECTIONS;
+	dialog.ccl_recurring_sections = RECURRING_PAGE_SECTIONS;
+
+	// True once a leased-seat rate is active (Number of Seals Leased + Rate
+	// per Seal — or, for an outright customer, Number of Seals Owned + Rate
+	// per Seal (Owned) — both filled on a Subscription customer). When so, the
+	// Rate under Rate Terms is the fixed product count × rate per seal
+	// regardless of which Billing Rule is picked — the rule only supplies the
+	// billing cycle (Billing Period Type), never the amount. Returns the
+	// {count, rate} pair in use, or null when not seat-based.
+	const isLeaseSeatBased = () => {
+		const isSubscription = dialog.get_value("billing_type") === "Subscription";
+		if (!isSubscription) return null;
+
+		if (dialog.get_value("outright_purchase")) {
+			const sealCount = cint(dialog.get_value("owned_seal_count"));
+			const ratePerSeal = flt(dialog.get_value("owned_rate_per_seal"));
+			return sealCount > 0 && ratePerSeal > 0 ? { sealCount, ratePerSeal } : null;
+		}
+
+		const sealCount = cint(dialog.get_value("lease_seal_count"));
+		const ratePerSeal = flt(dialog.get_value("lease_rate_per_seal"));
+		return sealCount > 0 && ratePerSeal > 0 ? { sealCount, ratePerSeal } : null;
+	};
+
+	const getSelectedRuleSource = () => {
+		const selectedLabel = dialog.get_value("billing_rule_label");
+		const rule = subscriptionRuleMap[selectedLabel];
+		// Still on the rule already assigned to this customer? Prefer cur.rule —
+		// the backend patches its first_period_amount/currency to this
+		// customer's own Rate/Currency override, if one is set (see
+		// get_customer_billing). Switching to a *different* rule always shows
+		// that rule's own raw values — a fresh pick has no override yet.
+		return selectedLabel && selectedLabel === currentLabel && cur.rule ? cur.rule : rule;
+	};
+
 	const applySubscriptionRuleDetails = () => {
-		const rule = subscriptionRuleMap[dialog.get_value("billing_rule_label")];
-		dialog.set_value("billing_period_type", rule ? rule.billing_period_type : "");
-		dialog.set_value("rule_effective_from", rule ? rule.effective_from : "");
-		dialog.set_value("rule_effective_to", rule ? rule.effective_to : "");
-		dialog.set_value("first_period_days", rule ? rule.first_period_days : "");
-		dialog.set_value("first_period_amount", rule ? rule.first_period_amount : "");
-		dialog.set_value("extra_day_rate", rule ? rule.extra_day_rate : "");
+		const source = getSelectedRuleSource();
+		// Billing Period Type always mirrors the picked rule (its read-only
+		// display / the leasing billing cycle).
+		dialog.set_value("billing_period_type", source ? source.billing_period_type : "");
+		dialog.set_value("leasing_currency", source ? source.currency : "");
+		dialog.set_value("first_period_days", source ? source.first_period_days : "");
+		// first_period_amount (Rate) is owned solely by applySeatBasedRateOverride
+		// below — set it in exactly one place so a seat-based product isn't
+		// briefly overwritten by the rule's own rate and then lost to the
+		// async set_value / is_value_same race.
+		dialog.set_value("extra_day_rate", source ? source.extra_day_rate : "");
+
+		// Set the Rate (product when seat-based, else this rule's own rate) —
+		// the single writer of first_period_amount for Subscription.
+		applySeatBasedRateOverride();
 	};
 
 	const applyFieldModeForType = () => {
 		const isSubscription = dialog.get_value("billing_type") === "Subscription";
-		["first_period_days", "first_period_amount", "extra_day_rate", "rule_effective_from", "rule_effective_to"].forEach(
-			(fieldname) => {
-				dialog.set_df_property(fieldname, "read_only", isSubscription ? 1 : 0);
-			}
+		// Billing Period Type is always read-only — it mirrors the picked rule
+		// (and, for a leased-seat rate, is the leasing billing cycle). Rate and
+		// Currency are editable for both billing types (except when seat-based,
+		// where applySeatBasedRateOverride locks Rate to the product): for
+		// Subscription an edit is saved as a per-customer override on top of the
+		// shared rule (see set_customer_billing), for Leasing it's the
+		// customer's own private rate.
+
+		// A Subscription rule is a flat recurring rate — the per-journey day-count
+		// fields don't apply, so hide First Period Days and Extra Day Rate and
+		// relabel the amount to just "Rate". Leasing keeps the full per-journey
+		// terms (First Period Days / Amount / Extra Day Rate).
+		dialog.set_df_property("first_period_days", "hidden", isSubscription ? 1 : 0);
+		dialog.set_df_property("extra_day_rate", "hidden", isSubscription ? 1 : 0);
+		dialog.set_df_property(
+			"first_period_amount",
+			"label",
+			isSubscription ? __("Rate") : __("First Period Amount")
 		);
+
+		// The "Saved as this customer's own rate" note only applies to Leasing
+		// (a private per-customer rate); Subscription just assigns a shared
+		// rule, so hide it there. Section descriptions are rendered once at
+		// construction (frappe/form/section.js make()) and aren't re-rendered
+		// by set_df_property, so the wrapper is toggled directly.
+		const rateTermsSection = dialog.fields_dict.rate_terms_section;
+		if (rateTermsSection && rateTermsSection.description_wrapper) {
+			rateTermsSection.description_wrapper.toggleClass("hide-control", isSubscription);
+		}
+
 		if (isSubscription) {
+			// Sets the rule fields and, via applySeatBasedRateOverride, the Rate.
 			applySubscriptionRuleDetails();
 		} else {
 			// Leasing: restore this customer's own saved terms rather than
-			// whatever a previously-selected Subscription rule copied in — or,
-			// for a brand new Leasing rate, default the Validity window to the
-			// current calendar year (matches Seal Billing Rate's own default).
-			const year = frappe.datetime.now_date().split("-")[0];
+			// whatever a previously-selected Subscription rule copied in.
 			dialog.set_value("first_period_days", currentLeasingTerms.first_period_days || "");
 			dialog.set_value("first_period_amount", currentLeasingTerms.first_period_amount || "");
 			dialog.set_value("extra_day_rate", currentLeasingTerms.extra_day_rate || "");
-			dialog.set_value("rule_effective_from", currentLeasingTerms.effective_from || `${year}-01-01`);
-			dialog.set_value("rule_effective_to", currentLeasingTerms.effective_to || `${year}-12-31`);
+			dialog.set_value("leasing_currency", currentLeasingTerms.currency || "KES");
+			// Reset the Rate read-only flag (seat-based only applies to
+			// Subscription); leaves the leasing amount above untouched.
+			applySeatBasedRateOverride();
 		}
+
+		// Extra Billing tab is Subscription-only — re-evaluate on billing type change.
+		dialog.ccl_apply_extra_tab_visibility && dialog.ccl_apply_extra_tab_visibility();
+	};
+
+	// Scenarios 4/5 (leased or owned seats): the single writer of
+	// first_period_amount (Rate) for a Subscription customer, so it's set
+	// exactly once per pass and never lost to the async set_value /
+	// is_value_same race. When Number of Seals (Leased or Owned) + its Rate
+	// per Seal are both filled, the Rate is the fixed product count × rate —
+	// held regardless of which Billing Rule is picked (the rule only sets the
+	// cycle, not the amount). Otherwise it falls back to the picked rule's own
+	// rate. Leasing (non-Subscription) manages its own rate, so this leaves it
+	// untouched there. This is a display preview only — the real per-journey
+	// charge is separately zeroed for seat-based customers (see
+	// seal_journey.py::set_billing / customer_has_seat_subscription).
+	const applySeatBasedRateOverride = () => {
+		const isSubscription = dialog.get_value("billing_type") === "Subscription";
+		const seatBasis = isLeaseSeatBased();
+		const isSeatBased = !!seatBasis;
+
+		dialog.set_df_property("first_period_amount", "read_only", isSeatBased ? 1 : 0);
+		if (isSeatBased) {
+			dialog.set_value("first_period_amount", seatBasis.sealCount * seatBasis.ratePerSeal);
+		} else if (isSubscription) {
+			const source = getSelectedRuleSource();
+			dialog.set_value("first_period_amount", source ? source.first_period_amount : "");
+		}
+	};
+
+	// A customer who owns their seals outright is always Subscription-billed
+	// per journey — any leasing for them goes on the Extra Billing tab instead.
+	// Ticking Outright Purchase here drops Leasing from Billing Type and, if it
+	// was selected, switches back to Subscription.
+	const applyBillingTypeOptionsForOwnership = () => {
+		const isOutright = !!dialog.get_value("outright_purchase");
+		dialog.set_df_property("billing_type", "options", isOutright ? ["Subscription"] : ["Subscription", "Leasing"]);
+		if (isOutright && dialog.get_value("billing_type") === "Leasing") {
+			dialog.set_value("billing_type", "Subscription");
+		}
+		// An outright-purchase customer doesn't lease seals — drop any leased
+		// count/rate (own or stale, e.g. loaded from an existing subscription
+		// before ownership was flagged) so Save Billing can't resurrect a
+		// Recurring Lease Fee line for them.
+		if (isOutright) {
+			if (dialog.get_value("lease_seal_count")) dialog.set_value("lease_seal_count", null);
+			if (dialog.get_value("lease_rate_per_seal")) dialog.set_value("lease_rate_per_seal", null);
+		} else {
+			// Symmetric: a leasing (non-outright) customer doesn't own seals —
+			// drop any stale owned count/rate so Save Billing can't resurrect an
+			// Ownership Service Fee line for them.
+			if (dialog.get_value("owned_rate_per_seal")) dialog.set_value("owned_rate_per_seal", null);
+		}
+		applySeatBasedRateOverride();
+		// Extra Billing (Scenario 6) is gated to outright-purchase Subscription
+		// customers — re-evaluate the tab when ownership changes.
+		dialog.ccl_apply_extra_tab_visibility && dialog.ccl_apply_extra_tab_visibility();
+	};
+
+	// The Currency-type fields below use `options: "leasing_currency"` so
+	// their symbol/formatting follows whatever currency is picked. Frappe
+	// resolves that symbol from `doc[df.options]`, but a plain frappe.ui.Dialog
+	// has no backing model doc — the read-only display reads `control.doc`
+	// (base_input set_disp_area) and the editable input reads
+	// `control.get_doc()` (ControlFloat get_number_format), both of which are
+	// empty here, so every Currency field silently falls back to the system
+	// default (KES → "Sh") regardless of the dropdown. Give each field a tiny
+	// stand-in doc carrying the live currency so both paths resolve it, and
+	// re-point + refresh them whenever the currency changes (including
+	// programmatic changes, e.g. switching rules/billing type).
+	// Each group of Currency fields resolves its symbol from a currency Select
+	// (via `options`). Give each group a stand-in doc so both the read-only and
+	// editable paths pick it up, and refresh on currency change. Billing-tab
+	// fields follow leasing_currency; Extra Billing fields follow extra_currency.
+	const bindCurrencyGroup = (currencyField, amountFields) => {
+		const doc = {};
+		doc[currencyField] = dialog.get_value(currencyField) || "KES";
+		amountFields.forEach((fieldname) => {
+			const field = dialog.fields_dict[fieldname];
+			if (!field) return;
+			field.doc = doc;
+			field.get_doc = () => doc;
+			// Seed the amount: base_input.refresh_input re-reads me.value from
+			// me.doc[fieldname] on refresh; without this the first currency
+			// refresh would blank a construction-time default. set_value keeps
+			// them in sync afterwards (set_model_value writes back into this.doc).
+			doc[fieldname] = field.value;
+		});
+		return () => {
+			doc[currencyField] = dialog.get_value(currencyField) || "KES";
+			amountFields.forEach((fieldname) => {
+				const field = dialog.fields_dict[fieldname];
+				field && field.refresh();
+			});
+		};
+	};
+	const refreshBillingCurrency = bindCurrencyGroup("leasing_currency", [
+		"first_period_amount",
+		"extra_day_rate",
+		"lease_rate_per_seal",
+		"owned_rate_per_seal",
+	]);
+	const refreshExtraCurrency = bindCurrencyGroup("extra_currency", [
+		"extra_first_period_amount",
+		"extra_extra_day_rate",
+	]);
+	const applyCurrencyFormatting = () => {
+		refreshBillingCurrency();
+		refreshExtraCurrency();
 	};
 
 	dialog.fields_dict.billing_type.df.onchange = applyFieldModeForType;
 	dialog.fields_dict.billing_rule_label.df.onchange = applySubscriptionRuleDetails;
+	dialog.fields_dict.outright_purchase.df.onchange = applyBillingTypeOptionsForOwnership;
+	// Number of Seals (Leased or Owned) / Rate per Seal drive both the
+	// seat-based Rate override (applySeatBasedRateOverride) and Extra Billing
+	// tab eligibility (applyExtraBillingTabVisibility, defined below — safe to
+	// reference here since this handler only runs later, once both are
+	// assigned).
+	const applySeatFieldChange = () => {
+		applySeatBasedRateOverride();
+		dialog.ccl_apply_extra_tab_visibility && dialog.ccl_apply_extra_tab_visibility();
+	};
+	dialog.fields_dict.lease_seal_count.df.onchange = applySeatFieldChange;
+	dialog.fields_dict.lease_rate_per_seal.df.onchange = applySeatFieldChange;
+	dialog.fields_dict.owned_seal_count.df.onchange = applySeatFieldChange;
+	dialog.fields_dict.owned_rate_per_seal.df.onchange = applySeatFieldChange;
+	dialog.fields_dict.leasing_currency.df.onchange = refreshBillingCurrency;
+	dialog.fields_dict.extra_currency.df.onchange = refreshExtraCurrency;
+
+	// FieldGroup.make() binds one generic "change" listener, at construction
+	// time, to whatever <input>/<select> elements already exist in the DOM —
+	// it's what makes depends_on (extra_rate_terms_section/
+	// extra_customer_period_section both depend on this) re-evaluate on any
+	// field change. activate_extra_billing starts `hidden: 1` and only gets
+	// its real <input> built later, once _customer_load_extra_billing_data
+	// reveals it (well after that listener was bound) — so toggling it never
+	// reaches that listener and depends_on never re-runs. Explicit onchange
+	// here calls refresh_dependency() directly instead of relying on it.
+	dialog.fields_dict.activate_extra_billing.df.onchange = () => dialog.refresh_dependency();
+
+	const taxRadioHtml = taxCategoryOptions
+		.map(
+			(opt) => `
+				<label class="ccl-tax-radio">
+					<input type="radio" name="${TAX_RADIO_NAME}" value="${frappe.utils.escape_html(opt.value)}" ${
+				opt.value === currentTaxCategory ? "checked" : ""
+			} />
+					<span>${opt.label}</span>
+				</label>
+			`
+		)
+		.join("");
+	dialog.fields_dict.tax_category_html.$wrapper.html(
+		`<div class="ccl-tax-radio-group">${taxRadioHtml}</div>`
+	);
+
+	dialog.fields_dict.recurring_loading_html.$wrapper.html(
+		`<div class="ccl-recurring-loading">${__("Loading extra billing details…")}</div>`
+	);
+
+	dialog.fields_dict.tab_nav_html.$wrapper.html(`
+		<div class="ccl-page-nav">
+			<button type="button" class="ccl-page-nav-btn active" data-page="billing">${__("Billing")}</button>
+			<button type="button" class="ccl-page-nav-btn" data-page="recurring">${__("Extra Billing")}</button>
+		</div>
+	`);
+	dialog.fields_dict.tab_nav_html.$wrapper.on("click", ".ccl-page-nav-btn", function () {
+		const targetPage = $(this).attr("data-page");
+		if (targetPage === "recurring") {
+			_customer_show_recurring_page(dialog, data.customer);
+		} else {
+			_customer_switch_dialog_page(dialog, targetPage, BILLING_PAGE_SECTIONS, RECURRING_PAGE_SECTIONS);
+		}
+	});
+
+	// The Extra Billing tab/button is for Subscription customers who already
+	// have seals to extend — either they own seals outright, or they're
+	// already leasing some seats (Number of Seals Leased + Rate per Seal both
+	// filled, Scenario 4) and want to lease additional ones on top. Toggling
+	// any of outright_purchase/billing_type/lease_seal_count/lease_rate_per_seal
+	// re-evaluates it (wired below and into applyBillingTypeOptionsForOwnership
+	// / applyFieldModeForType, which already fire on those changes); if the tab
+	// is hidden while active, snap back to the Billing page.
+	const applyExtraBillingTabVisibility = () => {
+		const isSubscription = dialog.get_value("billing_type") === "Subscription";
+		const hasOwnedSeals = !!dialog.get_value("outright_purchase");
+		const hasLeasedSeals =
+			!!dialog.get_value("lease_seal_count") && !!dialog.get_value("lease_rate_per_seal");
+		const eligible = isSubscription && (hasOwnedSeals || hasLeasedSeals);
+
+		// Two entry points to the Extra Billing page gate together: the nav pill
+		// and the "Manage Extra Billing" footer button (the dialog's secondary
+		// action). ``get_secondary_btn`` returns that footer button.
+		const $btn = dialog.$wrapper.find('.ccl-page-nav-btn[data-page="recurring"]');
+		$btn.toggle(!!eligible);
+		dialog.get_secondary_btn().toggleClass("hide", !eligible);
+		if (!eligible && $btn.hasClass("active")) {
+			_customer_switch_dialog_page(dialog, "billing", BILLING_PAGE_SECTIONS, RECURRING_PAGE_SECTIONS);
+		}
+	};
+	dialog.ccl_apply_extra_tab_visibility = applyExtraBillingTabVisibility;
 
 	dialog.show();
+	applyBillingTypeOptionsForOwnership();
 	applyFieldModeForType();
+	applyCurrencyFormatting();
+	applyExtraBillingTabVisibility();
+
+	// Eagerly load the customer's existing Scenario 4 lease + Scenario 5
+	// ownership subscriptions — their fields live on the always-visible
+	// Billing page, so they're populated up front. The Extra Billing agreement
+	// is loaded lazily (on first visit to the Extra Billing page) because its
+	// Select controls only build their <option> list once actually visible —
+	// see _customer_load_extra_billing_data.
+	_customer_load_seat_data(dialog, data.customer, () => {
+		applyBillingTypeOptionsForOwnership();
+		applyCurrencyFormatting();
+		applyExtraBillingTabVisibility();
+		dialog.refresh_sections();
+	});
 }
 
-// Fetches the customer's existing Lease + Ownership subscription lines (if
-// any) and reveals both hidden sections in place, rather than opening a
-// second dialog — keeps everything in the one Set Billing modal per
-// customer. A customer can fill in either, both (Scenario 6), or neither.
-function _customer_reveal_recurring_sections(page, dialog, customer) {
-	if (dialog.recurring_sections_revealed) return;
+function _customer_get_tax_category(dialog) {
+	return dialog.$wrapper.find('input[name="ccl_tax_category"]:checked').val() || "Normal Tax (16% VAT)";
+}
+
+// Switches the Set Billing modal between its "Billing" and "Recurring Fees"
+// pages — a hand-rolled two-pill nav rather than Frappe's "Tab Break"
+// fieldtype, which requires a real frm/doctype to build its DOM id and
+// crashes inside a plain frappe.ui.Dialog (see the note above the fields
+// array). Hiding/showing each page's named sections and re-running
+// ``refresh_sections()`` is the same primitive the lease/ownership fields
+// already used to reveal themselves in place.
+function _customer_switch_dialog_page(dialog, targetPage, billingSections, recurringSections) {
+	const showBilling = targetPage !== "recurring";
+	billingSections.forEach((fieldname) => dialog.set_df_property(fieldname, "hidden", showBilling ? 0 : 1));
+	recurringSections.forEach((fieldname) => dialog.set_df_property(fieldname, "hidden", showBilling ? 1 : 0));
+	dialog.refresh_sections();
+
+	dialog.$wrapper.find(".ccl-page-nav-btn").removeClass("active");
+	dialog.$wrapper.find(`.ccl-page-nav-btn[data-page="${targetPage}"]`).addClass("active");
+}
+
+// Single entry point for landing on the Extra Billing page, used by both the
+// nav pill and the "Manage Extra Billing" footer button. Switch page first,
+// then (on first visit) reveal a loading placeholder and fetch the agreement —
+// loading here rather than at dialog open because the extra fields' Select
+// controls only build their <option> list once actually visible.
+function _customer_show_recurring_page(dialog, customer) {
+	_customer_switch_dialog_page(dialog, "recurring", dialog.ccl_billing_sections, dialog.ccl_recurring_sections);
+
+	if (dialog.extra_data_loaded) return;
+
+	dialog.set_df_property("recurring_loading_html", "hidden", 0);
+	dialog.refresh_sections();
+
+	_customer_load_extra_billing_data(dialog, customer, () => {
+		dialog.set_df_property("recurring_loading_html", "hidden", 1);
+		dialog.refresh_sections();
+	});
+}
+
+// Loads the customer's Scenario 4 lease + Scenario 5 ownership subscriptions
+// into the Billing-page seat fields (seal_ownership_section, always visible)
+// — safe to call eagerly at dialog open. Guarded by ``seat_data_loaded``.
+function _customer_load_seat_data(dialog, customer, onComplete) {
+	if (dialog.seat_data_loaded) {
+		onComplete && onComplete();
+		return;
+	}
+	dialog.seat_data_loaded = true;
+
+	let pending = 2;
+	const settle = () => {
+		pending -= 1;
+		if (pending === 0) onComplete && onComplete();
+	};
 
 	frappe.call({
 		method: "tnt_seal_management.tnt_seal_management.api.seal_lease_billing.get_customer_lease_subscription",
 		args: { customer },
-		freeze: true,
 		callback(r) {
 			const info = r.message || {};
-			dialog.set_value("lease_status_display", info.lease_status || __("Not activated"));
 			dialog.set_value("lease_seal_count", info.seal_count || null);
 			dialog.set_value("lease_rate_per_seal", info.rate_per_seal || null);
-			dialog.set_value("lease_billing_interval", info.billing_interval || "Month");
-			dialog.set_value("lease_currency", info.currency || "KES");
-
-			[
-				"lease_section",
-				"lease_status_display",
-				"lease_col_1",
-				"lease_seal_count",
-				"lease_col_2",
-				"lease_rate_per_seal",
-				"lease_section_2",
-				"lease_billing_interval",
-				"lease_col_3",
-				"lease_currency",
-			].forEach((fieldname) => dialog.set_df_property(fieldname, "hidden", 0));
+			settle();
 		},
 		error() {
 			frappe.show_alert({ message: __("Could not load lease subscription details"), indicator: "red" }, 5);
+			settle();
 		},
 	});
 
 	frappe.call({
 		method: "tnt_seal_management.tnt_seal_management.api.seal_lease_billing.get_customer_ownership_subscription",
 		args: { customer },
-		freeze: true,
 		callback(r) {
 			const info = r.message || {};
-			dialog.set_value("ownership_status_display", info.ownership_status || __("Not activated"));
-			dialog.set_value("ownership_seal_count", info.seal_count || null);
-			dialog.set_value("ownership_rate_per_seal", info.rate_per_seal || null);
-			dialog.set_value("ownership_billing_interval", info.billing_interval || "Month");
-			dialog.set_value("ownership_currency", info.currency || "KES");
-
-			[
-				"ownership_section",
-				"ownership_status_display",
-				"ownership_col_1",
-				"ownership_seal_count",
-				"ownership_col_2",
-				"ownership_rate_per_seal",
-				"ownership_section_2",
-				"ownership_billing_interval",
-				"ownership_col_3",
-				"ownership_currency",
-			].forEach((fieldname) => dialog.set_df_property(fieldname, "hidden", 0));
-
-			dialog.recurring_sections_revealed = true;
-			dialog.set_secondary_action_label(__("Recurring Fees Shown"));
-			dialog.get_secondary_btn().prop("disabled", true);
+			dialog.set_value("owned_rate_per_seal", info.rate_per_seal || null);
+			settle();
 		},
 		error() {
 			frappe.show_alert({ message: __("Could not load ownership subscription details"), indicator: "red" }, 5);
+			settle();
+		},
+	});
+}
+
+// Loads the customer's Extra Billing agreement and reveals + fills the Extra
+// Billing page. Called from _customer_show_recurring_page (page already shown)
+// so the reveal-before-set dance below actually renders the Select options.
+// Guarded by ``extra_data_loaded``.
+function _customer_load_extra_billing_data(dialog, customer, onComplete) {
+	if (dialog.extra_data_loaded) {
+		onComplete && onComplete();
+		return;
+	}
+	dialog.extra_data_loaded = true;
+
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.current_customers.get_customer_extra_billing",
+		args: { customer },
+		callback(r) {
+			const info = r.message || {};
+
+			// Reveal the fields BEFORE setting their values. A frappe control
+			// only builds its <input>/<select> DOM when it first becomes
+			// visible (base_input.js refresh_input calls make_input only when
+			// disp_status != "None"). For a Select, calling set_value while
+			// still hidden POISONS its `last_options` cache, so it renders empty
+			// once un-hidden. Un-hiding first lets make_input build the real
+			// <select>. Column Break fieldnames are omitted (not in fields_dict).
+			[
+				"extra_billing_section",
+				"activate_extra_billing",
+				"extra_rate_terms_section",
+				"extra_currency",
+				"extra_first_period_days",
+				"extra_first_period_amount",
+				"extra_extra_day_rate",
+				"extra_customer_period_section",
+				"extra_period_from_date",
+				"extra_period_to_date",
+			].forEach((fieldname) => dialog.set_df_property(fieldname, "hidden", 0));
+
+			dialog.set_value("activate_extra_billing", info.active ? 1 : 0);
+			dialog.set_value("extra_currency", info.currency || "KES");
+			dialog.set_value("extra_first_period_days", info.first_period_days || null);
+			dialog.set_value("extra_first_period_amount", info.first_period_amount || null);
+			dialog.set_value("extra_extra_day_rate", info.extra_day_rate || null);
+			dialog.set_value("extra_period_from_date", info.period_from_date || null);
+			dialog.set_value("extra_period_to_date", info.period_to_date || null);
+
+			dialog.refresh_sections();
+			onComplete && onComplete();
+		},
+		error() {
+			frappe.show_alert({ message: __("Could not load extra billing details"), indicator: "red" }, 5);
+			onComplete && onComplete();
 		},
 	});
 }
@@ -725,19 +1219,36 @@ function _customer_reveal_recurring_sections(page, dialog, customer) {
 // terms object when filled in, or false on a validation failure (a message
 // has already been shown, so the caller should abort the whole save).
 function _customer_collect_lease_args(dialog) {
-	if (!dialog.recurring_sections_revealed) return null;
-
 	const seal_count = dialog.get_value("lease_seal_count");
 	const rate_per_seal = dialog.get_value("lease_rate_per_seal");
 	const hasSealCount = seal_count !== "" && seal_count !== null && seal_count !== undefined;
 	const hasRate = rate_per_seal !== "" && rate_per_seal !== null && rate_per_seal !== undefined;
 
-	if (!hasSealCount && !hasRate) return null; // revealed but left blank — nothing to do
+	if (!hasSealCount && !hasRate) return null; // left blank — nothing to do
 
 	if (!hasSealCount || !hasRate) {
 		frappe.show_alert(
-			{ message: __("Enter both Number of Seals Leased and Rate per Seal, or leave the Recurring Lease Fee section blank."), indicator: "red" },
+			{ message: __("Enter both Number of Seals Leased and Rate per Seal, or leave both blank."), indicator: "red" },
 			6
+		);
+		return false;
+	}
+
+	// The recurring Subscription bills on a cycle — Billing Period Type's
+	// per-journey options (Date Range/Days) don't map to one, so a customer
+	// on either can't activate it here. They still get the seat-based Rate
+	// Terms amount (applySeatBasedRateOverride); only the recurring line is
+	// blocked.
+	const billingInterval = BILLING_PERIOD_TO_LEASE_INTERVAL[dialog.get_value("billing_period_type")];
+	if (!billingInterval) {
+		frappe.show_alert(
+			{
+				message: __(
+					"Recurring Lease Fee needs a Billing Period Type of Weekly, Monthly, Quarterly, Semi-Annually or Annually to bill on a cycle — choose one under Rate Terms, or clear Number of Seals Leased / Rate per Seal."
+				),
+				indicator: "red",
+			},
+			8
 		);
 		return false;
 	}
@@ -745,26 +1256,40 @@ function _customer_collect_lease_args(dialog) {
 	return {
 		seal_count,
 		rate_per_seal,
-		billing_interval: dialog.get_value("lease_billing_interval") || "Month",
-		currency: dialog.get_value("lease_currency") || "KES",
+		billing_interval: billingInterval,
+		currency: dialog.get_value("leasing_currency") || "KES",
 	};
 }
 
-// Same shape as _customer_collect_lease_args, for the Ownership Service Fee section.
+// Same shape as _customer_collect_lease_args, for the owned side (Scenario 5
+// — Ownership Service Fee). Reads owned_seal_count/owned_rate_per_seal
+// instead of the leased pair.
 function _customer_collect_ownership_args(dialog) {
-	if (!dialog.recurring_sections_revealed) return null;
-
-	const seal_count = dialog.get_value("ownership_seal_count");
-	const rate_per_seal = dialog.get_value("ownership_rate_per_seal");
+	const seal_count = dialog.get_value("owned_seal_count");
+	const rate_per_seal = dialog.get_value("owned_rate_per_seal");
 	const hasSealCount = seal_count !== "" && seal_count !== null && seal_count !== undefined;
 	const hasRate = rate_per_seal !== "" && rate_per_seal !== null && rate_per_seal !== undefined;
 
-	if (!hasSealCount && !hasRate) return null; // revealed but left blank — nothing to do
+	if (!hasSealCount && !hasRate) return null; // left blank — nothing to do
 
 	if (!hasSealCount || !hasRate) {
 		frappe.show_alert(
-			{ message: __("Enter both Number of Seals Owned and Service Fee Rate, or leave the Ownership Service Fee section blank."), indicator: "red" },
+			{ message: __("Enter both Number of Seals Owned and Rate per Seal (Owned), or leave both blank."), indicator: "red" },
 			6
+		);
+		return false;
+	}
+
+	const billingInterval = BILLING_PERIOD_TO_LEASE_INTERVAL[dialog.get_value("billing_period_type")];
+	if (!billingInterval) {
+		frappe.show_alert(
+			{
+				message: __(
+					"Ownership Service Fee needs a Billing Period Type of Weekly, Monthly, Quarterly, Semi-Annually or Annually to bill on a cycle — choose one under Rate Terms, or clear Number of Seals Owned / Rate per Seal (Owned)."
+				),
+				indicator: "red",
+			},
+			8
 		);
 		return false;
 	}
@@ -772,18 +1297,55 @@ function _customer_collect_ownership_args(dialog) {
 	return {
 		seal_count,
 		rate_per_seal,
-		billing_interval: dialog.get_value("ownership_billing_interval") || "Month",
-		currency: dialog.get_value("ownership_currency") || "KES",
+		billing_interval: billingInterval,
+		currency: dialog.get_value("leasing_currency") || "KES",
 	};
 }
 
-// Shared tail end of both billing-save paths: saves the Lease and/or
-// Ownership subscription lines (whichever the caller collected) before
-// closing the dialog and reloading the list, so "Save Billing" acts as one
-// combined save. Both lines land on the same Subscription — Scenario 6.
+// Collects the Extra Billing (Scenario 6) leasing agreement off the dialog.
+// Returns null when nothing to persist and never persisted (skip the call), a
+// terms object otherwise (including deactivation), or false on a validation
+// failure (message already shown, caller should abort the save). Only relevant
+// once the extra data has loaded.
+function _customer_collect_extra_billing_args(dialog) {
+	// Never opened the Extra Billing tab this session → nothing to persist.
+	if (!dialog.extra_data_loaded) return null;
+
+	const activate = dialog.get_value("activate_extra_billing") ? 1 : 0;
+	const days = dialog.get_value("extra_first_period_days");
+	const amount = dialog.get_value("extra_first_period_amount");
+	const extraRate = dialog.get_value("extra_extra_day_rate");
+	const hasTerms =
+		!!days && amount !== "" && amount !== null && amount !== undefined && extraRate !== "" && extraRate !== null && extraRate !== undefined;
+
+	if (!activate && !hasTerms) return null; // nothing entered, nothing to switch off
+
+	if (activate && !hasTerms) {
+		frappe.show_alert(
+			{ message: __("Enter First Period Days, First Period Amount and Extra Day Rate for Extra Billing, or untick Activate Extra Billing."), indicator: "red" },
+			7
+		);
+		return false;
+	}
+
+	return {
+		activate,
+		first_period_days: days,
+		first_period_amount: amount,
+		extra_day_rate: extraRate,
+		currency: dialog.get_value("extra_currency") || "KES",
+		period_from_date: dialog.get_value("extra_period_from_date") || null,
+		period_to_date: dialog.get_value("extra_period_to_date") || null,
+	};
+}
+
+// Shared tail end of both billing-save paths: saves the Scenario 4 lease
+// subscription, the Scenario 5 ownership subscription, and/or the Scenario 6
+// Extra Billing agreement (whichever the caller collected) before closing the
+// dialog and reloading, so "Save Billing" acts as one combined save.
 function _customer_finish_billing_save(page, dialog, customer, billingMessage, recurringArgs) {
-	const { leaseArgs, ownershipArgs } = recurringArgs || {};
-	if (!leaseArgs && !ownershipArgs) {
+	const { leaseArgs, ownershipArgs, extraArgs } = recurringArgs || {};
+	if (!leaseArgs && !ownershipArgs && !extraArgs) {
 		dialog.hide();
 		frappe.show_alert({ message: billingMessage, indicator: "green" });
 		_customer_load(page);
@@ -819,7 +1381,26 @@ function _customer_finish_billing_save(page, dialog, customer, billingMessage, r
 					currency: ownershipArgs.currency,
 				},
 				freeze: true,
-				freeze_message: __("Saving ownership service fee…"),
+				freeze_message: __("Saving ownership subscription…"),
+			})
+		);
+	}
+	if (extraArgs) {
+		calls.push(
+			frappe.call({
+				method: "tnt_seal_management.tnt_seal_management.api.current_customers.set_customer_extra_billing",
+				args: {
+					customer,
+					activate: extraArgs.activate,
+					first_period_days: extraArgs.first_period_days,
+					first_period_amount: extraArgs.first_period_amount,
+					extra_day_rate: extraArgs.extra_day_rate,
+					currency: extraArgs.currency,
+					period_from_date: extraArgs.period_from_date,
+					period_to_date: extraArgs.period_to_date,
+				},
+				freeze: true,
+				freeze_message: __("Saving extra billing…"),
 			})
 		);
 	}
@@ -827,13 +1408,13 @@ function _customer_finish_billing_save(page, dialog, customer, billingMessage, r
 	Promise.all(calls)
 		.then(() => {
 			dialog.hide();
-			frappe.show_alert({ message: __("{0} Recurring fees saved.", [billingMessage]), indicator: "green" });
+			frappe.show_alert({ message: __("{0} Recurring billing saved.", [billingMessage]), indicator: "green" });
 			_customer_load(page);
 		})
 		.catch(() => {
 			dialog.hide();
 			frappe.show_alert(
-				{ message: __("{0}, but a recurring fee could not be saved.", [billingMessage]), indicator: "orange" },
+				{ message: __("{0}, but recurring billing could not be saved.", [billingMessage]), indicator: "orange" },
 				6
 			);
 			_customer_load(page);
@@ -850,10 +1431,11 @@ function _customer_submit_leasing_billing(page, customer, terms, dialog, recurri
 			first_period_amount: terms.first_period_amount,
 			extra_day_rate: terms.extra_day_rate,
 			currency: terms.currency,
-			rule_effective_from: terms.effective_from || null,
-			rule_effective_to: terms.effective_to || null,
 			period_from_date: terms.period_from_date || null,
 			period_to_date: terms.period_to_date || null,
+			tax_category: terms.tax_category,
+			outright_purchase: terms.outright_purchase,
+			owned_seal_count: terms.owned_seal_count,
 		},
 		freeze: true,
 		freeze_message: __("Saving billing…"),
@@ -868,9 +1450,7 @@ function _customer_submit_leasing_billing(page, customer, terms, dialog, recurri
 	});
 }
 
-// Keeps the customer's period inside the rule's company-wide validity window
-// (either bound may be unset on the rule, meaning open-ended on that side).
-function _customer_validate_period_bounds(dialog, rule) {
+function _customer_validate_period_bounds(dialog) {
 	const from = dialog.get_value("period_from_date");
 	const to = dialog.get_value("period_to_date");
 
@@ -878,24 +1458,24 @@ function _customer_validate_period_bounds(dialog, rule) {
 		frappe.show_alert({ message: __("Period To Date cannot be before Period From Date."), indicator: "red" }, 5);
 		return false;
 	}
-	if (from && rule.effective_from && frappe.datetime.str_to_obj(from) < frappe.datetime.str_to_obj(rule.effective_from)) {
-		frappe.show_alert(
-			{ message: __("Period From Date cannot be before the rule's Effective From Date ({0}).", [rule.effective_from]), indicator: "red" },
-			6
-		);
-		return false;
-	}
-	if (to && rule.effective_to && frappe.datetime.str_to_obj(to) > frappe.datetime.str_to_obj(rule.effective_to)) {
-		frappe.show_alert(
-			{ message: __("Period To Date cannot be after the rule's Effective To Date ({0}).", [rule.effective_to]), indicator: "red" },
-			6
-		);
-		return false;
-	}
 	return true;
 }
 
-function _customer_submit_billing(page, customer, billingRule, billingType, periodFromDate, periodToDate, dialog, recurringArgs) {
+function _customer_submit_billing(
+	page,
+	customer,
+	billingRule,
+	billingType,
+	periodFromDate,
+	periodToDate,
+	dialog,
+	recurringArgs,
+	taxCategory,
+	firstPeriodAmount,
+	currency,
+	outrightPurchase,
+	ownedSealCount
+) {
 	frappe.call({
 		method: "tnt_seal_management.tnt_seal_management.api.current_customers.set_customer_billing",
 		args: {
@@ -904,6 +1484,11 @@ function _customer_submit_billing(page, customer, billingRule, billingType, peri
 			billing_type: billingType,
 			period_from_date: periodFromDate || null,
 			period_to_date: periodToDate || null,
+			tax_category: taxCategory,
+			first_period_amount: firstPeriodAmount === "" ? null : firstPeriodAmount,
+			currency: currency || null,
+			outright_purchase: outrightPurchase,
+			owned_seal_count: ownedSealCount,
 		},
 		freeze: true,
 		freeze_message: __("Saving billing…"),
@@ -1394,6 +1979,48 @@ function _customer_inject_styles() {
 				min-width: 100%;
 				max-width: 100%;
 			}
+		}
+		.ccl-tax-radio-group {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 16px;
+			padding: 4px 0 8px;
+		}
+		.ccl-tax-radio {
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			font-weight: 500;
+			cursor: pointer;
+		}
+		.ccl-tax-radio input[type="radio"] {
+			margin: 0;
+			cursor: pointer;
+		}
+		.ccl-page-nav {
+			display: flex;
+			gap: 4px;
+			border-bottom: 1px solid var(--border-color, #d1d8dd);
+			margin-bottom: 16px;
+		}
+		.ccl-page-nav-btn {
+			background: none;
+			border: none;
+			border-bottom: 2px solid transparent;
+			padding: 8px 4px;
+			margin-right: 20px;
+			font-weight: 500;
+			color: var(--text-muted, #8d99a6);
+			cursor: pointer;
+		}
+		.ccl-page-nav-btn.active {
+			color: var(--ccl-blue, #0284c7);
+			border-bottom-color: var(--ccl-blue, #0284c7);
+		}
+		.ccl-recurring-loading {
+			padding: 24px 0;
+			text-align: center;
+			color: var(--text-muted, #8d99a6);
 		}
 	`;
 	document.head.appendChild(style);

@@ -156,6 +156,15 @@
   "per_seal_amount",
   "billing_total_column_break",
   "total_charge",
+  "extra_billing_section",
+  "extra_billing_rule",
+  "extra_billing_seal_count",
+  "extra_billing_first_period_amount",
+  "extra_billing_column_break",
+  "extra_billing_extra_days",
+  "extra_billing_extra_day_rate",
+  "extra_billing_extra_day_amount",
+  "extra_billing_amount",
   "billing_settlement_section",
   "invoice_reference",
   "billed_by",
@@ -854,7 +863,7 @@
    "fieldname": "billing_status",
    "fieldtype": "Select",
    "label": "Billing Status",
-   "options": "Not Billed\nPending Billing\nBilled\nCancelled",
+   "options": "Not Billed\nPending Billing\nNo Per-Journey Charge\nBilled\nCancelled",
    "read_only": 1
   },
   {
@@ -946,6 +955,62 @@
    "fieldname": "total_charge",
    "fieldtype": "Currency",
    "label": "Total Charge",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "description": "Scenario 6: an additional leasing charge for seals leased beyond the customer's owned pool, computed at tagging on the customer's Extra Billing agreement — on top of the Subscription charge above.",
+   "fieldname": "extra_billing_section",
+   "fieldtype": "Section Break",
+   "label": "Extra Billing (leased seals)"
+  },
+  {
+   "fieldname": "extra_billing_rule",
+   "fieldtype": "Link",
+   "label": "Extra Billing Rule",
+   "options": "Seal Billing Rate",
+   "read_only": 1
+  },
+  {
+   "description": "Seals on this journey leased beyond the customer's owned pool (counted across all active journeys).",
+   "fieldname": "extra_billing_seal_count",
+   "fieldtype": "Int",
+   "label": "Leased Seals Billed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "extra_billing_first_period_amount",
+   "fieldtype": "Currency",
+   "label": "Extra First Period Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "extra_billing_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "extra_billing_extra_days",
+   "fieldtype": "Int",
+   "label": "Extra Days",
+   "read_only": 1
+  },
+  {
+   "fieldname": "extra_billing_extra_day_rate",
+   "fieldtype": "Currency",
+   "label": "Extra Day Rate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "extra_billing_extra_day_amount",
+   "fieldtype": "Currency",
+   "label": "Extra Day Amount",
+   "read_only": 1
+  },
+  {
+   "description": "Total additional leasing charge for this journey (Leased Seals Billed × per-seal amount).",
+   "fieldname": "extra_billing_amount",
+   "fieldtype": "Currency",
+   "label": "Extra Billing Total",
    "read_only": 1
   },
   {

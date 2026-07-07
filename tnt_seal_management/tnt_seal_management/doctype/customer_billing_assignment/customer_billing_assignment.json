@@ -15,6 +15,15 @@
   "billing_rule",
   "priority",
   "active",
+  "is_extra_billing",
+  "seal_ownership_section",
+  "outright_purchase",
+  "seal_ownership_column_break",
+  "owned_seal_count",
+  "rate_override_section",
+  "override_first_period_amount",
+  "rate_override_column_break",
+  "override_currency",
   "validity_section",
   "effective_from",
   "validity_column_break",
@@ -78,6 +87,57 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Active"
+  },
+  {
+   "default": "0",
+   "description": "An additional, per-customer leasing agreement (Scenario 6) that coexists with the customer's primary Subscription assignment instead of replacing it. Set by the Set Billing modal's Extra Billing tab.",
+   "fieldname": "is_extra_billing",
+   "fieldtype": "Check",
+   "label": "Extra Billing Agreement"
+  },
+  {
+   "fieldname": "seal_ownership_section",
+   "fieldtype": "Section Break",
+   "label": "Seal Ownership",
+   "description": "Does this customer own their seals outright (purchased), rather than leasing/using them under the per-journey rate above? Toggle Yes to record how many seals they own."
+  },
+  {
+   "default": "0",
+   "fieldname": "outright_purchase",
+   "fieldtype": "Check",
+   "label": "Outright Purchase"
+  },
+  {
+   "fieldname": "seal_ownership_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.outright_purchase",
+   "fieldname": "owned_seal_count",
+   "fieldtype": "Int",
+   "label": "Number of Seals Owned",
+   "mandatory_depends_on": "eval:doc.outright_purchase"
+  },
+  {
+   "fieldname": "rate_override_section",
+   "fieldtype": "Section Break",
+   "label": "Rate Override",
+   "description": "Subscription rules only. Leave both blank to bill this customer at the shared billing rule's own Rate/Currency — fill in to override for this customer only, without touching the shared rule or any other customer assigned to it."
+  },
+  {
+   "fieldname": "override_first_period_amount",
+   "fieldtype": "Currency",
+   "label": "Rate Override"
+  },
+  {
+   "fieldname": "rate_override_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "override_currency",
+   "fieldtype": "Select",
+   "label": "Currency Override",
+   "options": "\nKES\nUSD"
   },
   {
    "fieldname": "validity_section",

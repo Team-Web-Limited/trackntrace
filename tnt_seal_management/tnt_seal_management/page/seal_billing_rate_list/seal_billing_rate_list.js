@@ -305,8 +305,6 @@ function _sbr_render_table(page, rates) {
 				<th>${__("First Period Amount")}</th>
 				<th>${__("Extra Day Rate")}</th>
 				<th>${__("Currency")}</th>
-				<th>${__("Effective From")}</th>
-				<th>${__("Effective To")}</th>
 				<th>${__("Status")}</th>
 				<th>${__("Approval")}</th>
 			</tr></thead>
@@ -325,13 +323,6 @@ function _sbr_row_html(page, rate) {
 	const extraRate = rate.extra_day_rate
 		? frappe.format(rate.extra_day_rate, { fieldtype: "Currency" })
 		: "—";
-	const effFrom = rate.effective_from
-		? frappe.datetime.str_to_user(rate.effective_from)
-		: "—";
-	const effTo = rate.effective_to
-		? frappe.datetime.str_to_user(rate.effective_to)
-		: "—";
-
 	return `
 		<tr class="sbr-row" data-name="${frappe.utils.escape_html(rate.name)}">
 			<td>
@@ -343,8 +334,6 @@ function _sbr_row_html(page, rate) {
 			<td>${firstAmt}</td>
 			<td>${extraRate}</td>
 			<td>${frappe.utils.escape_html(rate.currency || "—")}</td>
-			<td>${frappe.utils.escape_html(effFrom)}</td>
-			<td>${frappe.utils.escape_html(effTo)}</td>
 			<td><span class="sbr-badge sbr-badge--${isActive ? "active" : "inactive"}">${isActive ? __("Active") : __("Inactive")}</span></td>
 			<td>${_sbr_approval_cell_html(page, rate)}</td>
 		</tr>

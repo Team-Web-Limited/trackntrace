@@ -10,8 +10,14 @@ from frappe.utils import get_datetime, getdate, now_datetime, today
 from frappe.desk.search import validate_and_sanitize_search_inputs
 
 from tnt_seal_management.tnt_seal_management.billing import (
+	ACTIVE_JOURNEY_STATUSES,
+	apply_billing_overrides,
 	compute_billing_amount,
-	get_applicable_billing_rule,
+	resolve_customer_billing,
+	resolve_customer_extra_billing,
+)
+from tnt_seal_management.tnt_seal_management.api.seal_lease_billing import (
+	customer_has_seat_subscription,
 )
 
 # Statuses the billing engine must not overwrite — they are set by a human /
@@ -155,7 +161,8 @@ class SealJourney(Document):
 			self._clear_billing(status="Not Billed")
 			return
 
-		rule_name = get_applicable_billing_rule(self.customer, self.billing_start_date)
+		resolved = resolve_customer_billing(self.customer, self.billing_start_date)
+		rule_name = resolved["billing_rule"]
 		if not rule_name:
 			self._clear_billing(status="Not Billed")
 			return
@@ -165,6 +172,7 @@ class SealJourney(Document):
 			rule_name,
 			[
 				"name",
+				"billing_type",
 				"billing_period_type",
 				"currency",
 				"first_period_days",
@@ -173,6 +181,7 @@ class SealJourney(Document):
 			],
 			as_dict=True,
 		)
+		apply_billing_overrides(rule, resolved)
 
 		# Final billing uses the return date; otherwise estimate to today.
 		end_date = self.billing_return_date or getdate(today())
@@ -181,7 +190,24 @@ class SealJourney(Document):
 
 		total_days = (getdate(end_date) - getdate(self.billing_start_date)).days + 1
 		seal_count = self._billable_seal_count()
-		result = compute_billing_amount(rule, total_days, seal_count)
+
+		# Scenarios 4/5: a customer with a recurring Seal Lease Fee / Seal
+		# Ownership Service Fee subscription is billed that flat recurring
+		# amount instead — their per-journey base charge is zero (the picked
+		# rule only supplies the billing cycle via billing_period_type, not a
+		# per-journey rate). Their journeys still resolve a rule/total_days
+		# above and still run set_extra_billing below — Scenario 6's overflow
+		# charge is independent of the base being zeroed.
+		if customer_has_seat_subscription(self.customer):
+			result = {
+				"billable_days": total_days, "first_period_days": 0, "first_period_amount": 0,
+				"extra_days": 0, "extra_day_rate": 0, "extra_day_amount": 0,
+				"seal_count": seal_count, "per_seal_amount": 0, "total_amount": 0,
+			}
+			billing_status = "No Per-Journey Charge"
+		else:
+			result = compute_billing_amount(rule, total_days, seal_count)
+			billing_status = "Pending Billing"
 
 		self.billing_rule = rule.name
 		self.billable_days = result["billable_days"]
@@ -193,7 +219,111 @@ class SealJourney(Document):
 		self.seal_count = result["seal_count"]
 		self.per_seal_amount = result["per_seal_amount"]
 		self.total_charge = result["total_amount"]
-		self.billing_status = "Pending Billing"
+		self.billing_status = billing_status
+
+		# Scenario 6: a customer with a committed base (owned or leased) may
+		# also lease extra seals — bill those (seals beyond the base) on the
+		# extra leasing rule, additively, once the journey is tagged and out
+		# in field.
+		self.set_extra_billing(rule.billing_type, total_days)
+
+	def set_extra_billing(self, primary_billing_type, total_days):
+		"""Compute the additional Extra Billing (Scenario 6) leasing charge for
+		this journey's *overflow* seals — those beyond the customer's committed
+		base (owned seats for an outright-purchase customer, or their current
+		Scenario 4 lease count otherwise — see billing.resolve_customer_extra_billing),
+		counted across all of the customer's active journeys. Applies only once
+		the journey is tagged (in ACTIVE_JOURNEY_STATUSES) and the customer is
+		Subscription-billed with an active extra agreement; otherwise the extra
+		line is cleared. Reads sibling journeys to find this one's cumulative
+		position but writes only itself (no cascading saves)."""
+		if primary_billing_type != "Subscription" or self.journey_status not in ACTIVE_JOURNEY_STATUSES:
+			self._clear_extra_billing()
+			return
+
+		extra = resolve_customer_extra_billing(self.customer, self.billing_start_date)
+		if not extra:
+			self._clear_extra_billing()
+			return
+
+		leased_here = self._leased_seal_count(cint(extra["base_seal_count"]))
+		if leased_here <= 0:
+			self._clear_extra_billing()
+			return
+
+		rule = frappe.db.get_value(
+			"Seal Billing Rate",
+			extra["billing_rule"],
+			["name", "billing_period_type", "currency", "first_period_days", "first_period_amount", "extra_day_rate"],
+			as_dict=True,
+		)
+		if not rule:
+			self._clear_extra_billing()
+			return
+
+		result = compute_billing_amount(rule, total_days, leased_here)
+		self.extra_billing_rule = rule.name
+		self.extra_billing_seal_count = result["seal_count"]
+		self.extra_billing_first_period_amount = result["first_period_amount"]
+		self.extra_billing_extra_days = result["extra_days"]
+		self.extra_billing_extra_day_rate = result["extra_day_rate"]
+		self.extra_billing_extra_day_amount = result["extra_day_amount"]
+		self.extra_billing_amount = result["total_amount"]
+
+	def _leased_seal_count(self, base_seal_count):
+		"""How many of *this* journey's seals are overflow (billed on the extra
+		rule). Orders the customer's active journeys by (billing_start_date,
+		name); the first ``base_seal_count`` seals across them are covered by the
+		committed base (owned or leased), and any beyond are overflow. Returns
+		this journey's slice."""
+		my_seals = self._billable_seal_count()
+		if my_seals <= 0:
+			return 0
+
+		siblings = frappe.get_all(
+			"Seal Journey",
+			filters={
+				"customer": self.customer,
+				"journey_status": ["in", ACTIVE_JOURNEY_STATUSES],
+				"name": ["!=", self.name],
+			},
+			fields=["name", "billing_start_date", "seal_count"],
+		)
+		rows = siblings + [
+			frappe._dict(
+				{"name": self.name, "billing_start_date": self.billing_start_date, "seal_count": my_seals}
+			)
+		]
+
+		# Stable order: earliest billing start first, then journey name. Journeys
+		# with no billing_start_date sort last (flagged with 1 so getdate(None)
+		# is never called on them).
+		def _sort_key(row):
+			d = row.get("billing_start_date")
+			return (0, getdate(d).isoformat()) if d else (1, ""), row.get("name") or ""
+
+		rows.sort(key=_sort_key)
+
+		cumulative_before = 0
+		for row in rows:
+			if row.get("name") == self.name:
+				break
+			cumulative_before += cint(row.get("seal_count")) or 0
+
+		# Seals of this journey occupy global indices
+		# [cumulative_before, cumulative_before + my_seals); overflow ones are
+		# the indices >= base_seal_count.
+		leased = (cumulative_before + my_seals) - max(cumulative_before, base_seal_count)
+		return max(0, min(my_seals, leased))
+
+	def _clear_extra_billing(self):
+		self.extra_billing_rule = None
+		self.extra_billing_seal_count = 0
+		self.extra_billing_first_period_amount = 0
+		self.extra_billing_extra_days = 0
+		self.extra_billing_extra_day_rate = 0
+		self.extra_billing_extra_day_amount = 0
+		self.extra_billing_amount = 0
 
 	def _billable_seal_count(self):
 		"""Number of seals billed on this journey. Each seal in ``journey_seals``
@@ -255,6 +385,7 @@ class SealJourney(Document):
 		self.per_seal_amount = 0
 		self.total_charge = 0
 		self.billing_status = status
+		self._clear_extra_billing()
 
 
 def set_journey_status(seal_journey, status, extra=None):

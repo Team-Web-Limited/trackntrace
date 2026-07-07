@@ -1,0 +1,64 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Documentation") }}{% endblock %}
+
+{% block script %}
+{% endblock %}
+
+{% block page_content %}
+<div class="docs-layout dark-theme">
+	<main class="docs-main" style="padding: 100px 40px; width: 100%;">
+		<div class="docs-content text-center">
+			
+			<!-- Welcome Section -->
+			<section id="welcome" class="docs-section pb-4">
+				<h1 class="docs-title" style="font-size: 3.25rem; margin-bottom: 25px;">Welcome to the TNT Docs</h1>
+				<p class="docs-paragraph mt-4" style="max-width: 750px; margin: 0 auto 50px auto; font-size: 1.15rem; color: #b0b0b0;">
+					Explore comprehensive guides on managing your seal tagging workflows, logistics, devices, and billing through the TNT Seal Management platform.
+				</p>
+				
+				<div class="row docs-cards-grid mt-5">
+					<!-- Card 1: Features -->
+					<div class="col-md-4 mb-4">
+						<div class="card docs-card bg-dark-card h-100" style="background-color: #2b2b2b !important; border: 1px solid #424242 !important;">
+							<div class="card-body text-center p-4 d-flex flex-column">
+								<h4 class="text-info mb-3 font-weight-normal"><i class="fa fa-cogs mr-2"></i>Features Guide</h4>
+								<p class="text-light-muted mb-4">Explore step-by-step guides for every module in TNT Seal Management, including setup, bookings, inventory, and operations.</p>
+								<div class="mt-auto border-top pt-3 text-right" style="border-color: #424242 !important;">
+									<a href="/docs/features" class="text-info text-decoration-none small">View Features <i class="fa fa-arrow-right ml-1"></i></a>
+								</div>
+							</div>
+						</div>
+					</div>
+					<!-- Card 2: Roles -->
+					<div class="col-md-4 mb-4">
+						<div class="card docs-card bg-dark-card h-100" style="background-color: #2b2b2b !important; border: 1px solid #424242 !important;">
+							<div class="card-body text-center p-4 d-flex flex-column">
+								<h4 class="text-info mb-3 font-weight-normal"><i class="fa fa-users mr-2"></i>Role Manuals</h4>
+								<p class="text-light-muted mb-4">Read onboarding manuals tailored to specific permissions, such as Tagging Technicians and Operators.</p>
+								<div class="mt-auto border-top pt-3 text-right" style="border-color: #424242 !important;">
+									<a href="/docs/roles" class="text-info text-decoration-none small">View Roles <i class="fa fa-arrow-right ml-1"></i></a>
+								</div>
+							</div>
+						</div>
+					</div>
+					<!-- Card 3: Download PDF -->
+					<div class="col-md-4 mb-4">
+						<div class="card docs-card bg-dark-card h-100" style="background-color: #2b2b2b !important; border: 1px solid #424242 !important;">
+							<div class="card-body text-center p-4 d-flex flex-column">
+								<h4 class="text-info mb-3 font-weight-normal"><i class="fa fa-file-pdf mr-2"></i>Offline PDF</h4>
+								<p class="text-light-muted mb-4">Export the entire documentation suite as a single, beautifully paginated PDF complete with a table of contents.</p>
+								<div class="mt-auto border-top pt-3 text-right" style="border-color: #424242 !important;">
+									<a href="/api/method/tnt_seal_management.tnt_seal_management.api.docs_api.download_pdf" target="_blank" class="text-info text-decoration-none small"><i class="fa fa-download mr-1"></i>Download PDF</a>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</section>
+		</div>
+	</main>
+</div>
+
+{% include "tnt_seal_management/www/docs/docs_styles.html" %}
+{% endblock %}

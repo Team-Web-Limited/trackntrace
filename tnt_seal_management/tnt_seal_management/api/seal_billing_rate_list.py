@@ -18,7 +18,7 @@ _FIELDS = [
 	"name", "billing_rule_name", "billing_type", "active",
 	"currency", "billing_period_type", "is_global_default",
 	"first_period_days", "first_period_amount", "extra_day_rate",
-	"effective_from", "effective_to", "creation",
+	"creation",
 	"approval_status", "approved_by", "approved_on", "approval_remarks",
 ]
 

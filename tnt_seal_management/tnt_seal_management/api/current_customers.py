@@ -9,6 +9,14 @@ CUSTOMER_BILLING_TYPE_FIELD = "custom_billing_type"
 # None, which clears the value.
 _UNSET = object()
 
+# Per-customer tax treatment, set from the Set Billing modal. Drives the VAT
+# calculation in completed_journeys.py / completed_journeys_report.py — Tax
+# Exempt and Zero Rated both mean no VAT is added to the total payable.
+TAX_CATEGORY_NORMAL = "Normal Tax (16% VAT)"
+TAX_CATEGORY_EXEMPT = "Tax Exempt"
+TAX_CATEGORY_ZERO_RATED = "Zero Rated"
+TAX_CATEGORY_OPTIONS = (TAX_CATEGORY_NORMAL, TAX_CATEGORY_EXEMPT, TAX_CATEGORY_ZERO_RATED)
+
 
 def _get_customer_level_assignment_map(customer_names):
 	"""Return {customer: billing_rule} for active, customer-level Customer Billing
@@ -295,22 +303,42 @@ def save_customer_billing_types(updates):
 	return {"saved": saved}
 
 
-def _upsert_customer_assignment(customer, billing_rule, effective_from=_UNSET, effective_to=_UNSET):
+def _upsert_customer_assignment(
+	customer,
+	billing_rule,
+	effective_from=_UNSET,
+	effective_to=_UNSET,
+	override_first_period_amount=_UNSET,
+	override_currency=_UNSET,
+	outright_purchase=_UNSET,
+	owned_seal_count=_UNSET,
+):
 	"""Persist a customer's chosen rule as a customer-level Customer Billing
 	Assignment. Reuses the existing row when present, deactivates any extras, and
 	clears the assignment when no rule is chosen.
 
-	``effective_from``/``effective_to`` are the customer's own slice of the rule's
-	validity window (the rule's Validity section is company-wide). Pass ``_UNSET``
-	(the default) to leave whatever is already on the assignment untouched —
-	callers that don't deal in per-customer dates (e.g. bulk billing-type saves)
-	rely on this. Goes through ``doc.save()`` rather than ``db.set_value`` so the
-	doctype's date-vs-rule-window validation in
+	``effective_from``/``effective_to`` are the customer's own billing window.
+	``override_first_period_amount``/``override_currency`` are a per-customer
+	Rate/Currency override on top of a shared Subscription rule (see
+	billing.apply_billing_overrides) — Leasing callers should pass ``None`` for
+	both explicitly (not ``_UNSET``) so a stale Subscription-era override never
+	lingers on an assignment that's since moved to Leasing.
+	``outright_purchase``/``owned_seal_count`` record whether this customer owns
+	their seals outright (independent of billing_type) — the Set Billing
+	modal's own Seal Ownership section.
+
+	Pass ``_UNSET`` (the default) to leave whatever is already on the assignment
+	untouched — callers that don't deal in per-customer dates (e.g. bulk
+	billing-type saves) rely on this. Goes through ``doc.save()`` rather than
+	``db.set_value`` so the doctype's validation in
 	``customer_billing_assignment.py`` runs.
 	"""
 	existing = frappe.get_all(
 		"Customer Billing Assignment",
-		filters={"assignment_type": "Customer", "customer": customer},
+		# Only the customer's *primary* assignment — never the Scenario 6 extra
+		# leasing agreement (is_extra_billing=1), which is managed separately by
+		# set_customer_extra_billing and must survive a primary save untouched.
+		filters={"assignment_type": "Customer", "customer": customer, "is_extra_billing": 0},
 		fields=["name"],
 		order_by="priority desc, modified desc",
 	)
@@ -331,6 +359,14 @@ def _upsert_customer_assignment(customer, billing_rule, effective_from=_UNSET, e
 			doc.effective_from = effective_from
 		if effective_to is not _UNSET:
 			doc.effective_to = effective_to
+		if override_first_period_amount is not _UNSET:
+			doc.override_first_period_amount = override_first_period_amount
+		if override_currency is not _UNSET:
+			doc.override_currency = override_currency
+		if outright_purchase is not _UNSET:
+			doc.outright_purchase = outright_purchase
+		if owned_seal_count is not _UNSET:
+			doc.owned_seal_count = owned_seal_count
 		doc.save(ignore_permissions=True)
 		for row in existing[1:]:
 			frappe.delete_doc("Customer Billing Assignment", row.name, ignore_permissions=True)
@@ -345,6 +381,10 @@ def _upsert_customer_assignment(customer, billing_rule, effective_from=_UNSET, e
 			"active": 1,
 			"effective_from": None if effective_from is _UNSET else effective_from,
 			"effective_to": None if effective_to is _UNSET else effective_to,
+			"override_first_period_amount": None if override_first_period_amount is _UNSET else override_first_period_amount,
+			"override_currency": None if override_currency is _UNSET else override_currency,
+			"outright_purchase": None if outright_purchase is _UNSET else outright_purchase,
+			"owned_seal_count": None if owned_seal_count is _UNSET else owned_seal_count,
 		}
 	)
 	doc.insert(ignore_permissions=True)
@@ -363,8 +403,6 @@ RULE_DISPLAY_FIELDS = [
 	"first_period_amount",
 	"extra_day_rate",
 	"currency",
-	"effective_from",
-	"effective_to",
 ]
 
 
@@ -379,10 +417,18 @@ def get_customer_billing(customer):
 		frappe.throw(_("Customer not found."))
 
 	# Only Approved rules are offered — a rule Pending (re-)approval by the
-	# Managing Director cannot yet be assigned to a customer.
+	# Managing Director cannot yet be assigned to a customer. The seeded PCB
+	# Scenario rates (seed_pcb_journey_billing_scenarios) are per-journey
+	# transactional rates, not generic subscription rate cards, so they're
+	# excluded from the Set Billing modal's picker — only generic rules show.
 	subscription_rules = frappe.get_all(
 		"Seal Billing Rate",
-		filters={"active": 1, "billing_type": "Subscription", "approval_status": "Approved"},
+		filters={
+			"active": 1,
+			"billing_type": "Subscription",
+			"approval_status": "Approved",
+			"billing_rule_name": ["not like", "PCB Scenario%"],
+		},
 		fields=RULE_DISPLAY_FIELDS,
 		order_by="first_period_days asc, billing_rule_name asc",
 	)
@@ -393,34 +439,66 @@ def get_customer_billing(customer):
 		"rule": None,
 		"period_from_date": None,
 		"period_to_date": None,
+		"outright_purchase": 0,
+		"owned_seal_count": 0,
 	}
 
 	assignment = frappe.db.get_value(
 		"Customer Billing Assignment",
-		{"assignment_type": "Customer", "customer": customer, "active": 1},
-		["billing_rule", "effective_from", "effective_to"],
+		# Primary assignment only — the Scenario 6 extra leasing agreement
+		# (is_extra_billing=1) has its own prefill (get_customer_extra_billing).
+		{"assignment_type": "Customer", "customer": customer, "active": 1, "is_extra_billing": 0},
+		[
+			"billing_rule", "effective_from", "effective_to",
+			"override_first_period_amount", "override_currency",
+			"outright_purchase", "owned_seal_count",
+		],
 		order_by="priority desc, modified desc",
 		as_dict=True,
 	)
+	if assignment:
+		# Seal Ownership is independent of billing_type/billing_rule, so it's
+		# carried whenever an assignment exists, even if the rule lookup below
+		# doesn't resolve.
+		current["outright_purchase"] = cint(assignment.outright_purchase)
+		current["owned_seal_count"] = cint(assignment.owned_seal_count)
+
 	if assignment and assignment.billing_rule:
 		rule = frappe.db.get_value(
 			"Seal Billing Rate", assignment.billing_rule, RULE_DISPLAY_FIELDS, as_dict=True
 		)
 		if rule:
-			current = {
-				"billing_type": rule.billing_type or "Subscription",
-				"billing_rule": rule.name,
-				"rule": rule,
-				# The customer's own slice of the rule's company-wide validity window.
-				"period_from_date": assignment.effective_from,
-				"period_to_date": assignment.effective_to,
-			}
+			# Prefill with this customer's own effective Rate/Currency (the
+			# override, if one is set) rather than the shared rule's raw values —
+			# reopening the modal should show what actually bills them.
+			# override_first_period_amount is a Currency field (Frappe hard-codes
+			# these as NOT NULL DEFAULT 0), so it can never truly be empty once an
+			# assignment exists — almost every assignment sits at its untouched
+			# default of 0.0. A positive value is the only override we can
+			# reliably tell apart from "unset" (see billing.apply_billing_overrides,
+			# which has the same fix for the same reason).
+			if flt(assignment.override_first_period_amount) > 0:
+				rule.first_period_amount = assignment.override_first_period_amount
+			if assignment.override_currency:
+				rule.currency = assignment.override_currency
+
+			current.update(
+				{
+					"billing_type": rule.billing_type or "Subscription",
+					"billing_rule": rule.name,
+					"rule": rule,
+					# The customer's own slice of the rule's company-wide validity window.
+					"period_from_date": assignment.effective_from,
+					"period_to_date": assignment.effective_to,
+				}
+			)
 
 	return {
 		"customer": customer,
 		"customer_name": frappe.db.get_value("Customer", customer, "customer_name") or customer,
 		"subscription_rules": subscription_rules,
 		"current": current,
+		"tax_category": frappe.db.get_value("Customer", customer, "custom_tax_category") or TAX_CATEGORY_NORMAL,
 	}
 
 
@@ -435,29 +513,42 @@ def set_customer_billing(
 	first_period_amount=None,
 	extra_day_rate=None,
 	currency=None,
-	rule_effective_from=None,
-	rule_effective_to=None,
+	tax_category=None,
+	outright_purchase=None,
+	owned_seal_count=None,
 ):
 	"""Assign billing to the customer.
 
-	Subscription picks an existing, active shared rate card (``billing_rule``); its
-	own Validity window (``effective_from``/``effective_to``) is configured on the
-	rule itself in Seal Billing Rate — company-wide, not editable here.
-	``period_from_date``/``period_to_date`` are the customer's own slice of that
-	window — they must fall within the rule's effective_from/effective_to,
-	enforced by Customer Billing Assignment.validate().
+	Subscription picks an existing, active shared rate card (``billing_rule``).
+	``period_from_date``/``period_to_date`` are the customer's own billing window.
+	``first_period_amount``/``currency`` are optional here too — when given (and
+	different from the rule's own values) they're saved as a per-customer Rate/
+	Currency override on the assignment (billing.apply_billing_overrides),
+	without touching the shared rule or any other customer assigned to it.
 
 	Leasing has no rule to pick — it's a private, per-customer contract, so its
 	terms (``first_period_days``/``first_period_amount``/``extra_day_rate``/
-	``currency``) *and* its own Validity window (``rule_effective_from``/
-	``rule_effective_to``) are entered directly here and saved onto the
-	customer's own auto-named rule (see ``_upsert_customer_leasing_rule``).
-	``period_from_date``/``period_to_date`` still apply the same way — the
-	customer's own slice of that (now customer-specific) window."""
+	``currency``) are entered directly here and saved onto the customer's own
+	auto-named rule (see ``_upsert_customer_leasing_rule``).
+
+	``outright_purchase``/``owned_seal_count`` (Set Billing modal's Seal
+	Ownership section) record whether this customer owns their seals outright —
+	independent of ``billing_type``, so captured the same way for both
+	Subscription and Leasing."""
 	if not frappe.has_permission("Customer", "write"):
 		frappe.throw(_("Not permitted to update customers."), frappe.PermissionError)
 	if not customer or not frappe.db.exists("Customer", customer):
 		frappe.throw(_("Customer not found."))
+
+	if tax_category:
+		if tax_category not in TAX_CATEGORY_OPTIONS:
+			frappe.throw(_("Invalid tax category."))
+		frappe.db.set_value("Customer", customer, "custom_tax_category", tax_category)
+
+	outright_purchase = cint(outright_purchase)
+	if outright_purchase and cint(owned_seal_count) <= 0:
+		frappe.throw(_("Enter the Number of Seals Owned for an Outright Purchase."))
+	owned_seal_count = cint(owned_seal_count) if outright_purchase else 0
 
 	if billing_type == "Leasing":
 		if not first_period_days or first_period_amount in (None, "") or extra_day_rate in (None, ""):
@@ -471,11 +562,19 @@ def set_customer_billing(
 			first_period_amount,
 			extra_day_rate,
 			currency,
-			effective_from=rule_effective_from or None,
-			effective_to=rule_effective_to or None,
 		)
 		_upsert_customer_assignment(
-			customer, rule_name, effective_from=period_from_date or None, effective_to=period_to_date or None
+			customer,
+			rule_name,
+			effective_from=period_from_date or None,
+			effective_to=period_to_date or None,
+			# Leasing already bills off the customer's own fully private rate —
+			# clear out any override left over from a prior Subscription
+			# assignment so it can never silently apply here.
+			override_first_period_amount=None,
+			override_currency=None,
+			outright_purchase=outright_purchase,
+			owned_seal_count=owned_seal_count,
 		)
 
 		frappe.db.commit()
@@ -492,7 +591,7 @@ def set_customer_billing(
 	rule = frappe.db.get_value(
 		"Seal Billing Rate",
 		{"name": billing_rule, "active": 1},
-		["name", "billing_type", "billing_rule_name", "approval_status"],
+		["name", "billing_type", "billing_rule_name", "approval_status", "first_period_amount", "currency"],
 		as_dict=True,
 	)
 	if not billing_rule or not rule:
@@ -502,8 +601,24 @@ def set_customer_billing(
 	if rule.approval_status != "Approved":
 		frappe.throw(_("This billing rule is still awaiting Managing Director approval and cannot be assigned yet."))
 
+	# Only persist as an override when it actually differs from the rule's own
+	# Rate/Currency — otherwise every save would pin the rule's *current*
+	# values onto the assignment, and this customer would stop following the
+	# shared rule if its rate is ever updated later.
+	rate_override = (
+		flt(first_period_amount) if first_period_amount not in (None, "") and flt(first_period_amount) != flt(rule.first_period_amount) else None
+	)
+	currency_override = currency if currency and currency != rule.currency else None
+
 	_upsert_customer_assignment(
-		customer, rule.name, effective_from=period_from_date or None, effective_to=period_to_date or None
+		customer,
+		rule.name,
+		effective_from=period_from_date or None,
+		effective_to=period_to_date or None,
+		override_first_period_amount=rate_override,
+		override_currency=currency_override,
+		outright_purchase=outright_purchase,
+		owned_seal_count=owned_seal_count,
 	)
 
 	frappe.db.commit()
@@ -522,8 +637,6 @@ def _upsert_customer_leasing_rule(
 	first_period_amount,
 	extra_day_rate,
 	currency=None,
-	effective_from=None,
-	effective_to=None,
 ):
 	"""Create or update the customer's private Leasing rate, auto-named
 	"<Customer Name> BR". There is exactly one per customer — found via the
@@ -561,8 +674,6 @@ def _upsert_customer_leasing_rule(
 		"first_period_days": cint(first_period_days),
 		"first_period_amount": flt(first_period_amount),
 		"extra_day_rate": flt(extra_day_rate),
-		"effective_from": effective_from,
-		"effective_to": effective_to,
 	}
 
 	frappe.flags.in_import = True
@@ -578,3 +689,224 @@ def _upsert_customer_leasing_rule(
 		frappe.flags.in_import = False
 
 	return doc.name
+
+
+# ---------------------------------------------------------------------------
+# Extra Billing — Scenario 6 (leasing agreement on top of a Subscription)
+# ---------------------------------------------------------------------------
+#
+# An outright-purchase customer billed per journey on Subscription can also
+# lease extra seals. That leasing agreement is a *second* Customer Billing
+# Assignment (is_extra_billing=1) pointing at the customer's own auto-named
+# "<Customer> Extra BR" leasing rule — it coexists with the primary
+# Subscription assignment rather than replacing it (see _upsert_customer_assignment
+# and billing._resolve_assignment, both scoped to is_extra_billing=0). The
+# per-journey billing engine applies it at tagging (see
+# billing.resolve_customer_extra_billing / seal_journey.set_billing).
+
+
+def _find_extra_billing_assignment(customer):
+	"""Name of the customer's extra-billing assignment (is_extra_billing=1), or
+	None. There is at most one per customer."""
+	rows = frappe.get_all(
+		"Customer Billing Assignment",
+		filters={"assignment_type": "Customer", "customer": customer, "is_extra_billing": 1},
+		fields=["name"],
+		order_by="modified desc",
+	)
+	return rows[0].name if rows else None
+
+
+def _upsert_customer_extra_leasing_rule(
+	customer, customer_name, first_period_days, first_period_amount, extra_day_rate, currency=None
+):
+	"""Create or update the customer's private *extra* Leasing rate, auto-named
+	"<Customer Name> Extra BR" — the sibling of _upsert_customer_leasing_rule for
+	the Scenario 6 extra agreement, found via the extra-billing assignment so it
+	stays distinct from the customer's primary "<Customer Name> BR" rule."""
+	existing_rule = None
+	extra_assignment = _find_extra_billing_assignment(customer)
+	if extra_assignment:
+		current_rule_name = frappe.db.get_value("Customer Billing Assignment", extra_assignment, "billing_rule")
+		if current_rule_name:
+			row = frappe.db.get_value("Seal Billing Rate", current_rule_name, ["name", "billing_type"], as_dict=True)
+			if row and row.billing_type == "Leasing":
+				existing_rule = row.name
+
+	values = {
+		"billing_rule_name": f"{customer_name} Extra BR",
+		"billing_type": "Leasing",
+		"active": 1,
+		"is_global_default": 0,
+		# Private per-customer contract, like the primary leasing rate — outside
+		# the Managing Director approval workflow for shared Subscription cards.
+		"approval_status": "Approved",
+		"currency": currency or "KES",
+		"first_period_days": cint(first_period_days),
+		"first_period_amount": flt(first_period_amount),
+		"extra_day_rate": flt(extra_day_rate),
+	}
+
+	# See _upsert_customer_leasing_rule: bypass the (Subscription-only) billing_type
+	# options check while keeping every other doctype validation.
+	frappe.flags.in_import = True
+	try:
+		if existing_rule:
+			doc = frappe.get_doc("Seal Billing Rate", existing_rule)
+			doc.update(values)
+			doc.save(ignore_permissions=True)
+		else:
+			doc = frappe.get_doc({"doctype": "Seal Billing Rate", **values})
+			doc.insert(ignore_permissions=True)
+	finally:
+		frappe.flags.in_import = False
+
+	return doc.name
+
+
+def _upsert_extra_billing_assignment(customer, billing_rule, active, effective_from, effective_to):
+	"""Persist the customer's single extra-billing (is_extra_billing=1)
+	assignment, independent of the primary one."""
+	existing = frappe.get_all(
+		"Customer Billing Assignment",
+		filters={"assignment_type": "Customer", "customer": customer, "is_extra_billing": 1},
+		fields=["name"],
+		order_by="modified desc",
+	)
+	if existing:
+		doc = frappe.get_doc("Customer Billing Assignment", existing[0].name)
+		doc.billing_rule = billing_rule
+		doc.active = cint(active)
+		doc.is_extra_billing = 1
+		doc.effective_from = effective_from
+		doc.effective_to = effective_to
+		doc.save(ignore_permissions=True)
+		for row in existing[1:]:
+			frappe.delete_doc("Customer Billing Assignment", row.name, ignore_permissions=True)
+		return doc.name
+
+	doc = frappe.get_doc(
+		{
+			"doctype": "Customer Billing Assignment",
+			"assignment_type": "Customer",
+			"customer": customer,
+			"billing_rule": billing_rule,
+			"active": cint(active),
+			"is_extra_billing": 1,
+			"effective_from": effective_from,
+			"effective_to": effective_to,
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	return doc.name
+
+
+@frappe.whitelist()
+def get_customer_extra_billing(customer):
+	"""Prefill payload for the Set Billing modal's Extra Billing tab: the
+	customer's extra leasing agreement (if any), whether it's active, and its
+	leasing terms + customer period."""
+	if not customer or not frappe.db.exists("Customer", customer):
+		frappe.throw(_("Customer not found."))
+
+	empty = {
+		"active": 0,
+		"first_period_days": None,
+		"first_period_amount": None,
+		"extra_day_rate": None,
+		"currency": "KES",
+		"period_from_date": None,
+		"period_to_date": None,
+	}
+
+	name = _find_extra_billing_assignment(customer)
+	if not name:
+		return empty
+
+	assignment = frappe.db.get_value(
+		"Customer Billing Assignment",
+		name,
+		["billing_rule", "active", "effective_from", "effective_to"],
+		as_dict=True,
+	)
+	rule = (
+		frappe.db.get_value(
+			"Seal Billing Rate",
+			assignment.billing_rule,
+			["first_period_days", "first_period_amount", "extra_day_rate", "currency"],
+			as_dict=True,
+		)
+		if assignment and assignment.billing_rule
+		else None
+	)
+
+	return {
+		"active": cint(assignment.active) if assignment else 0,
+		"first_period_days": rule.first_period_days if rule else None,
+		"first_period_amount": rule.first_period_amount if rule else None,
+		"extra_day_rate": rule.extra_day_rate if rule else None,
+		"currency": (rule.currency if rule else None) or "KES",
+		"period_from_date": assignment.effective_from if assignment else None,
+		"period_to_date": assignment.effective_to if assignment else None,
+	}
+
+
+@frappe.whitelist()
+def set_customer_extra_billing(
+	customer,
+	activate,
+	first_period_days=None,
+	first_period_amount=None,
+	extra_day_rate=None,
+	currency=None,
+	period_from_date=None,
+	period_to_date=None,
+):
+	"""Upsert the customer's Scenario 6 extra leasing agreement. When ``activate``
+	is on the leasing terms are required and the extra assignment is (re)activated;
+	when off, an existing agreement is deactivated (its terms are preserved so it
+	can be re-activated later)."""
+	if not frappe.has_permission("Customer", "write"):
+		frappe.throw(_("Not permitted to update customers."), frappe.PermissionError)
+	if not customer or not frappe.db.exists("Customer", customer):
+		frappe.throw(_("Customer not found."))
+
+	activate = cint(activate)
+	has_terms = (
+		first_period_days
+		and first_period_amount not in (None, "")
+		and extra_day_rate not in (None, "")
+	)
+
+	if activate and not has_terms:
+		frappe.throw(_("Enter First Period Days, First Period Amount and Extra Day Rate for Extra Billing."))
+
+	existing = _find_extra_billing_assignment(customer)
+
+	# Nothing to store and nothing to keep active — just make sure any prior
+	# agreement is switched off.
+	if not activate and not has_terms:
+		if existing:
+			frappe.db.set_value("Customer Billing Assignment", existing, "active", 0)
+			frappe.db.commit()
+		return {"customer": customer, "active": 0}
+
+	customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
+	rule_name = _upsert_customer_extra_leasing_rule(
+		customer, customer_name, first_period_days, first_period_amount, extra_day_rate, currency
+	)
+	assignment_name = _upsert_extra_billing_assignment(
+		customer,
+		rule_name,
+		active=activate,
+		effective_from=period_from_date or None,
+		effective_to=period_to_date or None,
+	)
+
+	frappe.db.commit()
+	return {
+		"customer": customer,
+		"assignment": assignment_name,
+		"billing_rule": rule_name,
+		"active": activate,
+	}
