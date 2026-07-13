@@ -6,7 +6,7 @@ no_cache = 1
 
 def get_context(context):
 	if frappe.session.user == "Guest":
-		frappe.local.flags.redirect_location = "/login?redirect-to=/tagging-bookings"
+		frappe.local.flags.redirect_location = "/login?redirect-to=/customer-portal"
 		raise frappe.Redirect
 	if (
 		frappe.db.get_value("User", frappe.session.user, "user_type") != "Website User"
@@ -15,5 +15,5 @@ def get_context(context):
 		frappe.throw("Customer portal access is required.", frappe.PermissionError)
 
 	context.no_cache = 1
-	context.title = "Tagging Bookings"
+	context.title = "Customer Portal"
 	return context

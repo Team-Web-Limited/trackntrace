@@ -65,6 +65,7 @@ _FIELDS = [
 	"contact_person_name", "departure_card_number", "retrieval_card_number",
 	"total_charge", "first_period_amount", "extra_day_amount", "seal_count",
 	"extra_billing_amount", "extra_billing_seal_count",
+	"sales_order_reference", "billing_status", "extra_days",
 ]
 
 
@@ -231,6 +232,122 @@ def _build_customer_groups(journeys, customer_filter=None):
 		grand_total["journey_count"] = len(journeys)
 
 	return {"customers": customers, "grand_total": grand_total}
+
+
+@frappe.whitelist()
+def generate_sales_order(customer, from_date=None, to_date=None):
+	"""Generate a Sales Order for a customer's unbilled completed journeys."""
+	_require_billing_permission()
+
+	if not customer:
+		frappe.throw(_("Customer is required to generate a Sales Order."))
+
+	# Filter specifically for unbilled journeys
+	conditions = {
+		"journey_status": "Completed",
+		"customer": customer,
+		"billing_status": ["in", ["Pending Billing", "No Per-Journey Charge"]],
+		"sales_order_reference": ["in", ["", None]]
+	}
+	to_datetime = f"{to_date} 23:59:59" if to_date else None
+	if from_date and to_datetime:
+		conditions["completion_date_time"] = ["between", [from_date, to_datetime]]
+	elif from_date:
+		conditions["completion_date_time"] = [">=", from_date]
+	elif to_datetime:
+		conditions["completion_date_time"] = ["<=", to_datetime]
+
+	journeys = frappe.get_all(
+		"Seal Journey",
+		filters=conditions,
+		fields=_FIELDS,
+		order_by="completion_date_time asc",
+	)
+
+	seals_by_journey = _get_seals_by_journey([j["name"] for j in journeys])
+	for j in journeys:
+		j["container_number"] = j.get("container_number") or j.get("vehicle_plate_number")
+		j["seal_number"] = seals_by_journey.get(j["name"]) or j.get("assigned_seal")
+
+	# We reuse _build_customer_groups to calculate the total charges
+	group_data = _build_customer_groups(journeys, customer)
+	customer_data = group_data["customers"][0] if group_data["customers"] else None
+
+	if not customer_data or (not journeys and not customer_data.get("recurring_fees")):
+		frappe.throw(_("No unbilled completed journeys or active recurring subscription fees found for this customer in the selected period."))
+
+	summary = customer_data["summary"]
+	recurring_fees = customer_data["recurring_fees"]
+
+	so = frappe.new_doc("Sales Order")
+	so.customer = customer
+	so.transaction_date = frappe.utils.today()
+	if summary.get("tax_category") and summary["tax_category"] != TAX_CATEGORY_NORMAL:
+		so.tax_category = summary["tax_category"]
+
+	so.append("custom_installation_location", {
+		"contact_name": "N/A",
+		"contact_mobile_no": "N/A",
+		"vehicle_registration_no": "N/A",
+		"vehicle_model": "N/A",
+		"vehicle_make": "N/A",
+		"vehicle_colour": "N/A",
+		"location": "N/A"
+	})
+
+	def add_item(item_code, qty, rate, description):
+		if flt(rate) > 0 or flt(qty) > 0:
+			so.append("items", {
+				"item_code": item_code,
+				"qty": qty,
+				"rate": rate,
+				"price_list_rate": rate,
+				"description": description,
+				"delivery_date": frappe.utils.today()
+			})
+
+	rental_item = "SJ-Subscription"
+	extra_item = "Extra Days" if frappe.db.exists("Item", "Extra Days") else "SJ-Subscription"
+
+	if flt(summary["normal_charges"]) > 0:
+		# Quantity is the number of journeys, and rate is the baseline charge rate per journey
+		journey_count = max(len(journeys), 1)
+		rate = flt(summary["normal_charges"]) / journey_count
+		add_item(rental_item, journey_count, rate, "Completed Journeys - Normal Charges")
+	
+	if flt(summary["extra_charges"]) > 0:
+		# Quantity is the total extra days across all journeys, and rate is the extra day rate
+		extra_days = sum(cint(j.get("extra_days")) * max(cint(j.get("seal_count")), 1) for j in journeys)
+		if extra_days > 0:
+			rate = flt(summary["extra_charges"]) / extra_days
+			add_item(extra_item, extra_days, rate, "Completed Journeys - Extra Charges for Extra Days")
+		else:
+			# Fallback if extra days is 0 (should not happen if extra_charges > 0)
+			add_item(extra_item, 1, summary["extra_charges"], "Completed Journeys - Extra Charges for Extra Days")
+
+	if flt(summary["extra_billing_total"]) > 0:
+		add_item(rental_item, 1, summary["extra_billing_total"], "Completed Journeys - Extra Billing (leased seals)")
+
+	for r in recurring_fees:
+		if flt(r["amount"]) > 0:
+			# The recurring items might be set up in ERPNext, but we fallback to rental_item if needed.
+			# Using rental_item to avoid Missing Item errors.
+			add_item(rental_item, r["seal_count"], r["rate"], f"{r['label']} - {r['billing_interval']}")
+
+	if not so.items:
+		frappe.throw(_("Total billable amount is zero. No Sales Order created."))
+
+	so.insert(ignore_permissions=True, ignore_mandatory=True)
+
+	for j in journeys:
+		frappe.db.set_value("Seal Journey", j["name"], {
+			"sales_order_reference": so.name,
+			"billing_status": "Processing Payment"
+		})
+
+	frappe.db.commit()
+
+	return so.name
 
 
 def _sum_summaries(summaries):

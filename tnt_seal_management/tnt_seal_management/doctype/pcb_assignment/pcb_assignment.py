@@ -10,6 +10,13 @@ from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey i
 	set_journey_status,
 	sync_seal_journey_mirror,
 )
+from tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device import (
+	set_seal_custody,
+)
+from tnt_seal_management.tnt_seal_management.api.notifications import notify_users
+
+# Assignment statuses that mean "a Field Technician has just been handed this job".
+ASSIGNED_STATUSES = ("Assigned", "Untagging Assigned", "Seal Return Assigned")
 
 
 def create_untagging_request(seal_journey):
@@ -48,6 +55,7 @@ def create_untagging_request(seal_journey):
 		}
 	).insert(ignore_permissions=True)
 
+	_notify_pcb_team_leader_new_request(assignment)
 	return assignment.name
 
 
@@ -85,7 +93,35 @@ def create_seal_return_request(seal_journey):
 		}
 	).insert(ignore_permissions=True)
 
+	_notify_pcb_team_leader_new_request(assignment)
 	return assignment.name
+
+
+def _notify_pcb_team_leader_new_request(assignment):
+	"""Notify the PCB Team Leader that a new request (Untagging or Seal Return)
+	has landed in their Assignment queue, via desk notification and email."""
+	if not assignment.pcb_team_leader:
+		return
+
+	email = frappe.db.get_value("User", assignment.pcb_team_leader, "email")
+	subject = _("New {0} Request: {1}").format(assignment.request_type, assignment.name)
+	lines = [
+		_("A new {0} request is awaiting a Tag Operator assignment.").format(assignment.request_type),
+		_("Client: {0}").format(assignment.client_name or "-"),
+		_("Location: {0}").format(assignment.location or "-"),
+	]
+	if assignment.scheduled_date_time:
+		lines.append(_("Scheduled: {0}").format(assignment.scheduled_date_time))
+	message = "<br>".join(str(line) for line in lines)
+
+	notify_users(
+		[(assignment.pcb_team_leader, email or assignment.pcb_team_leader)],
+		subject,
+		message,
+		document_type="PCB Assignment",
+		document_name=assignment.name,
+		link=f"/app/pcb-assignment/{assignment.name}",
+	)
 
 
 class PCBAssignment(Document):
@@ -117,6 +153,13 @@ class PCBAssignment(Document):
 			and previous_status != "Seal Return Assigned"
 		):
 			_ensure_seal_return_journey_request(self)
+
+		if (
+			self.assignment_status in ASSIGNED_STATUSES
+			and previous_status != self.assignment_status
+			and self.assigned_field_technician
+		):
+			_notify_field_technician_assigned(self)
 
 	def _validate_field_technician_role(self):
 		if not self.assigned_field_technician:
@@ -157,6 +200,30 @@ class PCBAssignment(Document):
 			return
 		if self.assignment_status == "Pending Seal Return Assignment" and self.assigned_field_technician:
 			self.assignment_status = "Seal Return Assigned"
+
+
+def _notify_field_technician_assigned(assignment):
+	"""Notify the Field Technician who was just handed this job (Tagging,
+	Untagging, or Seal Return) via desk notification and email."""
+	email = frappe.db.get_value("User", assignment.assigned_field_technician, "email")
+	subject = _("New {0} Assignment: {1}").format(assignment.request_type, assignment.name)
+	lines = [
+		_("You have been assigned a {0} job.").format(assignment.request_type),
+		_("Client: {0}").format(assignment.client_name or "-"),
+		_("Location: {0}").format(assignment.location or "-"),
+	]
+	if assignment.scheduled_date_time:
+		lines.append(_("Scheduled: {0}").format(assignment.scheduled_date_time))
+	message = "<br>".join(str(line) for line in lines)
+
+	notify_users(
+		[(assignment.assigned_field_technician, email or assignment.assigned_field_technician)],
+		subject,
+		message,
+		document_type="PCB Assignment",
+		document_name=assignment.name,
+		link=f"/app/pcb-assignment/{assignment.name}",
+	)
 
 
 def get_permission_query_conditions(user=None):
@@ -290,6 +357,16 @@ def _ensure_untagging_journey_request(assignment):
 	journey_request.flags.ignore_field_locks = True
 	journey_request.save(ignore_permissions=True)
 
+	for row in journey_request.seals:
+		set_seal_custody(
+			row.seal_device,
+			"User",
+			assignment.assigned_field_technician,
+			remarks=f"Assigned for untagging via PCB Assignment {assignment.name}",
+			journey=assignment.seal_journey,
+			column="untagging_to",
+		)
+
 	set_journey_status(
 		assignment.seal_journey,
 		"Untagging In Progress",
@@ -322,6 +399,16 @@ def _ensure_seal_return_journey_request(assignment):
 	journey_request.journey_request_status = "Awaiting Seal Return"
 	journey_request.flags.ignore_field_locks = True
 	journey_request.save(ignore_permissions=True)
+
+	for row in journey_request.seals:
+		set_seal_custody(
+			row.seal_device,
+			"User",
+			assignment.assigned_field_technician,
+			remarks=f"Assigned for seal return via PCB Assignment {assignment.name}",
+			journey=assignment.seal_journey,
+			column="seal_return_to",
+		)
 
 	set_journey_status(assignment.seal_journey, "Awaiting Seal Return")
 	sync_seal_journey_mirror(assignment.seal_journey)

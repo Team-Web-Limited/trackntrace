@@ -13,6 +13,8 @@ from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey i
 	sync_seal_journey_pre_tagging,
 )
 from tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device import (
+	last_known_warehouse,
+	record_journey_custody,
 	set_seal_custody,
 )
 
@@ -36,6 +38,8 @@ CONTENT_FIELDS = (
 	"vehicle",
 	"entry_number",
 	"container_number",
+	"file_number",
+	"departure_card_number",
 	"number_of_seals",
 	"origin",
 	"destination",
@@ -63,7 +67,11 @@ UNTAGGING_CONFIRMATION_FIELDS = ("untagging_confirmed_by_technician",)
 # (see the Seal Return section's depends_on). Completion is Control-Room-driven via
 # direct technician confirmation; the tick is required before completion.
 SEAL_RETURN_FIELDS = ("seal_return_entry_document", "seal_return_photos")
-SEAL_RETURN_CONFIRMATION_FIELDS = ("seal_return_confirmed_by_technician", "seal_return_condition")
+SEAL_RETURN_CONFIRMATION_FIELDS = (
+	"seal_return_confirmed_by_technician",
+	"seal_return_condition",
+	"retrieval_card_number",
+)
 
 PHOTO_TABLE_TYPES = {
 	"entry_document": "Pre-Tagging",
@@ -79,6 +87,8 @@ _FIELD_LABELS = {
 	"vehicle": "Vehicle",
 	"entry_number": "Entry Number",
 	"container_number": "Container Number",
+	"file_number": "File Number",
+	"departure_card_number": "Departure Card Number",
 	"number_of_seals": "Number of Seals",
 	"origin": "Origin",
 	"destination": "Destination",
@@ -97,6 +107,7 @@ _FIELD_LABELS = {
 	"seal_return_photos": "Seal Return Pictures",
 	"seal_return_confirmed_by_technician": "Confirmed by Technician",
 	"seal_return_condition": "Seal Condition After Journey",
+	"retrieval_card_number": "Retrieval Card Number",
 }
 
 # Seal Journey statuses that count as the technician being actively engaged.
@@ -380,6 +391,47 @@ def _get_journey_request(docname):
 	return doc
 
 
+# Roles that own the Control Room approval queue — mirrors the recipient set
+# used for critical seal alerts (see api.seal_sync._ALERT_NOTIFY_ROLES).
+CONTROL_ROOM_NOTIFY_ROLES = ("Operations Control Room", "Seal System Administrator")
+
+
+def _notify_control_room_approval_pending(doc):
+	"""Notify the Control Room that a Field Technician has submitted a tagged
+	journey for approval, via desk notification and email."""
+	from tnt_seal_management.tnt_seal_management.api.notifications import (
+		get_users_with_role,
+		notify_users,
+	)
+
+	recipients = []
+	seen = set()
+	for role in CONTROL_ROOM_NOTIFY_ROLES:
+		for user, email in get_users_with_role(role):
+			if user not in seen:
+				seen.add(user)
+				recipients.append((user, email))
+
+	subject = _("Journey Request Awaiting Approval: {0}").format(doc.name)
+	lines = [
+		_("{0} submitted a tagged journey for Control Room approval.").format(
+			doc.assigned_technician or frappe.session.user
+		),
+		_("Vehicle: {0}").format(doc.vehicle or "-"),
+		_("Route: {0} -> {1}").format(doc.origin or "-", doc.destination or "-"),
+	]
+	message = "<br>".join(str(line) for line in lines)
+
+	notify_users(
+		recipients,
+		subject,
+		message,
+		document_type="Journey Request",
+		document_name=doc.name,
+		link=f"/app/journey-request/{doc.name}",
+	)
+
+
 def _ensure_role(role, message):
 	# System Manager / Administrator may act on any stage of the workflow.
 	roles = set(frappe.get_roles())
@@ -413,6 +465,13 @@ def submit_to_control_room(docname):
 			title=_("Invalid Status"),
 		)
 
+	if not doc.file_number:
+		frappe.throw(_("Enter the File Number before submitting to the Control Room."), title=_("File Number Required"))
+	if not doc.departure_card_number:
+		frappe.throw(
+			_("Enter the Departure Card Number before submitting to the Control Room."),
+			title=_("Departure Card Number Required"),
+		)
 	if not doc.seals:
 		frappe.throw(_("Select at least one Seal before submitting."), title=_("Seals Required"))
 	if not any(row.photo_attachment for row in doc.tagging_photos):
@@ -427,6 +486,27 @@ def submit_to_control_room(docname):
 	doc.save()
 	set_journey_status(doc.journey_reference, "Pre-Tagging")
 	sync_seal_journey_mirror(doc.journey_reference)
+
+	# First recorded custody hop of the journey: seals leave the warehouse and are
+	# handed to the Field Technician who submitted them. The warehouse column is
+	# the seal's last known warehouse (where it was returned to on its previous
+	# journey) — blank if this is the seal's first cycle, since there's nothing to
+	# reference yet; it starts getting logged from the next cycle onward.
+	if doc.assigned_technician:
+		for row in doc.seals:
+			origin_warehouse = last_known_warehouse(row.seal_device, exclude_journey=doc.journey_reference)
+			if origin_warehouse:
+				record_journey_custody(row.seal_device, doc.journey_reference, "warehouse", origin_warehouse)
+			set_seal_custody(
+				row.seal_device,
+				"User",
+				doc.assigned_technician,
+				remarks=f"Submitted to Control Room via Journey Request {doc.name}",
+				journey=doc.journey_reference,
+				column="tagging_to",
+			)
+
+	_notify_control_room_approval_pending(doc)
 	frappe.db.commit()
 
 
@@ -752,6 +832,16 @@ def confirm_seal_return(docname, manual_location=None, remarks=None):
 			_("Select the seal condition after the journey before confirming."),
 			title=_("Seal Condition Required"),
 		)
+	if not doc.retrieval_card_number:
+		frappe.throw(
+			_("Enter the Retrieval Card Number before confirming the seal return."),
+			title=_("Retrieval Card Number Required"),
+		)
+	if not doc.return_warehouse:
+		frappe.throw(
+			_("Select the Warehouse the seal is being returned to before confirming."),
+			title=_("Warehouse Required"),
+		)
 
 	location = _pull_seal_return_location(doc)
 	manual_location = cstr(manual_location).strip()
@@ -771,7 +861,16 @@ def confirm_seal_return(docname, manual_location=None, remarks=None):
 		"Completed",
 		{"completion_date_time": doc.actual_seal_return_date_time},
 	)
-	return_warehouse = _get_main_warehouse()
+	# The return warehouse is the one the technician selects on the Journey Request
+	# (there is no configured main warehouse). Logged with the GPS location that was
+	# captured at return, in brackets, for auditability — e.g.
+	# "Nanak warehouse - TD (-1.30, 36.81)". If no warehouse was selected, the
+	# warehouse column stays blank for now and gets logged on the next cycle.
+	return_warehouse = doc.return_warehouse
+	warehouse_label = None
+	if return_warehouse:
+		wh_name = frappe.db.get_value("Warehouse", return_warehouse, "warehouse_name") or return_warehouse
+		warehouse_label = f"{wh_name} ({doc.seal_return_location})" if doc.seal_return_location else wh_name
 	for row in doc.seals:
 		if not row.seal_device:
 			continue
@@ -788,26 +887,28 @@ def confirm_seal_return(docname, manual_location=None, remarks=None):
 			},
 		)
 		if return_warehouse:
+			# Final hop: seal is back in a warehouse. Update the live pointer to that
+			# warehouse, then close the journey's single custody row by writing the
+			# warehouse column as "selected warehouse (gps location)".
 			set_seal_custody(
 				row.seal_device,
-				"Custody Point",
+				"Warehouse",
 				return_warehouse,
 				remarks=f"Returned via Journey Request {doc.name}",
 				journey=doc.journey_reference,
+			)
+			record_journey_custody(
+				row.seal_device,
+				doc.journey_reference,
+				"warehouse",
+				warehouse_label,
+				remarks=f"Returned to {return_warehouse}",
 			)
 
 	_copy_seal_return_evidence_to_journey(doc)
 	sync_seal_journey_mirror(doc.journey_reference)
 	frappe.db.commit()
 	return {"requires_manual_location": False, "location": doc.seal_return_location}
-
-
-def _get_main_warehouse():
-	return frappe.db.get_value(
-		"Custody Point",
-		{"is_main_warehouse": 1, "active": 1},
-		"name",
-	)
 
 
 def _copy_seal_return_evidence_to_journey(doc):
@@ -911,15 +1012,21 @@ def approve_journey_request(docname, remarks=None):
 		if doc.container_number:
 			update["current_container"] = doc.container_number
 		frappe.db.set_value("Seal Device", row.seal_device, update)
-		if doc.assigned_technician:
+		# The tagging handoff to the technician was already recorded when the seals
+		# were submitted to the Control Room (see submit_to_control_room). Approval
+		# puts the seal In Transit, attached to the customer's movement, so custody
+		# now passes to the customer for the trip (the "customer" hop).
+		if seal_journey.customer:
 			set_seal_custody(
 				row.seal_device,
-				"User",
-				doc.assigned_technician,
-				remarks=f"Assigned via Journey Request {doc.name}",
+				"Customer",
+				seal_journey.customer,
+				remarks=f"In transit with customer via Journey Request {doc.name}",
 				journey=seal_journey.name,
+				column="customer",
 			)
-		elif doc.job_order:
+		elif not doc.assigned_technician and doc.job_order:
+			# Fallback for a technician-less job order: custody stays with the order.
 			set_seal_custody(
 				row.seal_device,
 				"PCB Job Order",

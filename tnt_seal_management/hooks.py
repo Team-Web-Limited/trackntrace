@@ -36,8 +36,8 @@ app_include_js = "/assets/tnt_seal_management/js/tnt_seal_management.js"
 
 portal_menu_items = [
 	{
-		"title": "Tagging Bookings",
-		"route": "/tagging-bookings",
+		"title": "Customer Portal",
+		"route": "/customer-portal",
 		"reference_doctype": "Tagging Booking",
 		"role": "Customer",
 	},

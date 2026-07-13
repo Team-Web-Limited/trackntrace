@@ -227,6 +227,12 @@ class SealJourney(Document):
 		# in field.
 		self.set_extra_billing(rule.billing_type, total_days)
 
+		# Scenario 6 edge case: if a journey has NO base charge because the customer
+		# has a subscription, BUT it does have an extra billing charge (overflow seal),
+		# then it functionally DOES have a per-journey charge.
+		if self.billing_status == "No Per-Journey Charge" and flt(self.extra_billing_amount) > 0:
+			self.billing_status = "Pending Billing"
+
 	def set_extra_billing(self, primary_billing_type, total_days):
 		"""Compute the additional Extra Billing (Scenario 6) leasing charge for
 		this journey's *overflow* seals — those beyond the customer's committed
@@ -607,45 +613,6 @@ def complete_untagging(docname):
 	frappe.db.commit()
 
 
-def _ensure_finance_role():
-	roles = set(frappe.get_roles())
-	if "System Manager" in roles or frappe.session.user == "Administrator":
-		return
-	if "Finance PCB" not in roles:
-		frappe.throw(
-			_("Only Finance PCB can settle billing."),
-			title=_("Insufficient Permission"),
-		)
-
-
-@frappe.whitelist()
-def mark_journey_billed(docname, invoice_reference=None):
-	"""Finance settles a journey's billing. Separate axis from the journey
-	lifecycle: a journey is operationally Completed at seal return, but its money
-	may still be outstanding (billing_status "Pending Billing"). This closes that
-	loop without touching journey_status. Only journeys with a computed charge
-	(Pending Billing) can be settled; Billed is terminal (see
-	TERMINAL_BILLING_STATUSES / set_billing)."""
-	_ensure_finance_role()
-	doc = _get_seal_journey(docname)
-	if doc.billing_status != "Pending Billing":
-		frappe.throw(
-			_("Only journeys Pending Billing can be marked Billed (current: {0}).").format(
-				doc.billing_status or _("Not Billed")
-			),
-			title=_("Invalid Billing Status"),
-		)
-
-	doc.billing_status = "Billed"
-	doc.billed_by = frappe.session.user
-	doc.billed_date_time = now_datetime()
-	if invoice_reference:
-		doc.invoice_reference = invoice_reference
-	doc.flags.ignore_field_locks = True
-	doc.save()
-	frappe.db.commit()
-	return {"billing_status": doc.billing_status}
-
 
 @frappe.whitelist()
 def get_pending_billing_queue():
@@ -654,11 +621,11 @@ def get_pending_billing_queue():
 	leave the active monitoring views. Honours Seal Journey permissions."""
 	journeys = frappe.get_list(
 		"Seal Journey",
-		filters={"billing_status": "Pending Billing"},
+		filters={"billing_status": ["in", ["Pending Billing", "Processing Payment"]]},
 		fields=[
 			"name", "customer", "journey_status", "vehicle_plate_number",
 			"container_number", "billing_start_date", "billing_return_date",
-			"billable_days", "total_charge", "completion_date_time",
+			"billable_days", "total_charge", "completion_date_time", "billing_status"
 		],
 		order_by="completion_date_time asc, modified asc",
 		limit_page_length=0,
@@ -865,6 +832,8 @@ def resolve_seal_journey_mirror_values(seal_journey):
 			[
 				"vehicle",
 				"container_number",
+				"file_number",
+				"departure_card_number",
 				"origin",
 				"destination",
 				"assigned_technician",
@@ -881,6 +850,7 @@ def resolve_seal_journey_mirror_values(seal_journey):
 				"seal_return_confirmed_by_technician",
 				"seal_return_condition",
 				"seal_return_location",
+				"retrieval_card_number",
 			],
 			as_dict=True,
 		)
@@ -891,6 +861,8 @@ def resolve_seal_journey_mirror_values(seal_journey):
 			) or jr.vehicle
 			put("vehicle_plate_number", vehicle_plate)
 			put("container_number", jr.container_number)
+			put("file_number", jr.file_number)
+			put("departure_card_number", jr.departure_card_number)
 			put("origin", jr.origin)  # JR origin overrides booking.location once set
 			put("destination", jr.destination)
 			put("assigned_technician", jr.assigned_technician)
@@ -909,6 +881,7 @@ def resolve_seal_journey_mirror_values(seal_journey):
 			put("return_location", jr.seal_return_location)
 			put("seal_return_confirmed_by_technician", cint(jr.seal_return_confirmed_by_technician))
 			put("seal_condition_after_journey", jr.seal_return_condition)
+			put("retrieval_card_number", jr.retrieval_card_number)
 			# Returned By is the technician who untagged/returned the seal, but only
 			# once the technician confirms the return.
 			if cint(jr.seal_returned):

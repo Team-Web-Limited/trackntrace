@@ -129,6 +129,11 @@ function _customer_build_page(page) {
 		const customer = $(this).data("customer");
 		if (customer) _customer_open_billing_modal(page, customer);
 	});
+	$(page.body).on("click", ".ccl-portal-access-btn", function (event) {
+		event.stopPropagation();
+		const customer = $(this).data("customer");
+		if (customer) _customer_grant_portal_access(page, customer);
+	});
 	$(page.body).on("click", ".ccl-page-btn", function () {
 		if ($(this).prop("disabled")) return;
 		page.customer_state.page = Number.parseInt($(this).data("page"), 10);
@@ -154,6 +159,7 @@ function _customer_load(page) {
 			const perms = data.permissions || {};
 			page.customer_state.can_create_customer = !!perms.can_create_customer;
 			page.customer_state.can_edit_billing = !!perms.can_edit_billing;
+			page.customer_state.can_grant_portal_access = !!perms.can_grant_portal_access;
 			_customer_apply_permissions(page);
 			page.customer_state.total = data.total || 0;
 			_customer_render_stats(page, data.summary || {});
@@ -230,6 +236,7 @@ function _customer_render_table(page, customers, emptyMessage) {
 					<th>${__("Phone")}</th>
 					<th>${__("Email")}</th>
 					<th>${__("Status")}</th>
+					<th>${__("Portal Access")}</th>
 				</tr>
 			</thead>
 			<tbody>${customers.map((customer) => _customer_row_html(page, customer)).join("")}</tbody>
@@ -251,7 +258,17 @@ function _customer_row_html(page, customer) {
 			<td>${frappe.utils.escape_html(customer.mobile_no || "—")}</td>
 			<td>${frappe.utils.escape_html(customer.email_id || "—")}</td>
 			<td><span class="ccl-badge ccl-badge--${statusClass}">${frappe.utils.escape_html(status)}</span></td>
+			<td>${_customer_portal_access_button_html(page, customer)}</td>
 		</tr>
+	`;
+}
+
+function _customer_portal_access_button_html(page, customer) {
+	if (!page.customer_state.can_grant_portal_access) return "—";
+	return `
+		<button class="ccl-portal-access-btn" data-customer="${frappe.utils.escape_html(customer.name)}">
+			${__("Grant Portal Access")}
+		</button>
 	`;
 }
 
@@ -307,6 +324,63 @@ function _customer_clear(page) {
 	$(page.body).find('.ccl-filter-item[data-status="All"]').addClass("active");
 	$(page.body).find(".ccl-filter-btn-label").text(__("All Customers"));
 	_customer_load(page);
+}
+
+// One-click customer registration: reuse (or create) a Contact, invite it as
+// a Website User, and add it to Customer.portal_users — see
+// grant_customer_portal_access in api/current_customers.py for the full
+// Contact → Invite as User → Portal Users chain this replaces.
+function _customer_grant_portal_access(page, customer, contactDetails) {
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.current_customers.grant_customer_portal_access",
+		args: Object.assign({ customer }, contactDetails || {}),
+		freeze: true,
+		freeze_message: __("Granting portal access…"),
+		callback(r) {
+			const result = r.message || {};
+			if (result.status === "needs_contact_details") {
+				_customer_prompt_contact_details(page, customer);
+				return;
+			}
+			frappe.show_alert({ message: result.message, indicator: "green" }, 7);
+		},
+		error() {
+			frappe.show_alert({ message: __("Could not grant portal access"), indicator: "red" }, 5);
+		},
+	});
+}
+
+function _customer_prompt_contact_details(page, customer) {
+	const dialog = new frappe.ui.Dialog({
+		title: __("New Contact for Portal Access"),
+		fields: [
+			{
+				fieldtype: "Data",
+				fieldname: "first_name",
+				label: __("First Name"),
+				reqd: 1,
+			},
+			{ fieldtype: "Column Break" },
+			{
+				fieldtype: "Data",
+				fieldname: "last_name",
+				label: __("Last Name"),
+			},
+			{
+				fieldtype: "Data",
+				fieldname: "email",
+				label: __("Email"),
+				options: "Email",
+				reqd: 1,
+			},
+		],
+		primary_action_label: __("Grant Access"),
+		primary_action(values) {
+			dialog.hide();
+			_customer_grant_portal_access(page, customer, values);
+		},
+	});
+	dialog.show();
 }
 
 function _customer_open_billing_modal(page, customer) {
@@ -1748,6 +1822,25 @@ function _customer_inject_styles() {
 		}
 		.ccl-billing-btn:hover {
 			transform: translateY(-1px);
+		}
+
+		.ccl-portal-access-btn {
+			display: inline-flex;
+			align-items: center;
+			min-height: 38px;
+			padding: 7px 14px;
+			border: 1px dashed #bae6fd;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			color: #0369a1;
+			font-size: 13px;
+			font-weight: 700;
+			cursor: pointer;
+			white-space: nowrap;
+		}
+		.ccl-portal-access-btn:hover {
+			border-color: var(--ccl-blue);
+			background: #f0f9ff;
 		}
 
 		.ccl-billing-readonly {

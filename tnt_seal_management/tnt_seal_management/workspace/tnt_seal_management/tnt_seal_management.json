@@ -6,11 +6,12 @@
  "docstatus": 0,
  "doctype": "Workspace",
  "hide_custom": 0,
- "icon": "shield-check",
+ "icon": "tool",
  "idx": 0,
  "indicator_color": "blue",
  "is_hidden": 0,
- "label": "TNT Operations Hub",
+ "is_standard": 1,
+ "label": "TNT Operations",
  "links": [
   {
    "hidden": 0,
@@ -35,9 +36,10 @@
  "modified": "2026-06-21 14:59:15.588934",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
- "name": "TNT Operations Hub",
+ "name": "TNT Operations",
  "number_cards": [],
  "owner": "Administrator",
+ "parent_page": "",
  "public": 1,
  "quick_lists": [],
  "roles": [],
@@ -136,5 +138,5 @@
    "type": "Page"
   }
  ],
- "title": "TNT Operations Hub"
+ "title": "TNT Seal Management"
 }

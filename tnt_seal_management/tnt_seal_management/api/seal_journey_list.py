@@ -46,7 +46,7 @@ def get_seal_journey_list_data(status="All", search=None, page=1, page_length=30
 		filters=filters,
 		or_filters=or_filters or None,
 		fields=_FIELDS,
-		order_by="creation desc",
+		order_by="modified desc",
 		limit_start=(page - 1) * page_length,
 		limit_page_length=page_length,
 		distinct=1

@@ -8,6 +8,7 @@
  "engine": "InnoDB",
  "field_order": [
   "location_name",
+  "location_role",
   "country",
   "column_break_main",
   "location_type",
@@ -25,12 +26,23 @@
    "unique": 1
   },
   {
+   "default": "Checkpoint",
+   "fieldname": "location_role",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Type",
+   "options": "Checkpoint\nTerminal",
+   "reqd": 1,
+   "description": "Terminal locations are used as an Origin/Destination on a Journey Request. Checkpoints are used as intermediate stops."
+  },
+  {
    "fieldname": "country",
    "fieldtype": "Select",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Country",
-   "options": "Kenya\nUganda\nTanzania\nDR Congo\nRwanda\nBurundi",
+   "options": "Kenya\nUganda\nTanzania\nDR Congo\nRwanda\nBurundi\nEthiopia\nSouth Sudan",
    "reqd": 1
   },
   {
@@ -97,13 +109,15 @@
    "write": 1
   },
   {
+   "create": 1,
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
    "role": "Field Technician",
-   "share": 1
+   "share": 1,
+   "write": 1
   },
   {
    "email": 1,

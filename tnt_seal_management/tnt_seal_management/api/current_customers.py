@@ -262,8 +262,112 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25):
 		"permissions": {
 			"can_create_customer": can_create_customer,
 			"can_edit_billing": can_edit_billing,
+			"can_grant_portal_access": can_edit_billing,
 		},
 	}
+
+
+def _require_portal_access_permission():
+	if not frappe.has_permission("Customer", "write") or not frappe.has_permission("User", "create"):
+		frappe.throw(_("Not permitted to grant customer portal access."), frappe.PermissionError)
+
+
+def _find_contact_for_customer(customer, email=None):
+	"""Return the Contact linked to ``customer`` that matches ``email`` (or the
+	Customer's own mirrored email_id when unset), or None if there is no such
+	link — Customer.email_id/mobile_no are Read Only fields mirrored from
+	whichever Contact is primary, so this is the same identity the Current
+	Customers table already shows the admin."""
+	target_email = email or frappe.db.get_value("Customer", customer, "email_id")
+	if not target_email:
+		return None
+
+	contact_names = frappe.get_all(
+		"Dynamic Link",
+		filters={"parenttype": "Contact", "link_doctype": "Customer", "link_name": customer},
+		pluck="parent",
+	)
+	if not contact_names:
+		return None
+
+	match = frappe.get_all(
+		"Contact",
+		filters={"name": ["in", contact_names], "email_id": target_email},
+		fields=["name"],
+		limit=1,
+	)
+	return frappe.get_doc("Contact", match[0].name) if match else None
+
+
+def _create_contact_for_customer(customer, first_name, last_name, email):
+	contact = frappe.get_doc({
+		"doctype": "Contact",
+		"first_name": first_name,
+		"last_name": last_name or "",
+		"email_ids": [{"email_id": email, "is_primary": 1}],
+		"links": [{"link_doctype": "Customer", "link_name": customer}],
+	})
+	contact.insert()
+	return contact
+
+
+def _add_customer_portal_user(customer, user):
+	"""Link ``user`` on Customer.portal_users if not already present. Saving
+	triggers Customer.on_update, which grants the Customer role to every user
+	in that table (erpnext.selling.doctype.customer.customer.on_update)."""
+	customer_doc = frappe.get_doc("Customer", customer)
+	if any(row.user == user for row in customer_doc.portal_users):
+		return False
+
+	customer_doc.append("portal_users", {"user": user})
+	customer_doc.save()
+	return True
+
+
+@frappe.whitelist()
+def grant_customer_portal_access(customer, first_name=None, last_name=None, email=None):
+	"""One-click customer registration for the Current Customers page: reuse
+	(or create) a Contact, invite it as a Website User if it isn't one already,
+	and grant Customer Portal access. Mirrors the manual Contact → "Invite as
+	User" → Customer "Portal Users" tab workflow, minus the three separate
+	trips through the desk.
+
+	Returns {"status": "needs_contact_details"} when no email is on file and
+	none was supplied — the caller should collect first_name/last_name/email
+	and call again."""
+	_require_portal_access_permission()
+
+	if not frappe.db.exists("Customer", customer):
+		frappe.throw(_("Customer {0} not found.").format(customer))
+
+	contact = _find_contact_for_customer(customer, email)
+
+	if not contact:
+		if not email:
+			return {"status": "needs_contact_details"}
+		if not first_name:
+			frappe.throw(_("Name is required to create a new contact."))
+		contact = _create_contact_for_customer(customer, first_name, last_name, email)
+
+	if contact.user:
+		user = contact.user
+		invited = False
+	else:
+		from frappe.contacts.doctype.contact.contact import invite_user
+
+		user = invite_user(contact.name)
+		invited = True
+
+	newly_linked = _add_customer_portal_user(customer, user)
+
+	if not invited and not newly_linked:
+		message = _("{0} already has customer portal access.").format(user)
+	elif invited:
+		message = _("Invited {0} — a welcome email with password setup instructions was sent.").format(user)
+	else:
+		message = _("Granted {0} customer portal access.").format(user)
+
+	return {"status": "ok", "user": user, "contact": contact.name, "invited": invited, "message": message}
 
 
 @frappe.whitelist()

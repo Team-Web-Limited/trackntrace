@@ -53,10 +53,6 @@
   "raw_api_response",
   "lifecycle_tab",
   "date_received",
-  "acquisition_reference",
-  "acquisition_supplier",
-  "acquisition_invoice_reference",
-  "acquisition_cost",
   "date_activated",
   "date_deactivated",
   "remarks",
@@ -326,33 +322,7 @@
    "fieldtype": "Date",
    "label": "Date Received"
   },
-  {
-   "fieldname": "acquisition_reference",
-   "fieldtype": "Link",
-   "in_list_view": 1,
-   "label": "Acquisition Reference",
-   "options": "Seal Acquisition",
-   "read_only": 1
-  },
-  {
-   "fieldname": "acquisition_supplier",
-   "fieldtype": "Link",
-   "label": "Acquisition Supplier",
-   "options": "Supplier",
-   "read_only": 1
-  },
-  {
-   "fieldname": "acquisition_invoice_reference",
-   "fieldtype": "Data",
-   "label": "Acquisition Invoice / PO",
-   "read_only": 1
-  },
-  {
-   "fieldname": "acquisition_cost",
-   "fieldtype": "Currency",
-   "label": "Acquisition Cost",
-   "read_only": 1
-  },
+
   {
    "fieldname": "date_activated",
    "fieldtype": "Date",

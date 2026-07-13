@@ -167,18 +167,6 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
-	# Completed-but-unsettled journeys (billing_status "Pending Billing") for
-	# Finance PCB to follow up on — opens the Billing Follow-up list page.
-	"billing-followup-list": {
-		"doctype": "Seal Journey",
-		"rules": [
-			{
-				"roles": ["Finance PCB", "System Manager", "Management"],
-				"label": "Unsettled bills",
-				"filters": {"billing_status": "Pending Billing"},
-			},
-		],
-	},
 	"tagging-booking-list": {
 		"doctype": "Tagging Booking",
 		"rules": [
@@ -276,7 +264,7 @@ CARD_COUNT_RULES = {
 		"doctype": "Vehicle",
 		"rules": [
 			{
-				"roles": ["System Manager", "Management"],
+				"roles": ["Field Technician", "System Manager", "Management"],
 				"label": "Active vehicles",
 				"filters": {"vehicle_status": "Active"},
 			},
@@ -307,26 +295,7 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
-	"seal-acquisition-list": {
-		"doctype": "Seal Acquisition",
-		"rules": [
-			{
-				"roles": ["Operations Control Room", "Seal System Administrator", "System Manager", "Management"],
-				"label": "Received batches",
-				"filters": {"acquisition_status": "Received"},
-			},
-		],
-	},
-	"seal-stock-transfer-list": {
-		"doctype": "Seal Stock Transfer",
-		"rules": [
-			{
-				"roles": ["Operations Control Room", "Seal System Administrator", "System Manager", "Management"],
-				"label": "Pending receipt",
-				"filters": {"transfer_status": "In Transit"},
-			},
-		],
-	},
+
 	"seal-billing-rate-list": {
 		"doctype": "Seal Billing Rate",
 		"rules": [

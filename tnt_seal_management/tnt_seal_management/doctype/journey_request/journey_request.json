@@ -27,6 +27,10 @@
   "entry_number",
   "jr_row_3_column",
   "container_number",
+  "jr_row_3b_section",
+  "file_number",
+  "jr_row_3b_column",
+  "departure_card_number",
   "jr_row_4_section",
   "number_of_seals",
   "pre_tagging_checklist",
@@ -75,8 +79,10 @@
   "seal_return_photos",
   "seal_return_confirmed_by_technician",
   "seal_return_condition",
+  "retrieval_card_number",
   "jr_seal_return_row2_section",
   "actual_seal_return_date_time",
+  "return_warehouse",
   "jr_seal_return_row2_column",
   "seal_return_location",
   "jr_seal_return_row3_section",
@@ -167,6 +173,25 @@
    "reqd": 1
   },
   {
+   "fieldname": "jr_row_3b_section",
+   "fieldtype": "Section Break",
+   "label": "Departure Documentation"
+  },
+  {
+   "fieldname": "file_number",
+   "fieldtype": "Data",
+   "label": "File Number"
+  },
+  {
+   "fieldname": "jr_row_3b_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "departure_card_number",
+   "fieldtype": "Data",
+   "label": "Departure Card Number"
+  },
+  {
    "fieldname": "jr_row_4_section",
    "fieldtype": "Section Break",
    "label": "Seals"
@@ -200,9 +225,9 @@
   },
   {
    "fieldname": "origin",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "label": "Origin",
-   "options": "Mombasa Port, Kenya\nNairobi ICD, Kenya\nEldoret, Kenya\nKisumu, Kenya\nMalaba Border, Kenya/Uganda\nBusia Border, Kenya/Uganda\nNamanga Border, Kenya/Tanzania\nIsebania Border, Kenya/Tanzania\nMoyale Border, Kenya/Ethiopia\nKampala, Uganda\nMbarara, Uganda\nMutukula Border, Uganda/Tanzania\nNimule Border, Uganda/South Sudan\nDar es Salaam Port, Tanzania\nDar es Salaam ICD, Tanzania\nArusha, Tanzania\nKigali, Rwanda\nRusumo Border, Rwanda/Tanzania\nJuba, South Sudan\nAddis Ababa, Ethiopia",
+   "options": "Transport Location",
    "reqd": 1
   },
   {
@@ -211,9 +236,9 @@
   },
   {
    "fieldname": "destination",
-   "fieldtype": "Select",
+   "fieldtype": "Link",
    "label": "Destination",
-   "options": "Mombasa Port, Kenya\nNairobi ICD, Kenya\nEldoret, Kenya\nKisumu, Kenya\nMalaba Border, Kenya/Uganda\nBusia Border, Kenya/Uganda\nNamanga Border, Kenya/Tanzania\nIsebania Border, Kenya/Tanzania\nMoyale Border, Kenya/Ethiopia\nKampala, Uganda\nMbarara, Uganda\nMutukula Border, Uganda/Tanzania\nNimule Border, Uganda/South Sudan\nDar es Salaam Port, Tanzania\nDar es Salaam ICD, Tanzania\nArusha, Tanzania\nKigali, Rwanda\nRusumo Border, Rwanda/Tanzania\nJuba, South Sudan\nAddis Ababa, Ethiopia",
+   "options": "Transport Location",
    "reqd": 1
   },
   {
@@ -492,6 +517,11 @@
    "description": "Condition of the seal as returned by the Field Technician."
   },
   {
+   "fieldname": "retrieval_card_number",
+   "fieldtype": "Data",
+   "label": "Retrieval Card Number"
+  },
+  {
    "depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "fieldname": "jr_seal_return_row2_section",
    "fieldtype": "Section Break"
@@ -502,6 +532,14 @@
    "label": "Actual Seal Return Date and Time",
    "read_only": 1,
    "description": "Stamped automatically when the Field Technician confirms the seal return."
+  },
+  {
+   "fieldname": "return_warehouse",
+   "fieldtype": "Link",
+   "options": "Warehouse",
+   "label": "Warehouse",
+   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "description": "Warehouse the seal is returned to. Logged with the captured GPS location, in brackets, for audit."
   },
   {
    "fieldname": "jr_seal_return_row2_column",

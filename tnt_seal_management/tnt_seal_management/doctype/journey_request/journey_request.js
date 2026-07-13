@@ -21,6 +21,15 @@ frappe.ui.form.on("Journey Request", {
 			filters: { journey_request: frm.doc.name || "" },
 		}));
 
+		// Origin/Destination are the journey's start/end points, so only
+		// Terminal-type locations belong there; Checkpoints are the
+		// intermediate stops in the table below.
+		frm.set_query("origin", () => ({ filters: { location_role: "Terminal" } }));
+		frm.set_query("destination", () => ({ filters: { location_role: "Terminal" } }));
+		frm.set_query("checkpoint", "checkpoints", () => ({
+			filters: { location_role: "Checkpoint" },
+		}));
+
 		// A sub-seal's parent must be one of the other seals already on this
 		// journey, so restrict the Parent Seal picker to the sibling rows.
 		frm.set_query("parent_seal", "seals", (doc, cdt, cdn) => {

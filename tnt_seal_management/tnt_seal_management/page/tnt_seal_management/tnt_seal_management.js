@@ -72,7 +72,7 @@ const TNT_DASHBOARD_CARDS = [
 		title: "Vehicles",
 		icon: "🚘",
 		route: "vehicle-list",
-		roles: ["System Manager", "Management"],
+		roles: ["System Manager", "Management", "Field Technician"],
 	},
 	{
 		title: "Warehouses",
@@ -97,38 +97,9 @@ const TNT_DASHBOARD_CARDS = [
 		],
 	},
 	{
-		title: "Seal Acquisitions",
-		icon: "📦",
-		route: "seal-acquisition-list",
-		roles: [
-			"System Manager",
-			"Seal System Administrator",
-			"Operations Control Room",
-			"Management",
-		],
-	},
-	{
-		title: "Warehouse Transfers",
-		icon: "🔁",
-		route: "seal-stock-transfer-list",
-		roles: [
-			"System Manager",
-			"Seal System Administrator",
-			"Operations Control Room",
-			"Management",
-		],
-	},
-	{
 		title: "Billing Rates",
 		icon: "💰",
 		route: "seal-billing-rate-list",
-		roles: ["System Manager", "Finance PCB", "Management"],
-	},
-	{
-		title: "Billing Follow-up",
-		icon: "💵",
-		route: "billing-followup-list",
-		primary: true,
 		roles: ["System Manager", "Finance PCB", "Management"],
 	},
 	{

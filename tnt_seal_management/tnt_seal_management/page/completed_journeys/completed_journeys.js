@@ -171,6 +171,11 @@ function _build_skeleton(page) {
 		const idx = $(this).data("idx");
 		_show_charges_modal(page, idx);
 	});
+
+	$(page.body).on("click", ".cj-generate-so-btn", function () {
+		const idx = $(this).data("idx");
+		_generate_sales_order(page, idx);
+	});
 }
 
 function _render(page, data) {
@@ -235,6 +240,10 @@ function _render_overview(page, customers, grand_total) {
 function _customer_card_html(c, idx) {
 	const esc = frappe.utils.escape_html;
 	const rows = c.journeys.map(_journey_row_html).join("");
+	const is_all_billed = c.journeys.length > 0 && c.journeys.every(j => j.sales_order_reference);
+	const btn_so = is_all_billed
+		? `<button class="cj-generate-so-btn" disabled style="background-color: #cbd5e1; color: #64748b; border: 1px solid #cbd5e1; cursor: not-allowed; pointer-events: none;">${__("Billed")}</button>`
+		: `<button class="cj-generate-so-btn" data-idx="${idx}">${__("Generate Sales Order")}</button>`;
 
 	return `
 		<section class="cj-card" id="cj-card-${idx}">
@@ -245,6 +254,7 @@ function _customer_card_html(c, idx) {
 					<span class="cj-card-days">${__("{0} days total", [flt_display(c.total_days_taken)])}</span>
 				</div>
 				<div class="cj-card-actions">
+					${btn_so}
 					<button class="cj-charges-btn" data-idx="${idx}">${__("Charges")}</button>
 					<div class="dropdown" style="display: inline-block;">
 						<button class="cj-print-btn dropdown-toggle" data-toggle="dropdown" aria-expanded="false">${__("Export")}</button>
@@ -313,9 +323,19 @@ function _journey_row_html(j) {
 	const dash = `<span class="cj-muted">—</span>`;
 	const dt = (v) => (v ? frappe.datetime.str_to_user(v) : dash);
 
+	let journey_cell = `<span class="cj-journey-link" data-name="${esc(j.name)}">${esc(j.name)}</span>`;
+	if (j.sales_order_reference) {
+		journey_cell += `
+			<div class="cj-so-ref" style="font-size: 10px; margin-top: 3px; white-space: nowrap;">
+				<span class="indicator green" style="padding: 1px 4px; font-size: 9px; font-weight: bold; border-radius: 3px; background-color: #d1fae5; color: #065f46; display: inline-block; margin-right: 4px;">${__("Billed")}</span>
+				<a href="/app/sales-order/${esc(j.sales_order_reference)}" style="color: #059669; font-weight: bold; text-decoration: underline;">${esc(j.sales_order_reference)}</a>
+			</div>
+		`;
+	}
+
 	return `
 		<tr>
-			<td><span class="cj-journey-link" data-name="${esc(j.name)}">${esc(j.name)}</span></td>
+			<td>${journey_cell}</td>
 			<td>${j.container_number ? esc(j.container_number) : dash}</td>
 			<td>${j.origin ? esc(j.origin) : dash}</td>
 			<td>${j.destination ? esc(j.destination) : dash}</td>
@@ -567,6 +587,37 @@ function _export_excel(page, idx) {
 	});
 }
 
+function _generate_sales_order(page, idx) {
+	const c = (page.cj_data.customers || [])[idx];
+	if (!c) return;
+
+	frappe.confirm(__("Generate Sales Order for {0}?", [frappe.utils.escape_html(c.customer)]), () => {
+		_set_loading(page, true);
+		frappe.call({
+			method: "tnt_seal_management.tnt_seal_management.api.completed_journeys.generate_sales_order",
+			args: {
+				customer: c.customer,
+				from_date: page.cj_state.from_date || null,
+				to_date: page.cj_state.to_date || null,
+			},
+			callback(r) {
+				_set_loading(page, false);
+				if (r.message) {
+					frappe.msgprint({
+						title: __("Success"),
+						indicator: "green",
+						message: __("Sales Order <a href='/app/sales-order/{0}'><b>{0}</b></a> created successfully.", [r.message])
+					});
+					_load(page);
+				}
+			},
+			error() {
+				_set_loading(page, false);
+			}
+		});
+	});
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -719,7 +770,7 @@ function _inject_styles() {
 			font-size: 11px;
 			font-weight: 800;
 		}
-		.cj-print-btn, .cj-charges-btn {
+		.cj-print-btn, .cj-charges-btn, .cj-generate-so-btn {
 			border: 1px solid #bae6fd;
 			border-radius: 10px;
 			background: var(--card-bg, #fff);
@@ -730,10 +781,18 @@ function _inject_styles() {
 			cursor: pointer;
 			transition: border-color .15s;
 		}
-		.cj-charges-btn {
+		.cj-charges-btn, .cj-generate-so-btn {
 			border-color: #0284c7;
 			background: #f0f9ff;
 			color: #0369a1;
+		}
+		.cj-generate-so-btn {
+			background: #0ea5e9;
+			color: #fff;
+			border-color: #0284c7;
+		}
+		.cj-generate-so-btn:hover {
+			background: #0284c7;
 		}
 		.cj-print-btn:hover, .cj-charges-btn:hover { border-color: var(--cj-blue); }
 		.cj-table-wrap {

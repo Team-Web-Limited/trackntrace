@@ -863,7 +863,7 @@
    "fieldname": "billing_status",
    "fieldtype": "Select",
    "label": "Billing Status",
-   "options": "Not Billed\nPending Billing\nNo Per-Journey Charge\nBilled\nCancelled",
+   "options": "Not Billed\nPending Billing\nProcessing Payment\nNo Per-Journey Charge\nBilled\nCancelled",
    "read_only": 1
   },
   {

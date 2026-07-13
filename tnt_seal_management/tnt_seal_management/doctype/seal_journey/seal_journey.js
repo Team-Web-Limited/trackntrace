@@ -322,14 +322,15 @@ function _render_warehouse_timeline(frm) {
 function _build_warehouse_timeline_payload(frm, sealDoc) {
 	const status = frm.doc.journey_status || "Draft";
 	const current = STATUS_TO_MILESTONE[status] != null ? STATUS_TO_MILESTONE[status] : 0;
-	const custodyHistory = (sealDoc.status_history || [])
-		.filter((row) => _warehouse_history_belongs_to_journey(frm, row))
-		.sort((a, b) => String(a.status_date_time || "").localeCompare(String(b.status_date_time || "")));
+	// Custody for this journey now lives in a single "Journey Summary" row on the
+	// seal, whose columns fill in as the seal changes hands (warehouse ->
+	// tagging_to -> customer -> untagging_to / seal_return_to -> warehouse).
+	const summary = _journey_summary_row(frm, sealDoc);
 
-	const firstWarehouse = _first_warehouse_label(custodyHistory) || _current_warehouse_label(sealDoc);
-	const returnWarehouse = _return_warehouse_label(custodyHistory) || _current_warehouse_label(sealDoc);
-	const assignedAt = _history_time(custodyHistory, "Assigned via Journey Request") || frm.doc.technician_assignment_date_time;
-	const returnedAt = _history_time(custodyHistory, "Returned via Journey Request") || frm.doc.completion_date_time;
+	const firstWarehouse = (summary && summary.warehouse) || _current_warehouse_label(sealDoc);
+	const returnWarehouse = (summary && summary.warehouse) || _current_warehouse_label(sealDoc);
+	const assignedAt = frm.doc.technician_assignment_date_time;
+	const returnedAt = frm.doc.completion_date_time;
 
 	const stages = [
 		{
@@ -401,7 +402,7 @@ function _build_warehouse_timeline_payload(frm, sealDoc) {
 		latestIndex = stages.reduce((latest, stage, index) => (stage.state === "approved" ? index : latest), 0);
 	}
 
-	return { stages, latestIndex, custodyHistory };
+	return { stages, latestIndex, summary };
 }
 
 function _warehouse_timeline_html(frm, payload) {
@@ -439,7 +440,7 @@ function _warehouse_timeline_html(frm, payload) {
 			</div>`;
 	}).join("");
 
-	const history = _warehouse_history_html(payload.custodyHistory);
+	const history = _warehouse_history_html(payload.summary);
 	return `
 		<div class="sj-approval-shell sj-warehouse-shell">
 			<div class="sj-approval-summary">
@@ -451,48 +452,55 @@ function _warehouse_timeline_html(frm, payload) {
 		</div>`;
 }
 
-function _warehouse_history_html(rows) {
+// Custody stages of the single Journey Summary row, in the order the seal
+// moves through them. Mirrors JOURNEY_CUSTODY_COLUMNS in seal_device.py.
+const WAREHOUSE_CUSTODY_STAGES = [
+	{ field: "warehouse", label: __("Warehouse") },
+	{ field: "tagging_to", label: __("Tagging TO") },
+	{ field: "customer", label: __("Customer") },
+	{ field: "untagging_to", label: __("Untagging TO") },
+	{ field: "seal_return_to", label: __("Seal Return TO") },
+];
+
+function _journey_summary_row(frm, sealDoc) {
+	return (sealDoc.status_history || []).find(
+		(row) => row.entry_type === "Journey Summary" && row.journey === frm.doc.name
+	);
+}
+
+function _warehouse_history_html(summary) {
 	const escape = (value) => frappe.utils.escape_html(String(value || ""));
-	if (!rows.length) {
-		return `<div class="sj-warehouse-history sj-warehouse-empty">${__("No recorded seal custody handoffs found for this journey yet.")}</div>`;
+	if (!summary) {
+		return `<div class="sj-warehouse-history sj-warehouse-empty">${__("No recorded seal custody path for this journey yet.")}</div>`;
 	}
-	const items = rows.map((row) => {
-		const time = row.status_date_time ? frappe.datetime.str_to_user(row.status_date_time) : "";
+	// Render the filled stages as an ordered path, e.g.
+	// Warehouse: Main Stock -> Tagging TO: Diana -> Customer: ACME -> ...
+	const filled = WAREHOUSE_CUSTODY_STAGES.filter((stage) => summary[stage.field]);
+	if (!filled.length) {
+		return `<div class="sj-warehouse-history sj-warehouse-empty">${__("No recorded seal custody path for this journey yet.")}</div>`;
+	}
+	const time = summary.status_date_time ? frappe.datetime.str_to_user(summary.status_date_time) : "";
+	const items = filled.map((stage, index) => {
 		return `<div class="sj-warehouse-history-row">
-			<div><strong>${escape(row.new_status || row.previous_status || __("Custody update"))}</strong><small>${escape(row.previous_status ? `${__("From")}: ${row.previous_status}` : "")}</small></div>
+			<div><strong>${escape(summary[stage.field])}</strong><small>${escape(stage.label)}</small></div>
 			<div class="sj-warehouse-history-meta">
-				${time ? `<span><i class="fa fa-clock-o"></i>${escape(time)}</span>` : ""}
-				${row.updated_by ? `<span><i class="fa fa-user"></i>${escape(row.updated_by)}</span>` : ""}
-				${row.remarks ? `<span><i class="fa fa-comment-o"></i>${escape(row.remarks)}</span>` : ""}
+				<span><i class="fa fa-hashtag"></i>${index + 1}</span>
 			</div>
 		</div>`;
 	}).join("");
-	return `<div class="sj-warehouse-history"><h4>${__("Recorded Custody Handoffs")}</h4>${items}</div>`;
-}
-
-function _warehouse_history_belongs_to_journey(frm, row) {
-	const text = `${row.journey || ""} ${row.remarks || ""}`;
-	return !frm.doc.name || text.includes(frm.doc.name) || row.journey === frm.doc.name;
-}
-
-function _first_warehouse_label(rows) {
-	const row = rows.find((item) => String(item.previous_status || "").includes("Warehouse:"));
-	return row ? row.previous_status : "";
-}
-
-function _return_warehouse_label(rows) {
-	const reversed = [...rows].reverse();
-	const row = reversed.find((item) => String(item.new_status || "").includes("Warehouse:"));
-	return row ? row.new_status : "";
+	const meta = [
+		time ? `<span><i class="fa fa-clock-o"></i>${escape(time)}</span>` : "",
+		summary.updated_by ? `<span><i class="fa fa-user"></i>${escape(summary.updated_by)}</span>` : "",
+	].filter(Boolean).join("");
+	return `<div class="sj-warehouse-history">
+		<h4>${__("Recorded Custody Path")}</h4>
+		${items}
+		${meta ? `<div class="sj-warehouse-history-meta sj-warehouse-history-foot">${meta}</div>` : ""}
+	</div>`;
 }
 
 function _current_warehouse_label(sealDoc) {
 	return sealDoc.current_custody_type === "Custody Point" ? sealDoc.current_custody_label : "";
-}
-
-function _history_time(rows, marker) {
-	const row = rows.find((item) => String(item.remarks || "").includes(marker));
-	return row && row.status_date_time;
 }
 
 function _inject_warehouse_timeline_styles() {

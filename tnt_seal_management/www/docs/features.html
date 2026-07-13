@@ -46,8 +46,7 @@
 					</a>
 					<ul class="nav-sublist d-none">
 						<li class="nav-subitem"><a href="#device-directory" class="nav-sublink">Devices Directory</a></li>
-						<li class="nav-subitem"><a href="#acquisitions" class="nav-sublink">Seal Acquisitions</a></li>
-						<li class="nav-subitem"><a href="#stock-transfers" class="nav-sublink">Stock Transfers</a></li>
+
 					</ul>
 				</li>
 				<li class="nav-item has-children">
@@ -258,30 +257,7 @@
 					<li class="mb-2"><strong>Custody Status:</strong> Keeps track of the device's physical custodian (e.g., whether it is held by an individual Field Technician, assigned to an active transit vehicle, or stored in a specific Custody Point).</li>
 				</ul>
 
-				<h3 class="h4 mt-5 text-light font-weight-normal" id="acquisitions">2. Ingesting New Inventory (Seal Acquisitions)</h3>
-				<p class="docs-paragraph small text-light-muted">
-					New hardware batches bought from vendors are registered using the **Seal Acquisition** (<code>SA-YYYY-MM-#####</code>) document:
-				</p>
-				<ul class="text-light-muted pl-4 small">
-					<li class="mb-2"><strong>Receipt Details:</strong> Form requests require documenting the Supplier link, Invoice/PO reference, Received Date, and receiving target Custody Point warehouse.</li>
-					<li class="mb-2"><strong>Batch Ingestion:</strong> Seal records are linked in the `Seals Received` child table where serials, device IDs, and IMEIs are entered.</li>
-					<li class="mb-2"><strong>Ingestion Statuses:</strong>
-						<ul class="pl-3 mt-1">
-							<li><code>Draft</code>: Pending review. Sealing devices are inactive in backend lookups.</li>
-							<li><code>Quality Check</code>: Batch requires quality review. Devices cannot be dispatched to field agents.</li>
-							<li><code>Received / Available</code>: Stock is committed. Seal records are activated and marked as <code>Available</code> at the target Custody Point.</li>
-						</ul>
-					</li>
-				</ul>
 
-				<h3 class="h4 mt-5 text-light font-weight-normal" id="stock-transfers">3. Internal Stock Transfers</h3>
-				<p class="docs-paragraph small text-light-muted">
-					To move device stock between regional warehouses (e.g., from the main container port depot to an inland border custody point), users use the **Seal Stock Transfer** (<code>SST-YYYY-MM-#####</code>) doctype:
-				</p>
-				<ul class="text-light-muted pl-4 small">
-					<li class="mb-2"><strong>Initiating Transfers:</strong> Select the Source Warehouse and Target Warehouse, and insert the specific devices into the `Seals` child table. When submitted, the transfer state updates to <code>In Transit</code>, and the seals are locked from active field dispatches.</li>
-					<li class="mb-2"><strong>Completing Transfers:</strong> Upon physical arrival at the destination warehouse, the receiving officer clicks the <code>Receive</code> action. The document status updates to <code>Received</code>, logging the <code>Received Date</code> and custodian changes, and releasing the devices to <code>Available</code> status at the target Custody Point.</li>
-				</ul>
 			</section>
 
 			<section id="field-operations" class="docs-section mt-5 pt-5 border-top border-secondary">

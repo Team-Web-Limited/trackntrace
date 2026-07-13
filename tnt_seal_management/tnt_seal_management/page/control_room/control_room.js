@@ -543,7 +543,7 @@ function _control_room_arrival_card(journey) {
 				${_cr_meta(__("Last API Update"), lastSeen)}
 			</div>
 			<footer class="cr-arrival-actions">
-				<div class="cr-arrival-unlock-prompt">${__("Confirm arrival — how was the seal unlocked?")}</div>
+				<div class="cr-arrival-unlock-prompt">${__("Confirm arrival — how is the seal unlocked?")}</div>
 				<div class="cr-arrival-unlock-buttons">
 					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--physical" data-name="${frappe.utils.escape_html(journey.name)}" data-method="physical">
 						${__("Physical Unlock — Send for Untagging")}
