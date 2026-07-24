@@ -355,6 +355,13 @@ def grant_customer_portal_access(customer, first_name=None, last_name=None, emai
 	else:
 		from frappe.contacts.doctype.contact.contact import invite_user
 
+		# Existing company-style Contacts often have only company_name set, which
+		# makes the User created by invite_user fail its required First Name.
+		# Backfill from company_name (or the customer) before inviting.
+		if not contact.first_name:
+			contact.first_name = contact.company_name or customer
+			contact.save(ignore_permissions=True)
+
 		user = invite_user(contact.name)
 		invited = True
 
@@ -681,6 +688,7 @@ def set_customer_billing(
 			owned_seal_count=owned_seal_count,
 		)
 
+		frappe.db.set_value("Customer", customer, "disabled", 1)
 		frappe.db.commit()
 		rule = frappe.db.get_value(
 			"Seal Billing Rate", rule_name, ["name", "billing_rule_name", "billing_type"], as_dict=True
@@ -725,6 +733,7 @@ def set_customer_billing(
 		owned_seal_count=owned_seal_count,
 	)
 
+	frappe.db.set_value("Customer", customer, "disabled", 1)
 	frappe.db.commit()
 	return {
 		"customer": customer,
@@ -770,10 +779,8 @@ def _upsert_customer_leasing_rule(
 		"billing_type": "Leasing",
 		"active": 1,
 		"is_global_default": 0,
-		# Leasing rates are private, per-customer contracts set directly by
-		# Finance here — they sit outside the Managing Director approval
+		# Leasing rules now require Managing Director approval
 		# workflow that applies to shared Subscription rate cards.
-		"approval_status": "Approved",
 		"currency": currency or "KES",
 		"first_period_days": cint(first_period_days),
 		"first_period_amount": flt(first_period_amount),
@@ -842,9 +849,8 @@ def _upsert_customer_extra_leasing_rule(
 		"billing_type": "Leasing",
 		"active": 1,
 		"is_global_default": 0,
-		# Private per-customer contract, like the primary leasing rate — outside
-		# the Managing Director approval workflow for shared Subscription cards.
-		"approval_status": "Approved",
+		# Leasing rules now require Managing Director approval
+		# workflow that applies to shared Subscription rate cards.
 		"currency": currency or "KES",
 		"first_period_days": cint(first_period_days),
 		"first_period_amount": flt(first_period_amount),
@@ -1007,6 +1013,7 @@ def set_customer_extra_billing(
 		effective_to=period_to_date or None,
 	)
 
+	frappe.db.set_value("Customer", customer, "disabled", 1)
 	frappe.db.commit()
 	return {
 		"customer": customer,

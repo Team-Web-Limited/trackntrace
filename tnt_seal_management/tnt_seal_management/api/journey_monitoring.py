@@ -102,7 +102,7 @@ def get_journey_monitoring_data(
 			filters=active_filters,
 			or_filters=or_filters or None,
 			fields=_FIELDS,
-			order_by="creation desc",
+			order_by="modified desc",
 		)
 		_attach_seals(all_active)
 		journeys_with_alerts = [j for j in all_active if j.get("alert_level")]
@@ -120,7 +120,7 @@ def get_journey_monitoring_data(
 			filters=filters,
 			or_filters=or_filters or None,
 			fields=_FIELDS,
-			order_by="creation desc",
+			order_by="modified desc",
 			limit_start=(page - 1) * page_length,
 			limit_page_length=page_length,
 		)

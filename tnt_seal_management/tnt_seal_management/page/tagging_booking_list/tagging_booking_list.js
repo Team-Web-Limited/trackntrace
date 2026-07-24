@@ -597,6 +597,7 @@ function _inject_tagging_booking_styles() {
 			color: var(--text-color, #334155);
 			font-size: 14px;
 			line-height: 1.35;
+			white-space: nowrap;
 		}
 		.tb-table th {
 			position: sticky;

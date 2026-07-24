@@ -138,7 +138,7 @@ function _lock_leasing_rule(frm) {
 // Approve/Reject buttons, for when the rule is opened directly (e.g. via a
 // link from Customer Billing Assignment) rather than from the list.
 function _add_approval_actions(frm) {
-	if (frm.is_new() || frm.doc.billing_type === "Leasing") return;
+	if (frm.is_new()) return;
 	if (!frappe.user.has_role("Managing Director") && !frappe.user.has_role("System Manager")) return;
 	if (frm.doc.approval_status === "Approved") return;
 

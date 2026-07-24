@@ -92,7 +92,7 @@ def get_customer_tagging_bookings():
 		"Tagging Booking",
 		filters={"client_name": customer, "booking_source": "Customer Portal"},
 		fields=CUSTOMER_SAFE_FIELDS,
-		order_by="creation desc",
+		order_by="modified desc",
 		limit_page_length=200,
 	)
 	return {

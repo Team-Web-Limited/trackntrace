@@ -99,7 +99,7 @@ class PCBJobOrder(Document):
 
 		assignment_name = self.assignment_reference or frappe.db.get_value(
 			"PCB Assignment",
-			{"pcb_job_order": self.name},
+			{"pcb_job_order": self.name, "assignment_status": ["!=", "Cancelled"]},
 			"name",
 		)
 		if not assignment_name:
@@ -173,9 +173,11 @@ def _validate_field_technician(user):
 
 
 def _get_assignment_name(job_order):
+	"""A Cancelled assignment is terminal — never rediscover and silently reuse
+	it for a new Tag Operator; a fresh PCB Assignment is created instead."""
 	return job_order.assignment_reference or frappe.db.get_value(
 		"PCB Assignment",
-		{"pcb_job_order": job_order.name},
+		{"pcb_job_order": job_order.name, "assignment_status": ["!=", "Cancelled"]},
 		"name",
 	)
 

@@ -3,6 +3,10 @@
 
 frappe.ui.form.on("Seal Device", {
 	refresh(frm) {
+		frm.add_custom_button(__("Back"), () => {
+			frappe.set_route("seal-device-dashboard");
+		});
+
 		if (!frm.is_new()) {
 			_add_sync_button(frm);
 		}

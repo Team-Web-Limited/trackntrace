@@ -122,7 +122,7 @@
    "fieldname": "rate_override_section",
    "fieldtype": "Section Break",
    "label": "Rate Override",
-   "description": "Subscription rules only. Leave both blank to bill this customer at the shared billing rule's own Rate/Currency — fill in to override for this customer only, without touching the shared rule or any other customer assigned to it."
+   "description": "Subscription rules only. Leave both blank to bill this customer at the shared billing rule's own Rate/Currency \u2014 fill in to override for this customer only, without touching the shared rule or any other customer assigned to it."
   },
   {
    "fieldname": "override_first_period_amount",
@@ -171,7 +171,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-20 09:10:00.000000",
+ "modified": "2026-07-14 12:45:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Customer Billing Assignment",
@@ -210,6 +210,18 @@
    "read": 1,
    "report": 1,
    "role": "Management",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Managing Director",
    "share": 1,
    "write": 1
   }

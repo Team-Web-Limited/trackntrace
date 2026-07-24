@@ -22,6 +22,7 @@ CARD_COUNT_RULES = {
 					"Operations Control Room",
 					"System Manager",
 					"Management",
+					"Managing Director",
 					"Seal System Administrator",
 				],
 				"label": "Not completed",
@@ -58,7 +59,7 @@ CARD_COUNT_RULES = {
 				},
 			},
 			{
-				"roles": ["System Manager", "Management"],
+				"roles": ["System Manager", "Management", "Managing Director"],
 				"label": "Tagging requests",
 				"filters": {
 					"journey_request_status": [
@@ -83,7 +84,7 @@ CARD_COUNT_RULES = {
 				"filters": {"journey_request_status": "Untagging"},
 			},
 			{
-				"roles": ["System Manager", "Management"],
+				"roles": ["System Manager", "Management", "Managing Director"],
 				"label": "Untagging requests",
 				"filters": {
 					"journey_request_status": [
@@ -110,7 +111,7 @@ CARD_COUNT_RULES = {
 				},
 			},
 			{
-				"roles": ["System Manager", "Management"],
+				"roles": ["System Manager", "Management", "Managing Director"],
 				"label": "Seal return requests",
 				"filters": {
 					"journey_request_status": [
@@ -125,7 +126,7 @@ CARD_COUNT_RULES = {
 		"doctype": "Journey Request",
 		"rules": [
 			{
-				"roles": ["Operations Control Room", "System Manager", "Management"],
+				"roles": ["Operations Control Room", "System Manager", "Management", "Managing Director"],
 				"label": "Pending your approval",
 				# Covers the tagging-stage approval gate.
 				"filters": {
@@ -148,7 +149,7 @@ CARD_COUNT_RULES = {
 		"doctype": "Seal Alert Log",
 		"rules": [
 			{
-				"roles": ["Operations Control Room", "System Manager", "Management"],
+				"roles": ["Operations Control Room", "System Manager", "Management", "Managing Director"],
 				"label": "Open alerts",
 				"filters": {"is_resolved": 0},
 			},
@@ -161,7 +162,7 @@ CARD_COUNT_RULES = {
 		"doctype": "Seal Journey",
 		"rules": [
 			{
-				"roles": ["Operations Control Room", "System Manager", "Management"],
+				"roles": ["Operations Control Room", "System Manager", "Management", "Managing Director"],
 				"label": "Awaiting arrival confirmation",
 				"filters": {"journey_status": "In Transit"},
 			},
@@ -181,7 +182,7 @@ CARD_COUNT_RULES = {
 				"filters": {"booking_status": "Pending Account Manager Review"},
 			},
 			{
-				"roles": ["System Manager", "Management"],
+				"roles": ["System Manager", "Management", "Managing Director"],
 				"label": "Pending approval",
 				"filters": {
 					"booking_status": [
@@ -208,7 +209,7 @@ CARD_COUNT_RULES = {
 				"filters": {"job_order_status": "Team Leader Assigned"},
 			},
 			{
-				"roles": ["System Manager", "Management"],
+				"roles": ["System Manager", "Management", "Managing Director"],
 				"label": "Open job orders",
 				"filters": {
 					"job_order_status": ["not in", ["Completed", "Cancelled"]]
@@ -220,7 +221,7 @@ CARD_COUNT_RULES = {
 		"doctype": "PCB Assignment",
 		"rules": [
 			{
-				"roles": ["PCB Team Leader", "System Manager", "Management"],
+				"roles": ["PCB Team Leader", "System Manager", "Management", "Managing Director"],
 				"label": "Pending assignments",
 				"filters": {"request_type": "Tagging", "assignment_status": "Pending"},
 			},
@@ -233,7 +234,7 @@ CARD_COUNT_RULES = {
 		"doctype": "PCB Assignment",
 		"rules": [
 			{
-				"roles": ["PCB Team Leader", "System Manager", "Management"],
+				"roles": ["PCB Team Leader", "System Manager", "Management", "Managing Director"],
 				"label": "Awaiting untagging assignment",
 				"filters": {
 					"request_type": "Untagging",
@@ -251,7 +252,7 @@ CARD_COUNT_RULES = {
 		"doctype": "PCB Assignment",
 		"rules": [
 			{
-				"roles": ["PCB Team Leader", "System Manager", "Management"],
+				"roles": ["PCB Team Leader", "System Manager", "Management", "Managing Director"],
 				"label": "Awaiting retrieval assignment",
 				"filters": {
 					"request_type": "Seal Return",
@@ -264,7 +265,7 @@ CARD_COUNT_RULES = {
 		"doctype": "Vehicle",
 		"rules": [
 			{
-				"roles": ["Field Technician", "System Manager", "Management"],
+				"roles": ["Field Technician", "System Manager", "Management", "Managing Director"],
 				"label": "Active vehicles",
 				"filters": {"vehicle_status": "Active"},
 			},
@@ -274,7 +275,7 @@ CARD_COUNT_RULES = {
 		"doctype": "Warehouse",
 		"rules": [
 			{
-				"roles": ["Operations Control Room", "Seal System Administrator", "System Manager", "Management"],
+				"roles": ["Operations Control Room", "Seal System Administrator", "System Manager", "Management", "Managing Director"],
 				"label": "Total warehouses",
 				"filters": {"is_group": 0, "disabled": 0},
 			},
@@ -289,6 +290,7 @@ CARD_COUNT_RULES = {
 					"Seal System Administrator",
 					"System Manager",
 					"Management",
+					"Managing Director",
 				],
 				"label": "Total devices",
 				"filters": {},
@@ -300,7 +302,7 @@ CARD_COUNT_RULES = {
 		"doctype": "Seal Billing Rate",
 		"rules": [
 			{
-				"roles": ["System Manager", "Finance PCB", "Management"],
+				"roles": ["System Manager", "Finance PCB", "Management", "Managing Director"],
 				"label": "Active rates",
 				"filters": {"active": 1},
 			},

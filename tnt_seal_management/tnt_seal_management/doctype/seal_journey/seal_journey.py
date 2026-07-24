@@ -633,6 +633,37 @@ def get_pending_billing_queue():
 	return {"journeys": journeys}
 
 
+def sync_billing_from_sales_invoice(sales_invoice, method=None):
+	"""Flip Seal Journeys to Billed once their Sales Order's invoice is fully paid.
+
+	Hooked on Sales Invoice's on_change, which fires both on a normal save/submit
+	and on the db_set-only status flip ERPNext does when a Payment Entry is
+	reconciled against the invoice (set_status(update=True) never runs a full
+	document save, only db_set, which still triggers on_change)."""
+	if sales_invoice.docstatus != 1 or sales_invoice.status != "Paid":
+		return
+
+	sales_orders = frappe.get_all(
+		"Sales Invoice Item",
+		filters={"parent": sales_invoice.name, "sales_order": ["is", "set"]},
+		pluck="sales_order",
+		distinct=True,
+	)
+	if not sales_orders:
+		return
+
+	journeys = frappe.get_all(
+		"Seal Journey",
+		filters={
+			"sales_order_reference": ["in", sales_orders],
+			"billing_status": "Processing Payment",
+		},
+		pluck="name",
+	)
+	for name in journeys:
+		frappe.db.set_value("Seal Journey", name, "billing_status", "Billed")
+
+
 def resolve_pre_tagging_snapshot(journey_request):
 	"""Return the Journey Request checklist and its derived completion status."""
 	if not journey_request:
@@ -784,7 +815,6 @@ def resolve_seal_journey_mirror_values(seal_journey):
 		put("finance_pcb_approval_date_time", booking.finance_pcb_approval_date_time)
 		put("finance_pcb_remarks", booking.finance_pcb_remarks)
 		put("pcb_job_order", booking.pcb_job_order_reference)
-		put("sales_order_reference", booking.pcb_job_order_reference)
 
 	job_order_name = booking.pcb_job_order_reference if booking else None
 
@@ -806,8 +836,13 @@ def resolve_seal_journey_mirror_values(seal_journey):
 			put("scheduled_date_time", job_order.scheduled_date_time)
 			put("assigned_team_lead", job_order.assigned_pcb_team_leader)
 			put("team_lead_assignment_date_time", job_order.team_leader_assignment_date_time)
+			# A Cancelled assignment belongs to a prior, unwound cycle (see
+			# PCBAssignment._cancel_assignment) — never mirror it as "the" active
+			# assignment for this job order.
 			assignment_name = job_order.assignment_reference or frappe.db.get_value(
-				"PCB Assignment", {"pcb_job_order": job_order_name}, "name"
+				"PCB Assignment",
+				{"pcb_job_order": job_order_name, "assignment_status": ["!=", "Cancelled"]},
+				"name",
 			)
 
 	# --- PCB Assignment --------------------------------------------------
@@ -824,7 +859,13 @@ def resolve_seal_journey_mirror_values(seal_journey):
 			put("technician_assignment_date_time", assignment.assignment_date_time)
 
 	# --- Journey Request -------------------------------------------------
-	jr_name = frappe.db.get_value("Journey Request", {"job_order": job_order_name}, "name") if job_order_name else None
+	# A Cancelled Journey Request belongs to a prior, unwound assignment cycle —
+	# never mirror its (now stale) technician/route data onto the journey.
+	jr_name = frappe.db.get_value(
+		"Journey Request",
+		{"job_order": job_order_name, "journey_request_status": ["!=", "Cancelled"]},
+		"name",
+	) if job_order_name else None
 	if jr_name:
 		jr = frappe.db.get_value(
 			"Journey Request",

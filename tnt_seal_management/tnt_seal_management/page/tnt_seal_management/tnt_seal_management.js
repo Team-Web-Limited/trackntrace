@@ -15,13 +15,22 @@ frappe.pages["tnt-seal-management"].on_page_load = function (wrapper) {
 	load_card_counts(page);
 };
 
+// on_page_load only fires once per page instance — navigating away (e.g. into
+// an assignment) and back via the SPA router does not re-run it, so counts
+// like the Assignments card badge would keep showing whatever was true when
+// the dashboard first loaded (e.g. before an assignment was cancelled) until
+// "Refresh" was clicked. on_page_show fires on every such re-entry.
+frappe.pages["tnt-seal-management"].on_page_show = function (wrapper) {
+	if (wrapper.page) load_card_counts(wrapper.page);
+};
+
 const TNT_DASHBOARD_CARDS = [
 	{
 		title: "Seal Journeys",
 		icon: "🚚",
 		route: "seal-journey-list",
 		primary: true,
-		roles: ["System Manager", "Finance PCB", "Operations Control Room"],
+		roles: ["System Manager", "Finance PCB", "Operations Control Room", "Managing Director"],
 	},
 	{
 		title: "Journey Requests",
@@ -31,6 +40,7 @@ const TNT_DASHBOARD_CARDS = [
 			"System Manager",
 			"Customer Care",
 			"Management",
+			"Managing Director",
 			"Operations Control Room",
 			"Field Technician",
 		],
@@ -40,20 +50,20 @@ const TNT_DASHBOARD_CARDS = [
 		icon: "📅",
 		route: "tagging-booking-list",
 		primary: true,
-		roles: ["System Manager", "Account Manager", "Finance PCB", "Management"],
+		roles: ["System Manager", "Account Manager", "Finance PCB", "Management", "Managing Director"],
 	},
 	{
 		title: "PCB Job Orders",
 		icon: "📋",
 		route: "pcb-job-order-list",
-		roles: ["System Manager", "Finance PCB", "Management"],
+		roles: ["System Manager", "Finance PCB", "Management", "Managing Director"],
 	},
 	{
 		title: "Assignments",
 		icon: "👷",
 		route: "assignment-list",
 		primary: true,
-		roles: ["System Manager", "PCB Team Leader", "Management"],
+		roles: ["System Manager", "PCB Team Leader", "Finance PCB", "Management", "Managing Director"],
 	},
 	{
 		title: "Current Customers",
@@ -65,6 +75,7 @@ const TNT_DASHBOARD_CARDS = [
 			"Customer Care",
 			"Finance PCB",
 			"Management",
+			"Managing Director",
 			"Operations Control Room",
 		],
 	},
@@ -72,7 +83,7 @@ const TNT_DASHBOARD_CARDS = [
 		title: "Vehicles",
 		icon: "🚘",
 		route: "vehicle-list",
-		roles: ["System Manager", "Management", "Field Technician"],
+		roles: ["System Manager", "Management", "Managing Director", "Field Technician"],
 	},
 	{
 		title: "Warehouses",
@@ -83,6 +94,7 @@ const TNT_DASHBOARD_CARDS = [
 			"Seal System Administrator",
 			"Operations Control Room",
 			"Management",
+			"Managing Director",
 		],
 	},
 	{
@@ -94,13 +106,14 @@ const TNT_DASHBOARD_CARDS = [
 			"Seal System Administrator",
 			"Operations Control Room",
 			"Management",
+			"Managing Director",
 		],
 	},
 	{
 		title: "Billing Rates",
 		icon: "💰",
 		route: "seal-billing-rate-list",
-		roles: ["System Manager", "Finance PCB", "Management"],
+		roles: ["System Manager", "Finance PCB", "Management", "Managing Director"],
 	},
 	{
 		title: "Completed Journeys",
@@ -110,6 +123,7 @@ const TNT_DASHBOARD_CARDS = [
 			"System Manager",
 			"Finance PCB",
 			"Management",
+			"Managing Director",
 			"Accounts Manager",
 			"Accounts User",
 		],
@@ -124,6 +138,7 @@ const TNT_DASHBOARD_CARDS = [
 			"Seal System Administrator",
 			"Operations Control Room",
 			"Management",
+			"Managing Director",
 		],
 	},
 	{
@@ -135,6 +150,7 @@ const TNT_DASHBOARD_CARDS = [
 			"System Manager",
 			"Operations Control Room",
 			"Management",
+			"Managing Director",
 		],
 	},
 	{
@@ -147,6 +163,7 @@ const TNT_DASHBOARD_CARDS = [
 			"Seal System Administrator",
 			"Operations Control Room",
 			"Management",
+			"Managing Director",
 		],
 	},
 	{

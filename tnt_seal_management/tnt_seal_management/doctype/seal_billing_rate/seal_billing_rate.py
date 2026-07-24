@@ -104,10 +104,10 @@ class SealBillingRate(Document):
 
 		Leasing rules are private, per-customer contracts entered directly by
 		Finance in the Set Billing modal (see
-		current_customers._upsert_customer_leasing_rule, which auto-approves them)
-		— they sit outside this governance track."""
-		if self.billing_type == "Leasing":
-			return
+		current_customers._upsert_customer_leasing_rule) but are now subject to
+		this same approval process: a new leasing rule starts Pending Approval and
+		any edit to an approved one's terms resets it back to Pending, exactly like
+		a shared Subscription rate card."""
 
 		if self.is_new():
 			if not self.approval_status:
@@ -143,8 +143,6 @@ def _ensure_managing_director_role():
 def approve_seal_billing_rate(name):
 	_ensure_managing_director_role()
 	doc = frappe.get_doc("Seal Billing Rate", name)
-	if doc.billing_type == "Leasing":
-		frappe.throw(_("Leasing rates are auto-approved and do not go through this workflow."))
 	if doc.approval_status == "Approved":
 		return doc.as_dict()
 
@@ -153,23 +151,70 @@ def approve_seal_billing_rate(name):
 	doc.approved_by = frappe.session.user
 	doc.approved_on = now_datetime()
 	doc.approval_remarks = None
-	doc.save(ignore_permissions=True)
+	# billing_type's Select options only list "Subscription" — Leasing rules are
+	# a deliberate exception written through frappe.flags.in_import (see
+	# current_customers._upsert_customer_leasing_rule) since they're created
+	# outside this doctype's form. Re-saving one here needs the same bypass.
+	frappe.flags.in_import = True
+	try:
+		doc.save(ignore_permissions=True)
+	finally:
+		frappe.flags.in_import = False
+	_reenable_customers_pending_on_rule(doc.name)
 	frappe.db.commit()
 	return doc.as_dict()
+
+
+def _reenable_customers_pending_on_rule(rule_name):
+	"""Customer.disabled is set to 1 by current_customers.set_customer_billing /
+	set_customer_extra_billing whenever billing is (re)assigned, as a gate that
+	holds until the Managing Director signs off. Once this rule is approved,
+	re-enable every customer whose assignment points at it — unless that
+	customer has another active assignment (primary or extra-billing) still
+	sitting on a not-yet-approved rule, in which case they stay disabled."""
+	customers = frappe.get_all(
+		"Customer Billing Assignment",
+		filters={"assignment_type": "Customer", "billing_rule": rule_name, "active": 1},
+		pluck="customer",
+	)
+	for customer in set(customers):
+		if _customer_billing_fully_approved(customer):
+			frappe.db.set_value("Customer", customer, "disabled", 0)
+
+
+def _customer_billing_fully_approved(customer):
+	rule_names = frappe.get_all(
+		"Customer Billing Assignment",
+		filters={"assignment_type": "Customer", "customer": customer, "active": 1},
+		pluck="billing_rule",
+	)
+	rule_names = {r for r in rule_names if r}
+	if not rule_names:
+		return True
+
+	statuses = frappe.get_all(
+		"Seal Billing Rate",
+		filters={"name": ["in", list(rule_names)]},
+		pluck="approval_status",
+	)
+	return all(status == "Approved" for status in statuses)
 
 
 @frappe.whitelist()
 def reject_seal_billing_rate(name, remarks=None):
 	_ensure_managing_director_role()
 	doc = frappe.get_doc("Seal Billing Rate", name)
-	if doc.billing_type == "Leasing":
-		frappe.throw(_("Leasing rates are auto-approved and do not go through this workflow."))
-
 	doc.flags.approval_action = True
 	doc.approval_status = "Rejected"
 	doc.approved_by = frappe.session.user
 	doc.approved_on = now_datetime()
 	doc.approval_remarks = remarks
-	doc.save(ignore_permissions=True)
+	# See approve_seal_billing_rate: Leasing rules need the same
+	# in_import bypass to re-save past the Subscription-only options check.
+	frappe.flags.in_import = True
+	try:
+		doc.save(ignore_permissions=True)
+	finally:
+		frappe.flags.in_import = False
 	frappe.db.commit()
 	return doc.as_dict()

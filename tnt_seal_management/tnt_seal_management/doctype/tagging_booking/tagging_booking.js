@@ -186,6 +186,12 @@ function load_branch_options(frm) {
 			const options = [""].concat(branches).join("\n");
 
 			frm.set_df_property("branch", "options", options);
+			// set_df_property only updates the docfield metadata; the Autocomplete
+			// control's awesomplete list is populated once at make_input() time and
+			// won't pick up the new options unless we push them in directly.
+			if (frm.fields_dict.branch) {
+				frm.fields_dict.branch.set_data(options);
+			}
 			if (currentValue !== validCurrentValue) {
 				frm.set_value("branch", validCurrentValue);
 			}

@@ -61,7 +61,7 @@ def get_billing_rate_list(search=None, billing_type="All", active="All", approva
 		filters=filters,
 		or_filters=or_filters or None,
 		fields=_FIELDS,
-		order_by="creation desc",
+		order_by="modified desc",
 		limit_start=(page - 1) * page_length,
 		limit_page_length=page_length,
 	)
@@ -89,9 +89,11 @@ def _summary():
 		"GlobalDefault": count([["is_global_default", "=", 1]]),
 		# Rules Finance PCB has set (created or edited) that the Managing
 		# Director has not yet signed off on — needs visibility on the list.
-		"PendingApproval": count([["billing_type", "=", "Subscription"], ["approval_status", "=", "Pending Approval"]]),
-		"Approved": count([["billing_type", "=", "Subscription"], ["approval_status", "=", "Approved"]]),
-		"Rejected": count([["billing_type", "=", "Subscription"], ["approval_status", "=", "Rejected"]]),
+		# Both Subscription and Leasing rules go through the approval gate now,
+		# so all types are counted (see _sbr_approval_cell_html).
+		"PendingApproval": count([["approval_status", "=", "Pending Approval"]]),
+		"Approved": count([["approval_status", "=", "Approved"]]),
+		"Rejected": count([["approval_status", "=", "Rejected"]]),
 	}
 
 

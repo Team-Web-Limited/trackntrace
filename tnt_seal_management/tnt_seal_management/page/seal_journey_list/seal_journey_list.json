@@ -4,7 +4,7 @@
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2026-06-20 10:18:54.126937",
+ "modified": "2026-07-24 12:54:54.624031",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "seal-journey-list",
@@ -19,6 +19,12 @@
   },
   {
    "role": "Account Manager"
+  },
+  {
+   "role": "Managing Director"
+  },
+  {
+   "role": "Finance PCB"
   }
  ],
  "script": null,

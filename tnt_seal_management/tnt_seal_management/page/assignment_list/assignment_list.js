@@ -636,6 +636,7 @@ function _asg_inject_styles() {
 			color: var(--text-color, #334155);
 			font-size: 14px;
 			line-height: 1.45;
+			white-space: nowrap;
 		}
 		.asg-table th {
 			position: sticky;

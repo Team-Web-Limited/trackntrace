@@ -406,7 +406,8 @@
    "label": "Approval Log",
    "options": "Journey Request Approval",
    "read_only": 1
-  },  {
+  },
+  {
    "fieldname": "journey_reference",
    "fieldtype": "Link",
    "hidden": 1,
@@ -441,6 +442,7 @@
    "fieldname": "untagging_confirmed_by_technician",
    "fieldtype": "Check",
    "label": "Confirmed by Technician",
+   "mandatory_depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "description": "Tick to confirm the seal has been physically removed. Required before confirming untagging."
   },
   {
@@ -506,20 +508,23 @@
    "fieldname": "seal_return_confirmed_by_technician",
    "fieldtype": "Check",
    "label": "Confirmed by Technician",
+   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "description": "Tick to confirm the seal has been physically returned in good condition. Required before confirming the seal return."
   },
   {
    "default": "Good",
    "fieldname": "seal_return_condition",
    "fieldtype": "Select",
-   "label": "Seal Condition After Journey",
+   "label": "Seal Condition",
+   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "options": "Good\nDamaged\nLost",
    "description": "Condition of the seal as returned by the Field Technician."
   },
   {
    "fieldname": "retrieval_card_number",
    "fieldtype": "Data",
-   "label": "Retrieval Card Number"
+   "label": "Retrieval Card Number",
+   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)"
   },
   {
    "depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
@@ -583,7 +588,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-06-14 19:00:00.000000",
+ "modified": "2026-07-14 12:45:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Journey Request",
@@ -643,6 +648,18 @@
    "report": 1,
    "role": "Management",
    "share": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Managing Director",
+   "share": 1,
+   "write": 1
   }
  ],
  "row_format": "Dynamic",

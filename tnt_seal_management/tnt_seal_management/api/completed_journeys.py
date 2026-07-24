@@ -472,7 +472,10 @@ def _billing_summary(group, recurring=None, tax_category=None):
 @frappe.whitelist()
 def export_pdf(html, filename):
 	from frappe.utils.pdf import get_pdf
-	
+
+	# Strip columns that should not appear on the exported statement.
+	html = _strip_pdf_columns(html, {"Seal Number", "Departure Card #", "Retrieval Card #"})
+
 	options = {
 		"page-size": "A4",
 		"orientation": "Landscape",
@@ -481,10 +484,41 @@ def export_pdf(html, filename):
 		"margin-bottom": "15mm",
 		"margin-left": "15mm"
 	}
-	
+
 	frappe.local.response.filename = f"{filename}.pdf"
 	frappe.local.response.filecontent = get_pdf(html, options=options)
 	frappe.local.response.type = "pdf"
+
+
+def _strip_pdf_columns(html, drop_labels):
+	"""Remove table columns whose header text is in ``drop_labels``.
+
+	Runs server-side so the export is unaffected by any stale client asset.
+	"""
+	from bs4 import BeautifulSoup
+
+	soup = BeautifulSoup(html, "html.parser")
+
+	for table in soup.find_all("table"):
+		header_row = table.find("tr")
+		if not header_row:
+			continue
+
+		headers = header_row.find_all(["th", "td"])
+		drop_idx = [
+			i for i, cell in enumerate(headers)
+			if cell.get_text(strip=True) in drop_labels
+		]
+		if not drop_idx:
+			continue
+
+		for row in table.find_all("tr"):
+			cells = row.find_all(["th", "td"])
+			for i in drop_idx:
+				if i < len(cells):
+					cells[i].decompose()
+
+	return str(soup)
 
 @frappe.whitelist()
 def export_xlsx(data, filename):

@@ -951,7 +951,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Amount per Seal × Billable Seals.",
+   "description": "Amount per Seal \u00d7 Billable Seals.",
    "fieldname": "total_charge",
    "fieldtype": "Currency",
    "label": "Total Charge",
@@ -959,7 +959,7 @@
   },
   {
    "collapsible": 1,
-   "description": "Scenario 6: an additional leasing charge for seals leased beyond the customer's owned pool, computed at tagging on the customer's Extra Billing agreement — on top of the Subscription charge above.",
+   "description": "Scenario 6: an additional leasing charge for seals leased beyond the customer's owned pool, computed at tagging on the customer's Extra Billing agreement \u2014 on top of the Subscription charge above.",
    "fieldname": "extra_billing_section",
    "fieldtype": "Section Break",
    "label": "Extra Billing (leased seals)"
@@ -1007,7 +1007,7 @@
    "read_only": 1
   },
   {
-   "description": "Total additional leasing charge for this journey (Leased Seals Billed × per-seal amount).",
+   "description": "Total additional leasing charge for this journey (Leased Seals Billed \u00d7 per-seal amount).",
    "fieldname": "extra_billing_amount",
    "fieldtype": "Currency",
    "label": "Extra Billing Total",
@@ -1144,7 +1144,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-02 00:00:00.000000",
+ "modified": "2026-07-14 12:45:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Journey",
@@ -1184,6 +1184,18 @@
    "read": 1,
    "report": 1,
    "role": "Operations Control Room",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Managing Director",
    "share": 1,
    "write": 1
   }

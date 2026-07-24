@@ -73,9 +73,9 @@ portal_menu_items = [
 # home_page = "login"
 
 # website user home page (by Role)
-# role_home_page = {
-# 	"Role": "home_page"
-# }
+role_home_page = {
+	"Customer": "customer-portal"
+}
 
 # Generators
 # ----------
@@ -156,13 +156,14 @@ has_permission = {
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"Sales Invoice": {
+		# Marks the linked Seal Journey(s) Billed once the invoice is fully paid.
+		# on_change (not on_update) so it also catches the db_set-only status flip
+		# ERPNext does when a Payment Entry is reconciled against the invoice.
+		"on_change": "tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey.sync_billing_from_sales_invoice",
+	},
+}
 
 # Scheduled Tasks
 # ---------------

@@ -13,12 +13,20 @@ frappe.ui.form.on("PCB Assignment", {
 
 		if (frm.is_new()) return;
 
-		const can_update_status =
-			frappe.user.has_role("System Manager") ||
-			frm.doc.pcb_team_leader === frappe.session.user;
-		if (!can_update_status || frm.doc.assignment_status === "Cancelled") return;
+		if (frm.doc.assignment_status === "Cancelled") return;
 
-		if (frm.doc.assignment_status === "Pending" && frm.doc.assigned_field_technician) {
+		const is_system_manager = frappe.user.has_role("System Manager");
+		// Assigning a Tag Operator is the PCB Team Leader's action; cancelling —
+		// which reverts the whole journey to Finance PCB approval — is not. Only
+		// PCB Finance (or a System Manager) may cancel (see _ensure_cancel_permission).
+		const can_assign = is_system_manager || frm.doc.pcb_team_leader === frappe.session.user;
+		const can_cancel = is_system_manager || frappe.user.has_role("Finance PCB");
+
+		if (
+			can_assign &&
+			frm.doc.assignment_status === "Pending" &&
+			frm.doc.assigned_field_technician
+		) {
 			frm.add_custom_button(
 				__("Assign"),
 				() => _asg_update_status(frm, "Assigned"),
@@ -32,15 +40,31 @@ frappe.ui.form.on("PCB Assignment", {
 		// PCBAssignment._auto_progress_untagging_status /
 		// _auto_progress_seal_return_status) and hands off the Journey Request.
 
-		frm.add_custom_button(
-			__("Cancel Assignment"),
-			() => {
-				frappe.confirm(__("Are you sure you want to cancel this assignment?"), () =>
-					_asg_update_status(frm, "Cancelled")
-				);
-			},
-			__("Actions")
-		);
+		if (can_cancel) {
+			// Cancelling unwinds real physical work, so it's only offered while
+			// tagging hasn't actually begun yet — ask the server, which is the
+			// single source of truth (see can_cancel_assignment /
+			// _ensure_tagging_not_started), rather than re-deriving journey
+			// status here.
+			frappe.call({
+				method:
+					"tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment.can_cancel_assignment",
+				args: { assignment_name: frm.doc.name },
+				callback(r) {
+					if (!r.message?.can_cancel) return;
+					frm.add_custom_button(
+						__("Cancel Assignment"),
+						() => {
+							frappe.confirm(
+								__("Cancel this assignment? The linked Seal Journey will be reverted to Pending Finance PCB Approval and the assigned Tag Operator released."),
+								() => _asg_update_status(frm, "Cancelled")
+							);
+						},
+						__("Actions")
+					);
+				},
+			});
+		}
 	},
 });
 

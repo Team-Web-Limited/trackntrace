@@ -13,7 +13,10 @@ from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey i
 from tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device import (
 	set_seal_custody,
 )
-from tnt_seal_management.tnt_seal_management.api.notifications import notify_users
+from tnt_seal_management.tnt_seal_management.api.notifications import (
+	get_users_with_role,
+	notify_users,
+)
 
 # Assignment statuses that mean "a Field Technician has just been handed this job".
 ASSIGNED_STATUSES = ("Assigned", "Untagging Assigned", "Seal Return Assigned")
@@ -262,7 +265,13 @@ def _seal_journey_for_job_order(job_order_name):
 
 
 def _ensure_journey_request(assignment):
-	if frappe.db.exists("Journey Request", {"job_order": assignment.pcb_job_order}):
+	# A Cancelled Journey Request belongs to a prior, unwound assignment cycle
+	# (see _cancel_assignment) — it must not block a fresh one from being
+	# created for the Tag Operator now taking over the job.
+	if frappe.db.exists(
+		"Journey Request",
+		{"job_order": assignment.pcb_job_order, "journey_request_status": ["!=", "Cancelled"]},
+	):
 		return
 
 	seal_journey = _seal_journey_for_job_order(assignment.pcb_job_order)
@@ -299,6 +308,83 @@ def _ensure_assignment_status_permission(assignment):
 		)
 
 
+def _ensure_cancel_permission():
+	"""Cancelling an assignment reverts the whole Seal Journey to Finance PCB
+	approval, so it is deliberately NOT a PCB Team Leader action — only PCB
+	Finance (or a System Manager) may do it."""
+	roles = set(frappe.get_roles())
+	if roles & {"System Manager", "Finance PCB"}:
+		return
+	frappe.throw(
+		_("Only PCB Finance or a System Manager can cancel an assignment."),
+		title=_("Insufficient Permission"),
+	)
+
+
+# Seal Journey statuses reached once the technician has actually begun tagging
+# (set the instant Control Room approves the Journey Request — see
+# journey_request.approve_by_control_room) through to journey completion.
+# Cancelling an assignment is a hard block from this point on: real physical
+# work is underway or done, so unwinding back to Finance PCB approval is no
+# longer safe.
+_TAGGING_STARTED_JOURNEY_STATUSES = {
+	"Tagging In Progress",
+	"Tagged",
+	"Post-Tagging",
+	"Ready for Journey",
+	"In Transit",
+	"Arrived",
+	"Untagging In Progress",
+	"Untagged",
+	"Awaiting Seal Return",
+	"Completed",
+}
+
+
+def resolve_assignment_seal_journey(assignment):
+	if assignment.seal_journey:
+		return assignment.seal_journey
+	return _seal_journey_for_job_order(assignment.pcb_job_order)
+
+
+def _ensure_tagging_not_started(assignment):
+	seal_journey = resolve_assignment_seal_journey(assignment)
+	if not seal_journey:
+		return
+	journey_status = frappe.db.get_value("Seal Journey", seal_journey, "journey_status")
+	if journey_status in _TAGGING_STARTED_JOURNEY_STATUSES:
+		frappe.throw(
+			_("This assignment can no longer be cancelled — tagging has already started."),
+			title=_("Tagging Already Started"),
+		)
+
+
+@frappe.whitelist()
+def can_cancel_assignment(assignment_name):
+	"""Lightweight check the assignment form calls to decide whether to show
+	the Cancel Assignment button, mirroring the server-side guards in
+	update_assignment_status/_cancel_assignment so the UI never offers an
+	action the backend would then reject."""
+	assignment = frappe.get_doc("PCB Assignment", assignment_name)
+	assignment.check_permission("read")
+
+	if assignment.assignment_status == "Cancelled":
+		return {"can_cancel": False}
+
+	roles = set(frappe.get_roles())
+	if not (roles & {"System Manager", "Finance PCB"}):
+		return {"can_cancel": False}
+
+	seal_journey = resolve_assignment_seal_journey(assignment)
+	journey_status = (
+		frappe.db.get_value("Seal Journey", seal_journey, "journey_status") if seal_journey else None
+	)
+	if journey_status in _TAGGING_STARTED_JOURNEY_STATUSES:
+		return {"can_cancel": False}
+
+	return {"can_cancel": True}
+
+
 @frappe.whitelist()
 def update_assignment_status(assignment_name, status):
 	if status not in ("Assigned", "Cancelled"):
@@ -306,7 +392,6 @@ def update_assignment_status(assignment_name, status):
 
 	assignment = frappe.get_doc("PCB Assignment", assignment_name)
 	assignment.check_permission("write")
-	_ensure_assignment_status_permission(assignment)
 
 	if assignment.assignment_status == "Cancelled":
 		frappe.throw(
@@ -314,7 +399,15 @@ def update_assignment_status(assignment_name, status):
 			title=_("Invalid Status"),
 		)
 
-	if status == "Assigned" and not assignment.assigned_field_technician:
+	if status == "Cancelled":
+		_ensure_cancel_permission()
+		_ensure_tagging_not_started(assignment)
+		return _cancel_assignment(assignment)
+
+	# status == "Assigned"
+	_ensure_assignment_status_permission(assignment)
+
+	if not assignment.assigned_field_technician:
 		frappe.throw(
 			_("Cannot mark this assignment as Assigned before a Field Technician is assigned."),
 			title=_("Field Technician Not Assigned"),
@@ -322,13 +415,120 @@ def update_assignment_status(assignment_name, status):
 
 	assignment.assignment_status = status
 	assignment.save(ignore_permissions=True)
-
-	if status == "Assigned":
-		_ensure_journey_request(assignment)
+	_ensure_journey_request(assignment)
 
 	frappe.db.commit()
 
 	return {"assignment_status": assignment.assignment_status}
+
+
+def _cancel_assignment(assignment):
+	"""Cancel an assignment and unwind it back to the Finance PCB stage: release
+	the Tag Operator, unlink this (now-terminal) assignment from its Job Order so
+	it can never be silently reused for a later Tag Operator, revert the Tagging
+	Booking to Pending Finance PCB Approval (the actual gate the "Approve" button
+	on the booking checks), mirror that back onto the Seal Journey, and notify the
+	released technician plus PCB Finance so the journey can be re-approved and
+	re-assigned cleanly."""
+	ex_technician = assignment.assigned_field_technician
+	job_order_name = assignment.pcb_job_order
+	seal_journey = assignment.seal_journey or _seal_journey_for_job_order(job_order_name)
+	tagging_booking = assignment.tagging_booking or (
+		frappe.db.get_value("Seal Journey", seal_journey, "tagging_booking") if seal_journey else None
+	)
+
+	assignment.assignment_status = "Cancelled"
+	assignment.assigned_field_technician = None
+	# pcb_job_order is unique on this doctype — a Cancelled row must release its
+	# job order or a brand-new PCB Assignment can never be created for it again
+	# once Finance re-approves (insert fails with "PCB Job Order must be
+	# unique"). tagging_booking is kept so the cancelled record still shows
+	# which booking it belonged to.
+	assignment.pcb_job_order = None
+	assignment.save(ignore_permissions=True)
+
+	if job_order_name:
+		job_order = frappe.get_doc("PCB Job Order", job_order_name)
+		if job_order.assignment_reference == assignment.name:
+			job_order.assignment_reference = None
+			job_order.save(ignore_permissions=True)
+
+		# The Journey Request created for this cycle (if any) is now stale — its
+		# technician no longer owns the job. Cancel it so the Seal Journey mirror
+		# stops showing the released technician, and so _ensure_journey_request
+		# creates a fresh one once a new Tag Operator is assigned.
+		frappe.db.set_value(
+			"Journey Request",
+			{"job_order": job_order_name, "journey_request_status": ["!=", "Cancelled"]},
+			"journey_request_status",
+			"Cancelled",
+		)
+
+	if tagging_booking:
+		booking = frappe.get_doc("Tagging Booking", tagging_booking)
+		if booking.booking_status not in ("Pending Finance PCB Approval", "Draft"):
+			booking.booking_status = "Pending Finance PCB Approval"
+			booking.finance_pcb_approver = None
+			booking.finance_pcb_approval_date_time = None
+			booking.save(ignore_permissions=True)
+
+	if seal_journey:
+		set_journey_status(
+			seal_journey,
+			"Pending Finance PCB Approval",
+			{"assigned_technician": None},
+		)
+		sync_seal_journey_mirror(seal_journey)
+
+	_notify_assignment_cancelled(assignment, ex_technician, seal_journey)
+
+	frappe.db.commit()
+
+	return {"assignment_status": assignment.assignment_status}
+
+
+def _notify_assignment_cancelled(assignment, ex_technician, seal_journey):
+	"""Notify the released Field Technician (if one was assigned) and all PCB
+	Finance users that the assignment was cancelled and the journey reverted."""
+	subject = _("Assignment Cancelled: {0}").format(assignment.name)
+	lines = [
+		_("The {0} assignment {1} has been cancelled.").format(
+			assignment.request_type, assignment.name
+		),
+		_("Client: {0}").format(assignment.client_name or "-"),
+		_("Location: {0}").format(assignment.location or "-"),
+	]
+	if seal_journey:
+		lines.append(
+			_("The linked Seal Journey {0} has been reverted to Pending Finance PCB Approval.").format(
+				seal_journey
+			)
+		)
+	message = "<br>".join(str(line) for line in lines)
+
+	recipients = []
+	if ex_technician:
+		email = frappe.db.get_value("User", ex_technician, "email")
+		recipients.append((ex_technician, email or ex_technician))
+	recipients.extend(get_users_with_role("Finance PCB"))
+
+	# De-duplicate while preserving order (a Finance PCB user could also be the
+	# released technician).
+	seen = set()
+	deduped = []
+	for user, email in recipients:
+		if user not in seen:
+			seen.add(user)
+			deduped.append((user, email))
+
+	notify_users(
+		deduped,
+		subject,
+		message,
+		document_type="PCB Assignment",
+		document_name=assignment.name,
+		link=f"/app/pcb-assignment/{assignment.name}",
+	)
 
 
 def _ensure_untagging_journey_request(assignment):

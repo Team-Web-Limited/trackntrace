@@ -340,16 +340,19 @@ function _sbr_row_html(page, rate) {
 	`;
 }
 
-// Managing Director approval — Leasing rules are auto-approved (private,
-// per-customer contracts set from Current Customer List) and never show
-// approve/reject actions. Subscription rules Pending Approval or Rejected can
-// be acted on by whoever holds the Managing Director role.
+// Managing Director approval — both Subscription and Leasing rules now go
+// through the same approval gate (Leasing rules are the customer's private,
+// per-customer contracts set from Current Customer List, created as Pending
+// Approval and reset to Pending whenever their terms change — see
+// seal_billing_rate.validate_approval_status and billing._rule_is_usable).
+// Any rule Pending Approval or Rejected can be acted on by whoever holds the
+// Managing Director role, regardless of billing type.
 function _sbr_approval_cell_html(page, rate) {
 	const status = rate.approval_status || "Pending Approval";
 	const statusClass = status.toLowerCase().replace(/\s+/g, "-");
 	const badge = `<span class="sbr-approval-badge sbr-approval--${statusClass}">${frappe.utils.escape_html(__(status))}</span>`;
 
-	if (rate.billing_type === "Leasing" || !page.sbr_state.can_approve || status === "Approved") {
+	if (!page.sbr_state.can_approve || status === "Approved") {
 		return badge;
 	}
 

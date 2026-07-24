@@ -132,7 +132,11 @@ function _customer_build_page(page) {
 	$(page.body).on("click", ".ccl-portal-access-btn", function (event) {
 		event.stopPropagation();
 		const customer = $(this).data("customer");
-		if (customer) _customer_grant_portal_access(page, customer);
+		if (!customer) return;
+		frappe.confirm(
+			__("Grant portal access to {0}?", [frappe.utils.escape_html(customer)]),
+			() => _customer_grant_portal_access(page, customer)
+		);
 	});
 	$(page.body).on("click", ".ccl-page-btn", function () {
 		if ($(this).prop("disabled")) return;
@@ -894,6 +898,7 @@ function _customer_show_billing_dialog(page, data) {
 		// terms (First Period Days / Amount / Extra Day Rate).
 		dialog.set_df_property("first_period_days", "hidden", isSubscription ? 1 : 0);
 		dialog.set_df_property("extra_day_rate", "hidden", isSubscription ? 1 : 0);
+		dialog.set_df_property("billing_rule_label", "hidden", isSubscription ? 0 : 1);
 		dialog.set_df_property(
 			"first_period_amount",
 			"label",
@@ -961,6 +966,11 @@ function _customer_show_billing_dialog(page, data) {
 	const applyBillingTypeOptionsForOwnership = () => {
 		const isOutright = !!dialog.get_value("outright_purchase");
 		dialog.set_df_property("billing_type", "options", isOutright ? ["Subscription"] : ["Subscription", "Leasing"]);
+		dialog.set_df_property("owned_seal_count", "hidden", isOutright ? 0 : 1);
+		dialog.set_df_property("owned_rate_per_seal", "hidden", isOutright ? 0 : 1);
+		dialog.set_df_property("lease_seal_count", "hidden", isOutright ? 1 : 0);
+		dialog.set_df_property("lease_rate_per_seal", "hidden", isOutright ? 1 : 0);
+
 		if (isOutright && dialog.get_value("billing_type") === "Leasing") {
 			dialog.set_value("billing_type", "Subscription");
 		}
@@ -975,6 +985,7 @@ function _customer_show_billing_dialog(page, data) {
 			// Symmetric: a leasing (non-outright) customer doesn't own seals —
 			// drop any stale owned count/rate so Save Billing can't resurrect an
 			// Ownership Service Fee line for them.
+			if (dialog.get_value("owned_seal_count")) dialog.set_value("owned_seal_count", null);
 			if (dialog.get_value("owned_rate_per_seal")) dialog.set_value("owned_rate_per_seal", null);
 		}
 		applySeatBasedRateOverride();
@@ -1293,10 +1304,10 @@ function _customer_load_extra_billing_data(dialog, customer, onComplete) {
 // terms object when filled in, or false on a validation failure (a message
 // has already been shown, so the caller should abort the whole save).
 function _customer_collect_lease_args(dialog) {
-	const seal_count = dialog.get_value("lease_seal_count");
-	const rate_per_seal = dialog.get_value("lease_rate_per_seal");
-	const hasSealCount = seal_count !== "" && seal_count !== null && seal_count !== undefined;
-	const hasRate = rate_per_seal !== "" && rate_per_seal !== null && rate_per_seal !== undefined;
+	const seal_count = cint(dialog.get_value("lease_seal_count"));
+	const rate_per_seal = flt(dialog.get_value("lease_rate_per_seal"));
+	const hasSealCount = seal_count > 0;
+	const hasRate = rate_per_seal > 0;
 
 	if (!hasSealCount && !hasRate) return null; // left blank — nothing to do
 
@@ -1339,10 +1350,12 @@ function _customer_collect_lease_args(dialog) {
 // — Ownership Service Fee). Reads owned_seal_count/owned_rate_per_seal
 // instead of the leased pair.
 function _customer_collect_ownership_args(dialog) {
-	const seal_count = dialog.get_value("owned_seal_count");
-	const rate_per_seal = dialog.get_value("owned_rate_per_seal");
-	const hasSealCount = seal_count !== "" && seal_count !== null && seal_count !== undefined;
-	const hasRate = rate_per_seal !== "" && rate_per_seal !== null && rate_per_seal !== undefined;
+	if (!dialog.get_value("outright_purchase")) return null;
+
+	const seal_count = cint(dialog.get_value("owned_seal_count"));
+	const rate_per_seal = flt(dialog.get_value("owned_rate_per_seal"));
+	const hasSealCount = seal_count > 0;
+	const hasRate = rate_per_seal > 0;
 
 	if (!hasSealCount && !hasRate) return null; // left blank — nothing to do
 

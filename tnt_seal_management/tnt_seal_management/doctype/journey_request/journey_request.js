@@ -477,6 +477,17 @@ function _journey_request_add_seals_grid_button(frm) {
 	if (!isTech) return;
 
 	frm.add_custom_button(__("Submit to Control Room"), () => {
+		const incomplete = (frm.doc.pre_tagging_checklist || []).some((row) => !row.completed);
+		if (incomplete) {
+			frappe.msgprint({
+				message: __(
+					"Complete every item on the Pre-Tagging Checklist before submitting to the Control Room."
+				),
+				title: __("Pre-Tagging Checklist Incomplete"),
+				indicator: "orange",
+			});
+			return;
+		}
 		const proceed = () => _jr_call(frm, "submit_to_control_room");
 		frm.is_dirty() ? frm.save().then(proceed) : proceed();
 	}).addClass("btn-primary");

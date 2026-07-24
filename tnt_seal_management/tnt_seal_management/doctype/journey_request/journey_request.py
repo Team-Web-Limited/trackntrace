@@ -106,7 +106,7 @@ _FIELD_LABELS = {
 	"seal_return_entry_document": "Entry Pictures (Seal Return)",
 	"seal_return_photos": "Seal Return Pictures",
 	"seal_return_confirmed_by_technician": "Confirmed by Technician",
-	"seal_return_condition": "Seal Condition After Journey",
+	"seal_return_condition": "Seal Condition",
 	"retrieval_card_number": "Retrieval Card Number",
 }
 
@@ -474,6 +474,11 @@ def submit_to_control_room(docname):
 		)
 	if not doc.seals:
 		frappe.throw(_("Select at least one Seal before submitting."), title=_("Seals Required"))
+	if doc.pre_tagging_checklist and any(not row.completed for row in doc.pre_tagging_checklist):
+		frappe.throw(
+			_("Complete every item on the Pre-Tagging Checklist before submitting to the Control Room."),
+			title=_("Pre-Tagging Checklist Incomplete"),
+		)
 	if not any(row.photo_attachment for row in doc.tagging_photos):
 		frappe.throw(
 			_("Attach at least one tagging picture before submitting to the Control Room."),
@@ -762,10 +767,28 @@ def confirm_untagging(docname, manual_location=None, remarks=None):
 	_append_approval_log(doc, "Untagging Confirmed", cstr(remarks).strip() or None)
 	doc.flags.ignore_field_locks = True
 	doc.save()
+
+	if doc.assigned_technician:
+		for row in doc.seals:
+			if not row.seal_device:
+				continue
+			set_seal_custody(
+				row.seal_device,
+				"User",
+				doc.assigned_technician,
+				remarks="Retained custody after untagging for seal return",
+				journey=doc.journey_reference,
+				column="seal_return_to",
+			)
+
 	set_journey_status(
 		doc.journey_reference,
 		"Awaiting Seal Return",
-		{"untagging_status": "Completed", "untagging_completed_date_time": doc.actual_untagging_date_time},
+		{
+			"untagging_status": "Completed",
+			"untagging_completed_date_time": doc.actual_untagging_date_time,
+			"untagging_confirmation": 1,
+		},
 	)
 	sync_seal_journey_mirror(doc.journey_reference)
 	frappe.db.commit()
@@ -802,11 +825,18 @@ def confirm_seal_return(docname, manual_location=None, remarks=None):
 	)
 	doc = _get_journey_request(docname)
 	is_admin = "System Manager" in set(frappe.get_roles()) or frappe.session.user == "Administrator"
-	if not is_admin and doc.assigned_technician and doc.assigned_technician != frappe.session.user:
-		frappe.throw(
-			_("This journey request is assigned to {0}.").format(doc.assigned_technician),
-			title=_("Not Assigned to You"),
-		)
+	if not is_admin and doc.assigned_technician != frappe.session.user:
+		doc.assigned_technician = frappe.session.user
+		for row in doc.seals:
+			if not row.seal_device:
+				continue
+			record_journey_custody(
+				row.seal_device,
+				doc.journey_reference,
+				"seal_return_to",
+				frappe.session.user,
+				remarks="Taken over by this technician for seal return",
+			)
 	if doc.journey_request_status != "Awaiting Seal Return":
 		frappe.throw(
 			_("Only journey requests awaiting seal return can be confirmed."),
@@ -829,7 +859,7 @@ def confirm_seal_return(docname, manual_location=None, remarks=None):
 		)
 	if doc.seal_return_condition not in ("Good", "Damaged", "Lost"):
 		frappe.throw(
-			_("Select the seal condition after the journey before confirming."),
+			_("Select the seal condition before confirming."),
 			title=_("Seal Condition Required"),
 		)
 	if not doc.retrieval_card_number:
@@ -1227,7 +1257,7 @@ def get_journey_request_list(
 		],
 		filters=filters,
 		or_filters=or_filters,
-		order_by="creation desc",
+		order_by="modified desc",
 		limit_start=(page - 1) * page_length,
 		limit_page_length=page_length,
 	)

@@ -278,12 +278,12 @@ function _customer_card_html(c, idx) {
 							<th>${__("Tagging Date")}</th>
 							<th>${__("Arrival Date")}</th>
 							<th>${__("Un-tagging Date")}</th>
-							<th>${__("Seal Number")}</th>
+							<th class="cj-col-seal">${__("Seal Number")}</th>
 							<th>${__("File Number")}</th>
 							<th>${__("Hours/Days Taken")}</th>
 							<th>${__("Contact Person")}</th>
-							<th>${__("Departure Card #")}</th>
-							<th>${__("Retrieval Card #")}</th>
+							<th class="cj-col-departure">${__("Departure Card #")}</th>
+							<th class="cj-col-retrieval">${__("Retrieval Card #")}</th>
 							<th class="cj-col-amount">${__("Amount")}</th>
 						</tr>
 					</thead>
@@ -342,12 +342,12 @@ function _journey_row_html(j) {
 			<td>${dt(j.tagging_date_time)}</td>
 			<td>${dt(j.arrival_date_time)}</td>
 			<td>${dt(j.untagging_completed_date_time)}</td>
-			<td>${j.seal_number ? esc(j.seal_number) : dash}</td>
+			<td class="cj-col-seal">${j.seal_number ? esc(j.seal_number) : dash}</td>
 			<td>${j.file_number ? esc(j.file_number) : dash}</td>
 			<td>${j.days_taken_display ? esc(j.days_taken_display) : dash}</td>
 			<td>${j.contact_person_name ? esc(j.contact_person_name) : dash}</td>
-			<td>${j.departure_card_number ? esc(j.departure_card_number) : dash}</td>
-			<td>${j.retrieval_card_number ? esc(j.retrieval_card_number) : dash}</td>
+			<td class="cj-col-departure">${j.departure_card_number ? esc(j.departure_card_number) : dash}</td>
+			<td class="cj-col-retrieval">${j.retrieval_card_number ? esc(j.retrieval_card_number) : dash}</td>
 			<td class="cj-col-amount">${format_currency(j.total_charge || 0)}</td>
 		</tr>
 	`;
@@ -478,7 +478,9 @@ function _export_pdf(page, idx) {
 	const c = (page.cj_data.customers || [])[idx];
 	if (!c) return;
 
-	const cardHtml = $(page.body).find(`#cj-card-${idx}`).prop("outerHTML");
+	const $cardClone = $(page.body).find(`#cj-card-${idx}`).clone();
+	$cardClone.find(".cj-col-seal, .cj-col-departure, .cj-col-retrieval").remove();
+	const cardHtml = $cardClone.prop("outerHTML");
 	const from_date_str = page.cj_state.from_date ? frappe.datetime.str_to_user(page.cj_state.from_date) : "";
 	const to_date_str = page.cj_state.to_date ? frappe.datetime.str_to_user(page.cj_state.to_date) : "";
 	let date_range = from_date_str && to_date_str ? `${from_date_str} to ${to_date_str}` : (from_date_str || to_date_str);

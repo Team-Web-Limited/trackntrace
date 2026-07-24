@@ -4,17 +4,28 @@
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2026-06-14 00:00:00.000000",
+ "modified": "2026-07-14 12:45:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "journey-monitoring",
  "owner": "Administrator",
  "page_name": "journey-monitoring",
  "roles": [
-  {"role": "System Manager"},
-  {"role": "Seal System Administrator"},
-  {"role": "Operations Control Room"},
-  {"role": "Management"}
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Seal System Administrator"
+  },
+  {
+   "role": "Operations Control Room"
+  },
+  {
+   "role": "Management"
+  },
+  {
+   "role": "Managing Director"
+  }
  ],
  "script": null,
  "standard": "Yes",
