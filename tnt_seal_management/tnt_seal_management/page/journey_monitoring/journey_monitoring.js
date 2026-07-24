@@ -446,7 +446,7 @@ function _status_class(status) {
 function _set_loading(page, on) {
 	$(page.body).find(".jm-loading").toggle(on);
 }
-
+//dd
 function _update_refresh_time(page) {
 	const t = frappe.datetime.now_time();
 	$(page.body).find(".jm-refresh-label").text(__("Updated {0}", [t]));
