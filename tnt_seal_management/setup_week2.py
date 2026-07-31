@@ -94,8 +94,7 @@ def execute():
                 {"fieldname": "remarks", "label": "Remarks", "fieldtype": "Small Text"}
             ],
             "permissions": [
-                {"role": "System Manager", "read": 1, "write": 1, "create": 1},
-                {"role": "Seal System Administrator", "read": 1, "write": 1, "create": 1}
+                {"role": "System Manager", "read": 1, "write": 1, "create": 1}
             ]
         })
         doc.insert(ignore_permissions=True)

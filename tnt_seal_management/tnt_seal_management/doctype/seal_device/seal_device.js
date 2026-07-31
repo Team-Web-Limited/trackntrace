@@ -14,7 +14,7 @@ frappe.ui.form.on("Seal Device", {
 });
 
 function _add_sync_button(frm) {
-	const allowed = ["System Manager", "Seal System Administrator", "Operations Control Room"];
+	const allowed = ["System Manager", "Operations Control Room"];
 	if (!allowed.some(r => frappe.user.has_role(r))) return;
 
 	frm.add_custom_button(__("Sync from Seal Server"), function () {

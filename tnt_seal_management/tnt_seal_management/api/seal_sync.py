@@ -263,7 +263,7 @@ def _reconcile_alert_log_safe(device_name):
 # excludes System Manager: on this site that role is held by ~20 developers /
 # consultants, and paging them on every seal-tamper would be noise. Critical
 # alerts go to the operational audience only.
-_ALERT_NOTIFY_ROLES = ("Operations Control Room", "Seal System Administrator")
+_ALERT_NOTIFY_ROLES = ("Operations Control Room",)
 
 
 def _alert_recipients():
@@ -1008,8 +1008,8 @@ def trigger_sync_all_devices():
 # Permission helpers
 # ---------------------------------------------------------------------------
 
-_SYNC_ROLES = {"System Manager", "Seal System Administrator", "Operations Control Room"}
-_ADMIN_ROLES = {"System Manager", "Seal System Administrator"}
+_SYNC_ROLES = {"System Manager", "Operations Control Room"}
+_ADMIN_ROLES = {"System Manager"}
 _DASHBOARD_ROLES = _SYNC_ROLES | {"Management"}
 
 
@@ -1035,7 +1035,7 @@ def _require_admin_permission():
 	user_roles = set(frappe.get_roles(frappe.session.user))
 	if not user_roles & _ADMIN_ROLES:
 		frappe.throw(
-			_("Only System Manager or Seal System Administrator can test the API connection."),
+			_("Only System Manager can test the API connection."),
 			frappe.PermissionError,
 		)
 

@@ -23,7 +23,6 @@ CARD_COUNT_RULES = {
 					"System Manager",
 					"Management",
 					"Managing Director",
-					"Seal System Administrator",
 				],
 				"label": "Not completed",
 				"filters": {"journey_status": ["!=", "Completed"]},
@@ -39,11 +38,6 @@ CARD_COUNT_RULES = {
 				"filters": {"journey_request_status": "Pending Control Room Approval"},
 			},
 			{
-				"roles": ["Customer Care"],
-				"label": "Tagging approvals",
-				"filters": {"journey_request_status": "Pending CC Approval"},
-			},
-			{
 				"roles": ["Field Technician"],
 				"label": "Tagging work",
 				"filters": {
@@ -53,7 +47,6 @@ CARD_COUNT_RULES = {
 							"Draft",
 							"Pending Control Room Approval",
 							"Tagging",
-							"Pending CC Approval",
 						],
 					]
 				},
@@ -68,7 +61,6 @@ CARD_COUNT_RULES = {
 							"Draft",
 							"Pending Control Room Approval",
 							"Tagging",
-							"Pending CC Approval",
 						],
 					]
 				},
@@ -275,7 +267,7 @@ CARD_COUNT_RULES = {
 		"doctype": "Warehouse",
 		"rules": [
 			{
-				"roles": ["Operations Control Room", "Seal System Administrator", "System Manager", "Management", "Managing Director"],
+				"roles": ["Operations Control Room", "System Manager", "Management", "Managing Director"],
 				"label": "Total warehouses",
 				"filters": {"is_group": 0, "disabled": 0},
 			},
@@ -287,7 +279,6 @@ CARD_COUNT_RULES = {
 			{
 				"roles": [
 					"Operations Control Room",
-					"Seal System Administrator",
 					"System Manager",
 					"Management",
 					"Managing Director",

@@ -643,15 +643,6 @@ const CONTROL_ROOM_APPROVED_STATUSES = new Set([
 	"Completed",
 ]);
 
-const CUSTOMER_CARE_APPROVED_STATUSES = new Set([
-	"Ready for Journey",
-	"In Transit",
-	"Arrived",
-	"Untagging In Progress",
-	"Untagged",
-	"Completed",
-]);
-
 function _render_approval_timeline(frm) {
 	const field = frm.fields_dict.approval_timeline;
 	if (!field || !field.$wrapper) return;
@@ -675,16 +666,6 @@ function _render_approval_timeline(frm) {
 		else if (status === "Pre-Tagging") controlRoomState = "current";
 	}
 
-	const hasCustomerCareDecision = Boolean(
-		frm.doc.customer_care_approver || frm.doc.customer_care_approval_date_time
-	);
-	let customerCareState = "upcoming";
-	if (controlRoomState === "approved") {
-		if (CUSTOMER_CARE_APPROVED_STATUSES.has(status)) customerCareState = "approved";
-		else if (hasCustomerCareDecision) customerCareState = "rejected";
-		else if (["Tagged", "Post-Tagging"].includes(status)) customerCareState = "current";
-	}
-
 	const stages = [
 		{
 			label: __("Finance PCB"),
@@ -696,19 +677,11 @@ function _render_approval_timeline(frm) {
 		},
 		{
 			label: __("Operations Control Room"),
-			description: __("Seal readiness and tagging approval"),
+			description: __("Seal readiness, tagging approval and journey release"),
 			state: controlRoomState,
 			approver: frm.doc.control_room_approver,
 			date: frm.doc.control_room_approval_date_time,
 			remarks: frm.doc.control_room_remarks,
-		},
-		{
-			label: __("Customer Care"),
-			description: __("Final journey release approval"),
-			state: customerCareState,
-			approver: frm.doc.customer_care_approver,
-			date: frm.doc.customer_care_approval_date_time,
-			remarks: frm.doc.customer_care_remarks,
 		},
 	];
 
@@ -779,10 +752,6 @@ function _render_approval_timeline(frm) {
 		"finance_pcb_approver",
 		"finance_pcb_approval_date_time",
 		"finance_pcb_remarks",
-		"customer_care_section",
-		"customer_care_approver",
-		"customer_care_approval_date_time",
-		"customer_care_remarks",
 	].forEach((fieldname) => frm.toggle_display(fieldname, false));
 
 	_inject_approval_timeline_styles();

@@ -50,8 +50,9 @@ _FIELDS = [
 # In TNT terms the "warehouse" is whoever/whatever currently holds the seal. It
 # passes hand-to-hand as the journey advances: the real warehouse holds it until
 # a PCB team lead is assigned, then the team lead holds it until they assign a
-# field technician, who holds it through tagging until Customer Care approves and
-# the journey goes live, at which point the customer holds it until untagging.
+# field technician, who holds it through tagging until the technician confirms
+# tagging complete and the journey goes live, at which point the customer holds it
+# until untagging.
 # Once untagging is confirmed the seal passes back to the Field Technician who
 # untagged it (the seal-return phase), and finally, when Control Room approves the
 # seal return, custody reverts to the warehouse — the seal's resting location.

@@ -24,8 +24,46 @@ from tnt_seal_management.tnt_seal_management.api.current_customers import (
 	TAX_CATEGORY_EXEMPT,
 	TAX_CATEGORY_ZERO_RATED,
 )
+from tnt_seal_management.tnt_seal_management.billing import resolve_customer_billing
 
 VAT_RATE = 0.16
+
+# Sales Order's "cost_center" field is relabeled "Business Line" (Property
+# Setter) and set from the customer's billing type (Set Billing modal, Set
+# Billing > Billing Type): Leasing customers are New Business, Subscription
+# customers are Renewal Business — both PCB-specific Cost Centers under
+# Track and Trace Ltd.
+BUSINESS_LINE_LEASING = "New Business - PCB - TD"
+BUSINESS_LINE_SUBSCRIPTION = "Renewal Business - PCB - TD"
+
+# Sales Order line items for a generated order likewise follow the
+# customer's billing_type: Leasing customers bill on PCB-LEASING (their
+# per-journey day-tiered charge) / PCB-LEASING-EXTRADAYS (the extra-day
+# portion of that same charge); Subscription customers bill everything —
+# normal/extra billing plus recurring fees — on PCB SUBSCRIPTIONS.
+ITEM_LEASING = "PCB-LEASING"
+ITEM_LEASING_EXTRA_DAYS = "PCB-LEASING-EXTRADAYS"
+ITEM_SUBSCRIPTION = "PCB SUBSCRIPTIONS"
+
+
+def _get_customer_billing_type(customer):
+	"""billing_type ("Leasing"/"Subscription") of the customer's currently
+	resolved Seal Billing Rate, or None if no rule resolves."""
+	rule_name = resolve_customer_billing(customer).get("billing_rule")
+	if not rule_name:
+		return None
+	return frappe.db.get_value("Seal Billing Rate", rule_name, "billing_type")
+
+
+def _get_business_line(billing_type):
+	"""Cost Center ("Business Line") for a generated Sales Order, from the
+	customer's billing_type. Returns None when unresolved (leaves the field
+	for the user to fill in, same as Department/Project)."""
+	if billing_type == "Leasing":
+		return BUSINESS_LINE_LEASING
+	if billing_type == "Subscription":
+		return BUSINESS_LINE_SUBSCRIPTION
+	return None
 
 # Tax Exempt and Zero Rated customers both owe no VAT on their total payable —
 # they differ for statutory reporting, not for this calculation.
@@ -47,10 +85,44 @@ def _get_customer_tax_categories(customer_names):
 def _vat_rate_for_category(tax_category):
 	return 0.0 if tax_category in _ZERO_VAT_CATEGORIES else VAT_RATE
 
+
+def _apply_sales_order_taxes(so, tax_category):
+	"""Copy the matching Sales Taxes and Charges Template's rows onto ``so``
+	so the VAT already shown to Finance in the Completed Journeys review
+	(_billing_summary's vat/total_payable, driven by the same tax_category)
+	actually lands on the generated document instead of only being a display
+	total. Picks the company's Standard (16%) or Zero Rate (0%) VAT template
+	depending on whether ``tax_category`` is one of the zero-VAT categories —
+	mirrors _vat_rate_for_category's own grouping."""
+	name_fragment = "VAT Zero Rate" if tax_category in _ZERO_VAT_CATEGORIES else "VAT Standard"
+	template_name = frappe.db.get_value(
+		"Sales Taxes and Charges Template",
+		{"company": so.company, "name": ["like", f"{name_fragment}%"]},
+		"name",
+	)
+	if not template_name:
+		return
+
+	template = frappe.get_doc("Sales Taxes and Charges Template", template_name)
+	so.taxes_and_charges = template_name
+	for row in template.taxes:
+		so.append("taxes", {
+			"charge_type": row.charge_type,
+			"account_head": row.account_head,
+			"description": row.description,
+			"rate": row.rate,
+			"cost_center": row.cost_center,
+			# Sales Taxes and Charges Row defaults this checkbox to checked, so
+			# leaving it unset would silently flip an exclusive-tax template
+			# into "rate already includes VAT" and back the tax out of the
+			# item amount instead of adding it on top.
+			"included_in_print_rate": row.included_in_print_rate,
+		})
+
 # Human labels for the recurring subscription line items (Scenarios 4-6).
 _RECURRING_ITEM_LABELS = {
 	LEASE_ITEM: _("Recurring Lease Fee (leased seals)"),
-	OWNERSHIP_ITEM: _("Ownership Service Fee (owned seals)"),
+	OWNERSHIP_ITEM: _("Subscription Fee (owned seals)"),
 }
 
 _ALLOWED_ROLES = frozenset({
@@ -65,6 +137,8 @@ _FIELDS = [
 	"contact_person_name", "departure_card_number", "retrieval_card_number",
 	"total_charge", "first_period_amount", "extra_day_amount", "seal_count",
 	"extra_billing_amount", "extra_billing_seal_count",
+	"extra_billing_first_period_amount", "extra_billing_extra_days",
+	"extra_billing_extra_day_amount",
 	"sales_order_reference", "billing_status", "extra_days",
 ]
 
@@ -285,6 +359,11 @@ def generate_sales_order(customer, from_date=None, to_date=None):
 	if summary.get("tax_category") and summary["tax_category"] != TAX_CATEGORY_NORMAL:
 		so.tax_category = summary["tax_category"]
 
+	billing_type = _get_customer_billing_type(customer)
+	business_line = _get_business_line(billing_type)
+	if business_line:
+		so.cost_center = business_line
+
 	so.append("custom_installation_location", {
 		"contact_name": "N/A",
 		"contact_mobile_no": "N/A",
@@ -306,14 +385,27 @@ def generate_sales_order(customer, from_date=None, to_date=None):
 				"delivery_date": frappe.utils.today()
 			})
 
-	rental_item = "SJ-Subscription"
-	extra_item = "Extra Days" if frappe.db.exists("Item", "Extra Days") else "SJ-Subscription"
+	if billing_type == "Leasing":
+		rental_item = ITEM_LEASING
+		extra_item = ITEM_LEASING_EXTRA_DAYS
+	elif billing_type == "Subscription":
+		rental_item = ITEM_SUBSCRIPTION
+		extra_item = ITEM_SUBSCRIPTION
+	else:
+		# No resolved rule (shouldn't normally happen) — fall back to the
+		# original generic items rather than fail Sales Order creation.
+		rental_item = "SJ-Subscription"
+		extra_item = "Extra Days" if frappe.db.exists("Item", "Extra Days") else "SJ-Subscription"
 
 	if flt(summary["normal_charges"]) > 0:
-		# Quantity is the number of journeys, and rate is the baseline charge rate per journey
-		journey_count = max(len(journeys), 1)
-		rate = flt(summary["normal_charges"]) / journey_count
-		add_item(rental_item, journey_count, rate, "Completed Journeys - Normal Charges")
+		# Quantity is the total seal count across all journeys — each seal is
+		# billed individually (see billing.compute_billing_amount) — and rate
+		# is the per-seal baseline charge. A journey-count quantity would
+		# collapse a multi-seal journey into one inflated rate instead of
+		# reflecting the actual per-seal contract terms.
+		seal_total = sum(max(cint(j.get("seal_count")), 1) for j in journeys) or 1
+		rate = flt(summary["normal_charges"]) / seal_total
+		add_item(rental_item, seal_total, rate, "Completed Journeys - Normal Charges")
 	
 	if flt(summary["extra_charges"]) > 0:
 		# Quantity is the total extra days across all journeys, and rate is the extra day rate
@@ -326,7 +418,35 @@ def generate_sales_order(customer, from_date=None, to_date=None):
 			add_item(extra_item, 1, summary["extra_charges"], "Completed Journeys - Extra Charges for Extra Days")
 
 	if flt(summary["extra_billing_total"]) > 0:
-		add_item(rental_item, 1, summary["extra_billing_total"], "Completed Journeys - Extra Billing (leased seals)")
+		# Scenario 6's leasing component is always billed on PCB-LEASING /
+		# PCB-LEASING-EXTRADAYS, distinct from the customer's own PCB
+		# SUBSCRIPTIONS/PCB-LEASING lines above — even a Subscription
+		# (outright-purchase) customer's overflow seals are a leasing charge,
+		# not a subscription one. Split the same way Normal/Extra Charges
+		# are split above: a base line (per overflow seal) and, only when
+		# the overflow ran past the rule's first period, a separate
+		# extra-days line — instead of one lump "Extra Billing" amount that
+		# hides whether it came from the base rate or extra days.
+		extra_billing_seals = sum(cint(j.get("extra_billing_seal_count")) for j in journeys)
+		if extra_billing_seals > 0:
+			if flt(summary["extra_billing_base"]) > 0:
+				rate = flt(summary["extra_billing_base"]) / extra_billing_seals
+				add_item(ITEM_LEASING, extra_billing_seals, rate, "Completed Journeys - Extra Billing (leased seals)")
+
+			if flt(summary["extra_billing_extra_day_total"]) > 0:
+				extra_billing_extra_days = sum(
+					cint(j.get("extra_billing_extra_days")) * cint(j.get("extra_billing_seal_count"))
+					for j in journeys
+				)
+				if extra_billing_extra_days > 0:
+					rate = flt(summary["extra_billing_extra_day_total"]) / extra_billing_extra_days
+					add_item(
+						ITEM_LEASING_EXTRA_DAYS, extra_billing_extra_days, rate,
+						"Completed Journeys - Extra Billing - Extra Days",
+					)
+		else:
+			# Fallback if seal count is 0 (should not happen if extra_billing_total > 0)
+			add_item(ITEM_LEASING, 1, summary["extra_billing_total"], "Completed Journeys - Extra Billing (leased seals)")
 
 	for r in recurring_fees:
 		if flt(r["amount"]) > 0:
@@ -336,6 +456,8 @@ def generate_sales_order(customer, from_date=None, to_date=None):
 
 	if not so.items:
 		frappe.throw(_("Total billable amount is zero. No Sales Order created."))
+
+	_apply_sales_order_taxes(so, summary["tax_category"])
 
 	so.insert(ignore_permissions=True, ignore_mandatory=True)
 
@@ -366,6 +488,8 @@ def _sum_summaries(summaries):
 		"extra_charges": sum(s["extra_charges"] for s in summaries),
 		"journey_total": sum(s["journey_total"] for s in summaries),
 		"extra_billing_total": sum(s["extra_billing_total"] for s in summaries),
+		"extra_billing_base": sum(s["extra_billing_base"] for s in summaries),
+		"extra_billing_extra_day_total": sum(s["extra_billing_extra_day_total"] for s in summaries),
 		"recurring_total": sum(s["recurring_total"] for s in summaries),
 		"total_cost": total_cost,
 		"vat_rate": None if mixed_vat_rates else next(iter(distinct_rates), 0.0),
@@ -447,10 +571,20 @@ def _billing_summary(group, recurring=None, tax_category=None):
 	def scaled(fieldname, j):
 		return flt(j.get(fieldname)) * max(cint(j.get("seal_count")), 1)
 
+	# extra_billing_first_period_amount/extra_billing_extra_day_amount are also
+	# per-seal (see billing.compute_billing_amount), scaled by the OVERFLOW
+	# seal count (extra_billing_seal_count), not the journey's own seal_count —
+	# together they split extra_billing_total into its base vs extra-day
+	# portions, the same distinction Normal/Extra Charges already make.
+	def scaled_extra_billing(fieldname, j):
+		return flt(j.get(fieldname)) * cint(j.get("extra_billing_seal_count"))
+
 	normal_charges = sum(scaled("first_period_amount", j) for j in group)
 	extra_charges = sum(scaled("extra_day_amount", j) for j in group)
 	journey_total = sum(flt(j.get("total_charge")) for j in group)
 	extra_billing_total = sum(flt(j.get("extra_billing_amount")) for j in group)
+	extra_billing_base = sum(scaled_extra_billing("extra_billing_first_period_amount", j) for j in group)
+	extra_billing_extra_day_total = sum(scaled_extra_billing("extra_billing_extra_day_amount", j) for j in group)
 	recurring_total = sum(flt(f["amount"]) for f in recurring)
 	total_cost = journey_total + extra_billing_total + recurring_total
 	vat = total_cost * vat_rate
@@ -461,6 +595,8 @@ def _billing_summary(group, recurring=None, tax_category=None):
 		"extra_charges": extra_charges,
 		"journey_total": journey_total,
 		"extra_billing_total": extra_billing_total,
+		"extra_billing_base": extra_billing_base,
+		"extra_billing_extra_day_total": extra_billing_extra_day_total,
 		"recurring_total": recurring_total,
 		"total_cost": total_cost,
 		"tax_category": tax_category,
@@ -573,4 +709,3 @@ def export_xlsx(data, filename):
 	xlsx_file = BytesIO()
 	wb.save(xlsx_file)
 	provide_binary_file(filename, "xlsx", xlsx_file.getvalue())
-

@@ -26,8 +26,7 @@ def execute():
         {"first": "Patrick", "last": "Kibet", "email": "patrick.kibet@tnt-seal.co.ke", "roles": ["Field Technician"]},
         {"first": "Diana", "last": "Nyambura", "email": "diana.nyambura@tnt-seal.co.ke", "roles": ["Field Technician"]},
 
-        # Seal System Administrator (1)
-        {"first": "Martin", "last": "Kiptoo", "email": "martin.kiptoo@tnt-seal.co.ke", "roles": ["Seal System Administrator"]},
+        {"first": "Martin", "last": "Kiptoo", "email": "martin.kiptoo@tnt-seal.co.ke", "roles": ["Operations Control Room"]},
     ]
 
     for emp in employees:

@@ -53,13 +53,9 @@
   "tagging_completed",
   "jr_tagging_row2_column",
   "tagging_remarks",
-  "jr_row_8_section",
-  "jr_row_8_column",
-  "customer_care_approver",
   "jr_row_9_section",
   "approval_date_time",
   "jr_row_9_column",
-  "customer_care_remarks",
   "jr_row_10_section",
   "approval_log",
   "jr_untagging_section",
@@ -102,7 +98,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Control Room Approval\nTagging\nPending CC Approval\nJourney Ready\nUntagging\nAwaiting Seal Return\nSeal Returned\nRejected\nCancelled",
+   "options": "Draft\nPending Control Room Approval\nTagging\nJourney Ready\nUntagging\nAwaiting Seal Return\nSeal Returned\nRejected\nCancelled",
    "read_only": 1
   },
   {
@@ -358,41 +354,19 @@
   },
   {
    "depends_on": "eval:doc.journey_request_status != \"Draft\"",
-   "fieldname": "jr_row_8_section",
-   "fieldtype": "Section Break",
-   "label": "Customer Care Approval"
-  },
-  {
-   "fieldname": "jr_row_8_column",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "customer_care_approver",
-   "fieldtype": "Link",
-   "label": "Customer Care Approver",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
    "fieldname": "jr_row_9_section",
-   "fieldtype": "Section Break"
+   "fieldtype": "Section Break",
+   "label": "Journey Ready"
   },
   {
    "fieldname": "approval_date_time",
    "fieldtype": "Datetime",
-   "label": "Approval Date and Time",
+   "label": "Journey Ready Date and Time",
    "read_only": 1
   },
   {
    "fieldname": "jr_row_9_column",
    "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "customer_care_remarks",
-   "fieldtype": "Small Text",
-   "label": "Customer Care Remarks",
-   "read_only": 1
   },
   {
    "depends_on": "eval:doc.journey_request_status != \"Draft\"",
@@ -615,17 +589,6 @@
    "read": 1,
    "report": 1,
    "role": "Field Technician",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Customer Care",
    "share": 1,
    "write": 1
   },

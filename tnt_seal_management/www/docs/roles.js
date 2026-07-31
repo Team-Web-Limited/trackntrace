@@ -10,7 +10,6 @@ frappe.ready(() => {
 	// Map of section IDs to their display titles
 	const sectionTitles = {
 		'role-customer': 'Customer Portal User',
-		'role-customer-care': 'Customer Care Agent',
 		'role-agent': 'Field Tagging Agent',
 		'role-operator': 'Control Room Operator',
 		'role-finance': 'Finance Manager',

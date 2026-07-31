@@ -23,7 +23,6 @@ JOURNEY_REQUEST_STATUSES = (
 	"Draft",
 	"Pending Control Room Approval",
 	"Tagging",
-	"Pending CC Approval",
 	"Journey Ready",
 	"Untagging",
 	"Awaiting Seal Return",
@@ -344,8 +343,8 @@ def _locked_fields_for(roles, status):
 			)
 		return all_managed
 
-	# Operations Control Room and Customer Care act through guarded actions,
-	# never by free-form editing of journey content.
+	# The Operations Control Room acts through guarded actions, never by
+	# free-form editing of journey content.
 	return all_managed
 
 
@@ -357,7 +356,7 @@ def get_permission_query_conditions(user=None):
 		user = frappe.session.user
 
 	roles = set(frappe.get_roles(user))
-	if roles & {"System Manager", "Management", "Customer Care", "Operations Control Room"}:
+	if roles & {"System Manager", "Management", "Operations Control Room"}:
 		return ""
 
 	if "Field Technician" in roles:
@@ -371,7 +370,7 @@ def has_permission(doc, user=None, permission_type=None):
 		user = frappe.session.user
 
 	roles = set(frappe.get_roles(user))
-	if roles & {"System Manager", "Management", "Customer Care", "Operations Control Room"}:
+	if roles & {"System Manager", "Management", "Operations Control Room"}:
 		return True
 
 	if "Field Technician" in roles:
@@ -393,7 +392,7 @@ def _get_journey_request(docname):
 
 # Roles that own the Control Room approval queue — mirrors the recipient set
 # used for critical seal alerts (see api.seal_sync._ALERT_NOTIFY_ROLES).
-CONTROL_ROOM_NOTIFY_ROLES = ("Operations Control Room", "Seal System Administrator")
+CONTROL_ROOM_NOTIFY_ROLES = ("Operations Control Room",)
 
 
 def _notify_control_room_approval_pending(doc):
@@ -676,17 +675,61 @@ def complete_tagging(docname):
 
 	doc.tagging_location = _pull_tagging_location(doc) or doc.tagging_location
 
-	doc.journey_request_status = "Pending CC Approval"
+	# Tagging completion is the last gate before the journey starts — there is no
+	# downstream Customer Care approval, so the technician's confirmation both
+	# closes tagging and puts the Seal Journey In Transit.
+	doc.journey_request_status = "Journey Ready"
+	# Doubles as the departure confirmation mirrored onto the Seal Journey.
+	doc.approval_date_time = now_datetime()
 	_append_approval_log(doc, "Tagging Completed")
+
+	seal_journey = _finalize_seal_journey_from_request(doc)
+	doc.journey_reference = seal_journey.name
 	doc.flags.ignore_field_locks = True
 	doc.save()
-	set_journey_status(
-		doc.journey_reference,
-		"Tagged",
-		{"tagging_status": "Completed", "tagging_date_time": doc.actual_tagging_date_time},
-	)
-	sync_seal_journey_mirror(doc.journey_reference)
+
+	# _finalize sets the In Transit status + child tables; mirror fills the
+	# remaining tagging detail from the now-saved request.
+	sync_seal_journey_mirror(seal_journey.name)
+
+	for row in doc.seals:
+		update = {
+			"current_status": "Assigned",
+			"current_journey_request": doc.name,
+			"current_journey": seal_journey.name,
+		}
+		if doc.assigned_technician:
+			update["current_technician"] = doc.assigned_technician
+		if doc.vehicle:
+			update["current_vehicle"] = doc.vehicle
+		if doc.container_number:
+			update["current_container"] = doc.container_number
+		frappe.db.set_value("Seal Device", row.seal_device, update)
+		# The tagging handoff to the technician was already recorded when the seals
+		# were submitted to the Control Room (see submit_to_control_room). Completing
+		# tagging puts the seal In Transit, attached to the customer's movement, so
+		# custody now passes to the customer for the trip (the "customer" hop).
+		if seal_journey.customer:
+			set_seal_custody(
+				row.seal_device,
+				"Customer",
+				seal_journey.customer,
+				remarks=f"In transit with customer via Journey Request {doc.name}",
+				journey=seal_journey.name,
+				column="customer",
+			)
+		elif not doc.assigned_technician and doc.job_order:
+			# Fallback for a technician-less job order: custody stays with the order.
+			set_seal_custody(
+				row.seal_device,
+				"PCB Job Order",
+				doc.job_order,
+				remarks=f"Assigned via Journey Request {doc.name}",
+				journey=seal_journey.name,
+			)
+
 	frappe.db.commit()
+	return {"seal_journey": seal_journey.name}
 
 
 def _pull_tagging_location(doc):
@@ -1001,101 +1044,6 @@ def _pull_seal_return_location(doc):
 	return fallback
 
 
-@frappe.whitelist()
-def approve_journey_request(docname, remarks=None):
-	_ensure_role(
-		"Customer Care",
-		_("Only users with the Customer Care role can perform this action."),
-	)
-	doc = _get_journey_request(docname)
-	if doc.journey_request_status != "Pending CC Approval":
-		frappe.throw(
-			_("Only journey requests pending Customer Care approval can be approved."),
-			title=_("Invalid Status"),
-		)
-
-	doc.journey_request_status = "Journey Ready"
-	doc.customer_care_approver = frappe.session.user
-	doc.approval_date_time = now_datetime()
-	doc.customer_care_remarks = remarks
-	_append_approval_log(doc, "Approved", remarks)
-
-	seal_journey = _finalize_seal_journey_from_request(doc)
-	doc.journey_reference = seal_journey.name
-	doc.flags.ignore_field_locks = True
-	doc.save()
-
-	# _finalize sets the In Transit status + child tables; mirror fills the
-	# remaining customer-care approval detail from the now-saved request.
-	sync_seal_journey_mirror(seal_journey.name)
-
-	for row in doc.seals:
-		update = {
-			"current_status": "Assigned",
-			"current_journey_request": doc.name,
-			"current_journey": seal_journey.name,
-		}
-		if doc.assigned_technician:
-			update["current_technician"] = doc.assigned_technician
-		if doc.vehicle:
-			update["current_vehicle"] = doc.vehicle
-		if doc.container_number:
-			update["current_container"] = doc.container_number
-		frappe.db.set_value("Seal Device", row.seal_device, update)
-		# The tagging handoff to the technician was already recorded when the seals
-		# were submitted to the Control Room (see submit_to_control_room). Approval
-		# puts the seal In Transit, attached to the customer's movement, so custody
-		# now passes to the customer for the trip (the "customer" hop).
-		if seal_journey.customer:
-			set_seal_custody(
-				row.seal_device,
-				"Customer",
-				seal_journey.customer,
-				remarks=f"In transit with customer via Journey Request {doc.name}",
-				journey=seal_journey.name,
-				column="customer",
-			)
-		elif not doc.assigned_technician and doc.job_order:
-			# Fallback for a technician-less job order: custody stays with the order.
-			set_seal_custody(
-				row.seal_device,
-				"PCB Job Order",
-				doc.job_order,
-				remarks=f"Assigned via Journey Request {doc.name}",
-				journey=seal_journey.name,
-			)
-
-	frappe.db.commit()
-	return {"seal_journey": seal_journey.name}
-
-
-@frappe.whitelist()
-def reject_journey_request(docname, remarks=None):
-	_ensure_role(
-		"Customer Care",
-		_("Only users with the Customer Care role can perform this action."),
-	)
-	doc = _get_journey_request(docname)
-	if doc.journey_request_status != "Pending CC Approval":
-		frappe.throw(
-			_("Only journey requests pending Customer Care approval can be rejected."),
-			title=_("Invalid Status"),
-		)
-
-	doc.journey_request_status = "Rejected"
-	doc.customer_care_approver = frappe.session.user
-	doc.approval_date_time = now_datetime()
-	doc.customer_care_remarks = remarks
-	_append_approval_log(doc, "Rejected", remarks)
-	doc.flags.ignore_field_locks = True
-	doc.save()
-	# Same as Control Room rejection — this can be a kickback for rework rather
-	# than a hard stop, so leave the Seal Journey's stage status untouched and
-	# only mirror the rejection remarks/approver through for visibility.
-	sync_seal_journey_mirror(doc.journey_reference)
-	frappe.db.commit()
-
-
 def _finalize_seal_journey_from_request(jr):
 	"""Populate and start the Seal Journey for an approved Journey Request.
 
@@ -1114,7 +1062,6 @@ def _finalize_seal_journey_from_request(jr):
 	journey.update(
 		{
 			"customer": jr.client_name,
-			"sales_order_reference": jr.job_order,
 			"journey_status": "In Transit",
 			"vehicle_plate_number": vehicle_plate,
 			"container_number": jr.container_number,

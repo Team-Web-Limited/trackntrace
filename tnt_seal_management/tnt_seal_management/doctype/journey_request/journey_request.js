@@ -131,7 +131,6 @@ function _journey_request_add_buttons(frm) {
 	const isAdmin = frappe.user.has_role("System Manager");
 	const isTech = frappe.user.has_role("Field Technician") || isAdmin;
 	const isControlRoom = frappe.user.has_role("Operations Control Room") || isAdmin;
-	const isCustomerCare = frappe.user.has_role("Customer Care") || isAdmin;
 
 	// "Submit to Control Room" lives on the Seals grid toolbar instead — see
 	// _journey_request_add_seals_grid_button.
@@ -154,7 +153,7 @@ function _journey_request_add_buttons(frm) {
 			frappe.warn(
 				__("Complete Tagging"),
 				__(
-					"Confirm tagging is finished. This cannot be undone. Ensure evidence photos are attached and Tagging Completed is ticked."
+					"Confirm tagging is finished. This starts the journey and cannot be undone. Ensure evidence photos are attached and Tagging Completed is ticked."
 				),
 				() => {
 					// complete_tagging() re-reads the doc from the database, so any
@@ -166,16 +165,6 @@ function _journey_request_add_buttons(frm) {
 				__("Confirm")
 			);
 		}).addClass("btn-primary");
-	}
-
-	if (status === "Pending CC Approval" && isCustomerCare) {
-		frm.add_custom_button(__("Approve"), () => _jr_prompt_customer_care_approval(frm)).addClass(
-			"btn-primary"
-		);
-
-		frm.add_custom_button(__("Reject"), () =>
-			_jr_prompt_reject(frm, "reject_journey_request")
-		);
 	}
 
 	if (status === "Untagging" && isTech) {
@@ -348,22 +337,6 @@ function _jr_prompt_reject(frm, method) {
 		[{ fieldname: "remarks", fieldtype: "Small Text", label: __("Remarks"), reqd: 1 }],
 		(values) => _jr_call(frm, method, { remarks: values.remarks }),
 		__("Reject Journey Request")
-	);
-}
-
-function _jr_prompt_customer_care_approval(frm) {
-	frappe.prompt(
-		[
-			{
-				fieldname: "remarks",
-				fieldtype: "Small Text",
-				label: __("Remarks (Optional)"),
-				default: frm.doc.customer_care_remarks || "",
-			},
-		],
-		(values) => _jr_call(frm, "approve_journey_request", { remarks: values.remarks || "" }),
-		__("Approve Journey Request"),
-		__("Approve")
 	);
 }
 

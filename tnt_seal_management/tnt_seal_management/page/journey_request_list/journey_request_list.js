@@ -39,7 +39,6 @@ function _jrl_build_page(page) {
 		["Draft", __("Draft")],
 		["Pending Control Room Approval", __("Pending Control Room")],
 		["Tagging", __("Tagging")],
-		["Pending CC Approval", __("Pending CC Approval")],
 		["Journey Ready", __("Journey Ready")],
 		["Untagging", __("Untagging")],
 		["Rejected", __("Rejected")],
@@ -186,10 +185,6 @@ function _jrl_render_stats(page, summary) {
 			<div class="jrl-stat-label">${__("Pending CR")}</div>
 			<div class="jrl-stat-value">${summary["Pending Control Room Approval"] || 0}</div>
 		</div>
-		<div class="jrl-stat-card jrl-stat--pending">
-			<div class="jrl-stat-label">${__("Pending CC")}</div>
-			<div class="jrl-stat-value">${summary["Pending CC Approval"] || 0}</div>
-		</div>
 		<div class="jrl-stat-card jrl-stat--approved">
 			<div class="jrl-stat-label">${__("Journey Ready")}</div>
 			<div class="jrl-stat-value">${summary["Journey Ready"] || 0}</div>
@@ -268,7 +263,7 @@ function _jrl_row_html(request) {
 function _jrl_status_class(status) {
 	if (status === "Journey Ready") return "approved";
 	if (status === "Rejected" || status === "Cancelled") return "rejected";
-	if (status === "Pending Control Room Approval" || status === "Pending CC Approval") return "pending";
+	if (status === "Pending Control Room Approval") return "pending";
 	if (status === "Tagging") return "tagging";
 	if (status === "Untagging") return "untagging";
 	return "draft";
@@ -281,9 +276,6 @@ function _jrl_action_html(request) {
 	const canControlRoom =
 		frappe.user.has_role("Operations Control Room") &&
 		status === "Pending Control Room Approval";
-	const canCustomerCare =
-		frappe.user.has_role("Customer Care") &&
-		status === "Pending CC Approval";
 
 	if (canControlRoom) {
 		return `
@@ -298,19 +290,6 @@ function _jrl_action_html(request) {
 		`;
 	}
 
-	if (canCustomerCare) {
-		return `
-			<div class="jrl-action-group">
-				<button class="jrl-action-btn jrl-action-btn--approve" data-action="approve" data-name="${name}">
-					${__("Approve")}
-				</button>
-				<button class="jrl-action-btn jrl-action-btn--amend" data-action="amend" data-name="${name}">
-					${__("Return for Amendment")}
-				</button>
-			</div>
-		`;
-	}
-
 	return `
 		<div class="jrl-action-group">
 			<button class="jrl-action-btn jrl-action-btn--open" data-action="open" data-name="${name}">
@@ -318,54 +297,6 @@ function _jrl_action_html(request) {
 			</button>
 		</div>
 	`;
-}
-
-function _jrl_approve_request(page, docname) {
-	frappe.call({
-		method:
-			"tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.approve_journey_request",
-		args: { docname },
-		freeze: true,
-		freeze_message: __("Approving journey request..."),
-		callback() {
-			frappe.show_alert({ message: __("Journey request approved"), indicator: "green" }, 5);
-			_jrl_load(page);
-		},
-	});
-}
-
-function _jrl_return_for_amendment(page, docname) {
-	frappe.prompt(
-		[
-			{
-				fieldname: "remarks",
-				fieldtype: "Small Text",
-				label: __("Remarks"),
-				reqd: 1,
-			},
-		],
-		(values) => {
-			frappe.call({
-				method:
-					"tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.reject_journey_request",
-				args: {
-					docname,
-					remarks: values.remarks,
-				},
-				freeze: true,
-				freeze_message: __("Returning journey request for amendment..."),
-				callback() {
-					frappe.show_alert(
-						{ message: __("Journey request returned for amendment"), indicator: "orange" },
-						5
-					);
-					_jrl_load(page);
-				},
-			});
-		},
-		__("Return for Amendment"),
-		__("Submit")
-	);
 }
 
 function _jrl_control_room_approve(page, docname) {

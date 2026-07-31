@@ -661,6 +661,16 @@ def set_customer_billing(
 		frappe.throw(_("Enter the Number of Seals Owned for an Outright Purchase."))
 	owned_seal_count = cint(owned_seal_count) if outright_purchase else 0
 
+	# Mirrors the Set Billing modal's own guard (current_customer_list.js) —
+	# enforced here too since this endpoint is reachable directly, not just via
+	# the UI. An outright-purchase customer is always Subscription-billed per
+	# journey (Scenario 5); any leasing for them belongs on the Extra Billing
+	# agreement (Scenario 6), never as their primary Leasing rate (Scenario 4).
+	if outright_purchase and billing_type == "Leasing":
+		frappe.throw(
+			_("Customers who own their seals outright cannot be billed as Leasing here. Use the Extra Billing agreement instead.")
+		)
+
 	if billing_type == "Leasing":
 		if not first_period_days or first_period_amount in (None, "") or extra_day_rate in (None, ""):
 			frappe.throw(_("Enter First Period Days, First Period Amount and Extra Day Rate."))

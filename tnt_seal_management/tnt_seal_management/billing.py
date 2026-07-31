@@ -99,7 +99,11 @@ def _resolve_assignment(assignment_type, field, value, on_date):
 # Journey statuses where seals are physically tagged and out in the field —
 # used to count a customer's currently-leased seals for Extra Billing (Scenario
 # 6). Draft/pre-tagging and Completed/Cancelled journeys are excluded: leased
-# seals are those actively deployed beyond the customer's owned pool.
+# seals are those actively deployed beyond the customer's owned pool. This is
+# a *sibling* filter only — see Seal Journey._leased_seal_count, which uses it
+# to find which of a customer's OTHER journeys are concurrently occupying
+# seals right now. It must never gate whether *this* journey's own charge is
+# computed — see BILLABLE_JOURNEY_STATUSES below for that.
 ACTIVE_JOURNEY_STATUSES = (
 	"Tagged",
 	"Post-Tagging",
@@ -108,6 +112,19 @@ ACTIVE_JOURNEY_STATUSES = (
 	"Arrived",
 	"Untagging In Progress",
 )
+
+# Statuses in which a journey's OWN Extra Billing charge (Scenario 6) is
+# computed and, crucially, kept once set — see Seal Journey.set_extra_billing.
+# Untagging finishes with a real doc.save() (complete_untagging), and
+# Completed is reached afterwards via a raw db.set_value (no recompute), so
+# both must be included here or the charge is wiped to zero during the
+# journey's own routine completion, before it's ever billed — even though the
+# seal genuinely was leased beyond the customer's base while the journey was
+# active. ACTIVE_JOURNEY_STATUSES intentionally excludes these two because a
+# journey that has already returned its seal shouldn't count against a LATER
+# journey's cumulative base usage — that's a different question from whether
+# THIS journey's own already-earned charge should survive.
+BILLABLE_JOURNEY_STATUSES = ACTIVE_JOURNEY_STATUSES + ("Untagged", "Completed")
 
 
 def resolve_customer_extra_billing(customer, on_date=None):

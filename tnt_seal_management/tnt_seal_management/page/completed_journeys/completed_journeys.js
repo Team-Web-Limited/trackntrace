@@ -376,11 +376,20 @@ function _summary_html(s) {
 	// Scenario 6 — an additional leasing charge for seals leased beyond an
 	// outright-purchase customer's owned pool, computed per journey at tagging
 	// (see billing.resolve_customer_extra_billing / seal_journey.set_extra_billing).
+	// Split into base (first period) vs extra-days, same distinction as the
+	// Normal/Extra Charges rows above, instead of one lump amount.
+	const hasExtraBillingExtraDays = (s.extra_billing_extra_day_total || 0) !== 0;
 	const extraBillingRow = hasExtraBilling ? `
 		<div class="cj-summary-row">
 			<span>${__("Extra Billing (leased seals)")}</span>
-			<span>${format_currency(s.extra_billing_total)}</span>
+			<span>${format_currency(s.extra_billing_base)}</span>
 		</div>
+		${hasExtraBillingExtraDays ? `
+		<div class="cj-summary-row">
+			<span>${__("Extra Billing - Extra Days")}</span>
+			<span>${format_currency(s.extra_billing_extra_day_total)}</span>
+		</div>
+		` : ""}
 	` : "";
 
 	const recurringRow = hasRecurring ? `
@@ -451,8 +460,14 @@ function _summary_cards_html(g, customerCount, isDrillDown) {
 					</div>
 					<div class="cj-summary-row">
 						<span>${__("Extra Billing (leased seals)")}</span>
-						<span>${format_currency(g.extra_billing_total || 0)}</span>
+						<span>${format_currency(g.extra_billing_base || 0)}</span>
 					</div>
+					${(g.extra_billing_extra_day_total || 0) !== 0 ? `
+					<div class="cj-summary-row">
+						<span>${__("Extra Billing - Extra Days")}</span>
+						<span>${format_currency(g.extra_billing_extra_day_total || 0)}</span>
+					</div>
+					` : ""}
 				</section>
 				<section class="cj-summary-card cj-summary-card--total">
 					<div class="cj-summary-card-title">${__("Total Payable")}</div>
@@ -568,8 +583,11 @@ function _export_excel(page, idx) {
 
 	data.push(["Normal Charges", num(c.summary.normal_charges)]);
 	data.push(["Extra Charges for Extra Days", num(c.summary.extra_charges)]);
-	if (num(c.summary.extra_billing_total)) {
-		data.push(["Extra Billing (leased seals)", num(c.summary.extra_billing_total)]);
+	if (num(c.summary.extra_billing_base)) {
+		data.push(["Extra Billing (leased seals)", num(c.summary.extra_billing_base)]);
+	}
+	if (num(c.summary.extra_billing_extra_day_total)) {
+		data.push(["Extra Billing - Extra Days", num(c.summary.extra_billing_extra_day_total)]);
 	}
 	if (num(c.summary.recurring_total)) {
 		data.push(["Recurring Subscription Fees", num(c.summary.recurring_total)]);

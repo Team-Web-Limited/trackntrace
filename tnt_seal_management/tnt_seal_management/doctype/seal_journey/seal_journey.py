@@ -11,6 +11,7 @@ from frappe.desk.search import validate_and_sanitize_search_inputs
 
 from tnt_seal_management.tnt_seal_management.billing import (
 	ACTIVE_JOURNEY_STATUSES,
+	BILLABLE_JOURNEY_STATUSES,
 	apply_billing_overrides,
 	compute_billing_amount,
 	resolve_customer_billing,
@@ -238,12 +239,16 @@ class SealJourney(Document):
 		this journey's *overflow* seals — those beyond the customer's committed
 		base (owned seats for an outright-purchase customer, or their current
 		Scenario 4 lease count otherwise — see billing.resolve_customer_extra_billing),
-		counted across all of the customer's active journeys. Applies only once
-		the journey is tagged (in ACTIVE_JOURNEY_STATUSES) and the customer is
-		Subscription-billed with an active extra agreement; otherwise the extra
-		line is cleared. Reads sibling journeys to find this one's cumulative
-		position but writes only itself (no cascading saves)."""
-		if primary_billing_type != "Subscription" or self.journey_status not in ACTIVE_JOURNEY_STATUSES:
+		counted across all of the customer's active journeys. Applies once the
+		journey is tagged and keeps the computed charge through Untagged/
+		Completed (BILLABLE_JOURNEY_STATUSES) so it survives long enough to
+		actually be billed — only Draft/pre-tagging/Cancelled clear it. The
+		customer must be Subscription-billed with an active extra agreement;
+		otherwise the extra line is cleared. Reads sibling journeys (still
+		ACTIVE_JOURNEY_STATUSES — a completed sibling has returned its seal and
+		shouldn't count toward another journey's base) to find this one's
+		cumulative position but writes only itself (no cascading saves)."""
+		if primary_billing_type != "Subscription" or self.journey_status not in BILLABLE_JOURNEY_STATUSES:
 			self._clear_extra_billing()
 			return
 
@@ -884,9 +889,7 @@ def resolve_seal_journey_mirror_values(seal_journey):
 				"actual_tagging_date_time",
 				"tagging_location",
 				"tagging_remarks",
-				"customer_care_approver",
 				"approval_date_time",
-				"customer_care_remarks",
 				"seal_returned",
 				"seal_return_confirmed_by_technician",
 				"seal_return_condition",
@@ -913,10 +916,7 @@ def resolve_seal_journey_mirror_values(seal_journey):
 			put("tagging_date_time", jr.actual_tagging_date_time)
 			put("tagging_location", jr.tagging_location)
 			put("tagging_remarks", jr.tagging_remarks)
-			put("customer_care_approver", jr.customer_care_approver)
-			put("customer_care_approval_date_time", jr.approval_date_time)
 			put("departure_confirmation", 1 if jr.approval_date_time else 0)
-			put("customer_care_remarks", jr.customer_care_remarks)
 
 			# --- Seal Return (mirrored onto the Seal Return tab) -------------
 			put("return_location", jr.seal_return_location)

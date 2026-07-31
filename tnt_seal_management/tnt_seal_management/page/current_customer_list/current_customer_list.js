@@ -1139,10 +1139,19 @@ function _customer_show_billing_dialog(page, data) {
 	dialog.ccl_apply_extra_tab_visibility = applyExtraBillingTabVisibility;
 
 	dialog.show();
-	applyBillingTypeOptionsForOwnership();
-	applyFieldModeForType();
-	applyCurrencyFormatting();
-	applyExtraBillingTabVisibility();
+	// billing_type's own "default" is applied asynchronously by FieldGroup.make()
+	// (set_values(defaults).then(...)), so reading dialog.get_value("billing_type")
+	// synchronously here — as applyFieldModeForType/applyExtraBillingTabVisibility
+	// do — can still see the <select>'s native first-option value ("Subscription")
+	// even for a Leasing customer, which misroutes First Period Days et al. to the
+	// Subscription branch. Explicitly (re)setting it first and waiting for that to
+	// land guarantees the field is actually in sync before anything reads it.
+	dialog.set_value("billing_type", initialType).then(() => {
+		applyBillingTypeOptionsForOwnership();
+		applyFieldModeForType();
+		applyCurrencyFormatting();
+		applyExtraBillingTabVisibility();
+	});
 
 	// Eagerly load the customer's existing Scenario 4 lease + Scenario 5
 	// ownership subscriptions — their fields live on the always-visible

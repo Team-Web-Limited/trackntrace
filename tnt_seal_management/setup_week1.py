@@ -4,7 +4,7 @@ def execute():
     # Roles
     roles = [
         "Finance PCB", "Account Manager", "PCB Team Leader", "Field Technician",
-        "Operations Control Room", "Management", "Seal System Administrator"
+        "Operations Control Room", "Management"
     ]
     for r in roles:
         if not frappe.db.exists("Role", r):

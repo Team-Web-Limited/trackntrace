@@ -38,7 +38,6 @@ const TNT_DASHBOARD_CARDS = [
 		route: "journey-request-list",
 		roles: [
 			"System Manager",
-			"Customer Care",
 			"Management",
 			"Managing Director",
 			"Operations Control Room",
@@ -72,7 +71,6 @@ const TNT_DASHBOARD_CARDS = [
 		roles: [
 			"System Manager",
 			"Account Manager",
-			"Customer Care",
 			"Finance PCB",
 			"Management",
 			"Managing Director",
@@ -91,7 +89,6 @@ const TNT_DASHBOARD_CARDS = [
 		route: "List/Warehouse/List",
 		roles: [
 			"System Manager",
-			"Seal System Administrator",
 			"Operations Control Room",
 			"Management",
 			"Managing Director",
@@ -103,7 +100,6 @@ const TNT_DASHBOARD_CARDS = [
 		route: "seal-device-dashboard",
 		roles: [
 			"System Manager",
-			"Seal System Administrator",
 			"Operations Control Room",
 			"Management",
 			"Managing Director",
@@ -135,7 +131,6 @@ const TNT_DASHBOARD_CARDS = [
 		primary: true,
 		roles: [
 			"System Manager",
-			"Seal System Administrator",
 			"Operations Control Room",
 			"Management",
 			"Managing Director",
@@ -160,7 +155,6 @@ const TNT_DASHBOARD_CARDS = [
 		primary: true,
 		roles: [
 			"System Manager",
-			"Seal System Administrator",
 			"Operations Control Room",
 			"Management",
 			"Managing Director",

@@ -36,10 +36,6 @@
   "finance_pcb_approver",
   "finance_pcb_approval_date_time",
   "finance_pcb_remarks",
-  "customer_care_section",
-  "customer_care_approver",
-  "customer_care_approval_date_time",
-  "customer_care_remarks",
   "warehouse_tab",
   "warehouse_timeline",
   "assignment_tab",
@@ -757,7 +753,7 @@
    "label": "Days Taken",
    "precision": "2",
    "read_only": 1,
-   "description": "Decimal days \u2014 kept for billing/overdue comparisons. See Duration for a human-readable figure."
+   "description": "Decimal days — kept for billing/overdue comparisons. See Duration for a human-readable figure."
   },
   {
    "fieldname": "days_taken_display",
@@ -951,7 +947,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Amount per Seal \u00d7 Billable Seals.",
+   "description": "Amount per Seal × Billable Seals.",
    "fieldname": "total_charge",
    "fieldtype": "Currency",
    "label": "Total Charge",
@@ -959,7 +955,7 @@
   },
   {
    "collapsible": 1,
-   "description": "Scenario 6: an additional leasing charge for seals leased beyond the customer's owned pool, computed at tagging on the customer's Extra Billing agreement \u2014 on top of the Subscription charge above.",
+   "description": "Scenario 6: an additional leasing charge for seals leased beyond the customer's owned pool, computed at tagging on the customer's Extra Billing agreement — on top of the Subscription charge above.",
    "fieldname": "extra_billing_section",
    "fieldtype": "Section Break",
    "label": "Extra Billing (leased seals)"
@@ -1007,7 +1003,7 @@
    "read_only": 1
   },
   {
-   "description": "Total additional leasing charge for this journey (Leased Seals Billed \u00d7 per-seal amount).",
+   "description": "Total additional leasing charge for this journey (Leased Seals Billed × per-seal amount).",
    "fieldname": "extra_billing_amount",
    "fieldtype": "Currency",
    "label": "Extra Billing Total",
@@ -1114,30 +1110,6 @@
    "fieldname": "tagging_location",
    "fieldtype": "Data",
    "label": "Tagging Location",
-   "read_only": 1
-  },
-  {
-   "fieldname": "customer_care_section",
-   "fieldtype": "Section Break",
-   "label": "Customer Care Approval"
-  },
-  {
-   "fieldname": "customer_care_approver",
-   "fieldtype": "Link",
-   "label": "Customer Care Approver",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "fieldname": "customer_care_approval_date_time",
-   "fieldtype": "Datetime",
-   "label": "Customer Care Approval Date and Time",
-   "read_only": 1
-  },
-  {
-   "fieldname": "customer_care_remarks",
-   "fieldtype": "Small Text",
-   "label": "Customer Care Remarks",
    "read_only": 1
   }
  ],
