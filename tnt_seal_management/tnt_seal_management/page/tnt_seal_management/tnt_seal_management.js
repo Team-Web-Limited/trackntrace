@@ -103,6 +103,7 @@ const TNT_DASHBOARD_CARDS = [
 			"Operations Control Room",
 			"Management",
 			"Managing Director",
+			"PCB Team Leader",
 		],
 	},
 	{

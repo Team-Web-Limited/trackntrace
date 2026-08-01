@@ -282,6 +282,7 @@ CARD_COUNT_RULES = {
 					"System Manager",
 					"Management",
 					"Managing Director",
+					"PCB Team Leader",
 				],
 				"label": "Total devices",
 				"filters": {},

@@ -1010,7 +1010,7 @@ def trigger_sync_all_devices():
 
 _SYNC_ROLES = {"System Manager", "Operations Control Room"}
 _ADMIN_ROLES = {"System Manager"}
-_DASHBOARD_ROLES = _SYNC_ROLES | {"Management"}
+_DASHBOARD_ROLES = _SYNC_ROLES | {"Management", "PCB Team Leader"}
 
 
 def _require_dashboard_permission():
