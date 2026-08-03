@@ -9,6 +9,7 @@ from frappe.utils import cint, date_diff, flt, getdate, now_datetime
 # Default number of days a fixed contract period covers.
 PERIOD_TYPE_DAYS = {
 	"Weekly": 7,
+	"Bi-Weekly": 14,
 	"Monthly": 30,
 	"Quarterly": 90,
 	"Semi-Annually": 180,
@@ -47,8 +48,12 @@ class SealBillingRate(Document):
 		For other period types, use the standard day count for that period.
 
 		Leasing rules skip all of this — they're a private contract with
-		first_period_days entered directly, no period type or date range."""
-		if self.billing_type == "Leasing":
+		first_period_days entered directly, no period type or date range. A
+		Non-Flat Rate Subscription rule (current_customers._upsert_customer_
+		subscription_rule) is day-tiered the same way and skips it too — its
+		First Period Days is entered directly in the Set Billing modal, not
+		derived from the cycle length."""
+		if self.billing_type == "Leasing" or self.rate_type == "Non-Flat Rate":
 			return
 
 		if self.billing_period_type == "Date Range":

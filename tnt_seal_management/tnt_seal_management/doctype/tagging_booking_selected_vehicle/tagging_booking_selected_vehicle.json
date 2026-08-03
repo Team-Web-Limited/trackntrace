@@ -1,0 +1,75 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-03 06:16:42.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "vehicle",
+  "registration_number",
+  "vehicle_make",
+  "vehicle_model",
+  "vehicle_status"
+ ],
+ "fields": [
+  {
+   "columns": 3,
+   "fieldname": "vehicle",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Vehicle",
+   "options": "Vehicle",
+   "read_only": 1
+  },
+  {
+   "columns": 3,
+   "fetch_from": "vehicle.registration_number",
+   "fieldname": "registration_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Registration Number",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fetch_from": "vehicle.vehicle_make",
+   "fieldname": "vehicle_make",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Make",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fetch_from": "vehicle.vehicle_model",
+   "fieldname": "vehicle_model",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Model",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fetch_from": "vehicle.vehicle_status",
+   "fieldname": "vehicle_status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Status",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-03 06:16:42.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Tagging Booking Selected Vehicle",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

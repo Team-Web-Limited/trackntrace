@@ -214,9 +214,9 @@ function _render(page, data) {
 
 function _render_overview(page, customers, grand_total) {
 	const totalJourneys = customers.reduce((sum, c) => sum + c.journey_count, 0);
-	const totalPayable = grand_total
-		? grand_total.total_payable
-		: (customers[0] && customers[0].summary.total_payable) || 0;
+	const summary = grand_total || (customers[0] && customers[0].summary) || {};
+	const totalPayable = summary.total_payable || 0;
+	const currencyNote = summary.mixed_currency ? ` <span class="cj-muted">(${__("mixed currencies")})</span>` : "";
 
 	const html = `
 		<div class="cj-stat-card">
@@ -229,7 +229,7 @@ function _render_overview(page, customers, grand_total) {
 		</div>
 		<div class="cj-stat-card cj-stat--green">
 			<div class="cj-stat-label">${__("Total Payable")}</div>
-			<div class="cj-stat-value">${format_currency(totalPayable)}</div>
+			<div class="cj-stat-value">${format_currency(totalPayable, summary.currency)}${currencyNote}</div>
 		</div>
 	`;
 	if (page.cj_stats_bar) {
@@ -348,7 +348,7 @@ function _journey_row_html(j) {
 			<td>${j.contact_person_name ? esc(j.contact_person_name) : dash}</td>
 			<td class="cj-col-departure">${j.departure_card_number ? esc(j.departure_card_number) : dash}</td>
 			<td class="cj-col-retrieval">${j.retrieval_card_number ? esc(j.retrieval_card_number) : dash}</td>
-			<td class="cj-col-amount">${format_currency(j.total_charge || 0)}</td>
+			<td class="cj-col-amount">${format_currency(j.total_charge || 0, j.currency)}</td>
 		</tr>
 	`;
 }
@@ -361,15 +361,22 @@ function _summary_html(s) {
 	const hasJourneyCharges = (s.normal_charges || 0) !== 0 || (s.extra_charges || 0) !== 0 || (s.journey_total || 0) !== 0;
 	const hasExtraBilling = (s.extra_billing_total || 0) !== 0;
 	const hasRecurring = (s.recurring_total || 0) !== 0;
+	// Snapshotted per-journey currency (Seal Journey.currency) — None when the
+	// customer's journeys/recurring fees in this period were billed in more
+	// than one currency (their billing currency changed mid-period).
+	const cur = s.currency;
+	const mixedNote = s.mixed_currency
+		? `<div class="cj-summary-row"><span class="cj-muted">${__("Mixed currencies in this period — amounts shown unconverted")}</span></div>`
+		: "";
 
 	const journeyRows = hasJourneyCharges ? `
 		<div class="cj-summary-row">
 			<span>${__("Normal Charges")}</span>
-			<span>${format_currency(s.normal_charges)}</span>
+			<span>${format_currency(s.normal_charges, cur)}</span>
 		</div>
 		<div class="cj-summary-row">
 			<span>${__("Extra Charges for Extra Days")}</span>
-			<span>${format_currency(s.extra_charges)}</span>
+			<span>${format_currency(s.extra_charges, cur)}</span>
 		</div>
 	` : "";
 
@@ -382,12 +389,12 @@ function _summary_html(s) {
 	const extraBillingRow = hasExtraBilling ? `
 		<div class="cj-summary-row">
 			<span>${__("Extra Billing (leased seals)")}</span>
-			<span>${format_currency(s.extra_billing_base)}</span>
+			<span>${format_currency(s.extra_billing_base, cur)}</span>
 		</div>
 		${hasExtraBillingExtraDays ? `
 		<div class="cj-summary-row">
 			<span>${__("Extra Billing - Extra Days")}</span>
-			<span>${format_currency(s.extra_billing_extra_day_total)}</span>
+			<span>${format_currency(s.extra_billing_extra_day_total, cur)}</span>
 		</div>
 		` : ""}
 	` : "";
@@ -395,7 +402,19 @@ function _summary_html(s) {
 	const recurringRow = hasRecurring ? `
 		<div class="cj-summary-row">
 			<span>${__("Recurring Subscription Fees")}</span>
-			<span>${format_currency(s.recurring_total)}</span>
+			<span>${format_currency(s.recurring_total, cur)}</span>
+		</div>
+	` : "";
+
+	// Computation = Compound (Set Billing modal, Non-Flat Rate Subscription):
+	// each journey's own charge was zeroed at billing time — this is the one
+	// batched amount for the whole period (days summed, divided by First
+	// Period Days, rounded up, times First Period Amount).
+	const hasCompound = (s.compound_charges || 0) !== 0;
+	const compoundRow = hasCompound ? `
+		<div class="cj-summary-row">
+			<span>${__("Compound Billing ({0} days)", [cint(s.compound_days)])}</span>
+			<span>${format_currency(s.compound_charges, cur)}</span>
 		</div>
 	` : "";
 
@@ -404,18 +423,20 @@ function _summary_html(s) {
 			${journeyRows}
 			${extraBillingRow}
 			${recurringRow}
+			${compoundRow}
 			<div class="cj-summary-row cj-summary-row--total">
 				<span>${__("Total Cost")}</span>
-				<span>${format_currency(s.total_cost)}</span>
+				<span>${format_currency(s.total_cost, cur)}</span>
 			</div>
 			<div class="cj-summary-row">
 				<span>${vatLabel}${taxLabel}</span>
-				<span>${format_currency(s.vat)}</span>
+				<span>${format_currency(s.vat, cur)}</span>
 			</div>
 			<div class="cj-summary-row cj-summary-row--payable">
 				<span>${__("Total Payable")}</span>
-				<span>${format_currency(s.total_payable)}</span>
+				<span>${format_currency(s.total_payable, cur)}</span>
 			</div>
+			${mixedNote}
 		</div>
 	`;
 }
@@ -426,9 +447,10 @@ function _summary_cards_html(g, customerCount, isDrillDown) {
 	const pct = Math.round((g.vat_rate || 0) * 100);
 	const vatLabel = g.mixed_vat_rates ? __("VAT") : __("VAT @{0}%", [pct]);
 	const taxLabel = g.tax_category && g.tax_category !== "Normal Tax (16% VAT)" ? ` (${__(g.tax_category)})` : "";
+	const cur = g.currency;
 
 	const title = isDrillDown ? __("Customer Summary") : __("Grand Total Summary");
-	const badge = isDrillDown 
+	const badge = isDrillDown
 		? __("{0} journeys", [g.journey_count])
 		: __("{0} customers, {1} journeys", [customerCount, g.journey_count]);
 
@@ -438,6 +460,7 @@ function _summary_cards_html(g, customerCount, isDrillDown) {
 				<div class="cj-card-title">
 					<span class="cj-card-customer">${title}</span>
 					<span class="cj-badge">${badge}</span>
+					${g.mixed_currency ? `<span class="cj-badge">${__("Mixed currencies — unconverted")}</span>` : ""}
 				</div>
 			</div>
 			<div class="cj-summary-cards-grid">
@@ -445,27 +468,33 @@ function _summary_cards_html(g, customerCount, isDrillDown) {
 					<div class="cj-summary-card-title">${__("Journeys")}</div>
 					<div class="cj-summary-row">
 						<span>${__("Normal Charges")}</span>
-						<span>${format_currency(g.normal_charges || 0)}</span>
+						<span>${format_currency(g.normal_charges || 0, cur)}</span>
 					</div>
 					<div class="cj-summary-row">
 						<span>${__("Extra Charges for Extra Days")}</span>
-						<span>${format_currency(g.extra_charges || 0)}</span>
+						<span>${format_currency(g.extra_charges || 0, cur)}</span>
 					</div>
 				</section>
 				<section class="cj-summary-card">
 					<div class="cj-summary-card-title">${__("Subscriptions & Extras")}</div>
 					<div class="cj-summary-row">
 						<span>${__("Recurring Subscription Fees")}</span>
-						<span>${format_currency(g.recurring_total || 0)}</span>
+						<span>${format_currency(g.recurring_total || 0, cur)}</span>
 					</div>
 					<div class="cj-summary-row">
 						<span>${__("Extra Billing (leased seals)")}</span>
-						<span>${format_currency(g.extra_billing_base || 0)}</span>
+						<span>${format_currency(g.extra_billing_base || 0, cur)}</span>
 					</div>
 					${(g.extra_billing_extra_day_total || 0) !== 0 ? `
 					<div class="cj-summary-row">
 						<span>${__("Extra Billing - Extra Days")}</span>
-						<span>${format_currency(g.extra_billing_extra_day_total || 0)}</span>
+						<span>${format_currency(g.extra_billing_extra_day_total || 0, cur)}</span>
+					</div>
+					` : ""}
+					${(g.compound_charges || 0) !== 0 ? `
+					<div class="cj-summary-row">
+						<span>${__("Compound Billing")}</span>
+						<span>${format_currency(g.compound_charges || 0, cur)}</span>
 					</div>
 					` : ""}
 				</section>
@@ -473,15 +502,15 @@ function _summary_cards_html(g, customerCount, isDrillDown) {
 					<div class="cj-summary-card-title">${__("Total Payable")}</div>
 					<div class="cj-summary-row">
 						<span>${__("Total Cost")}</span>
-						<span>${format_currency(g.total_cost || 0)}</span>
+						<span>${format_currency(g.total_cost || 0, cur)}</span>
 					</div>
 					<div class="cj-summary-row">
 						<span>${vatLabel}${taxLabel}</span>
-						<span>${format_currency(g.vat || 0)}</span>
+						<span>${format_currency(g.vat || 0, cur)}</span>
 					</div>
 					<div class="cj-summary-row cj-summary-row--payable">
 						<span>${__("Total Payable")}</span>
-						<span>${format_currency(g.total_payable || 0)}</span>
+						<span>${format_currency(g.total_payable || 0, cur)}</span>
 					</div>
 				</section>
 			</div>

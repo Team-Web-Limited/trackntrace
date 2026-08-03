@@ -509,6 +509,8 @@ RULE_DISPLAY_FIELDS = [
 	"name",
 	"billing_rule_name",
 	"billing_type",
+	"rate_type",
+	"computation_method",
 	"billing_period_type",
 	"first_period_days",
 	"first_period_amount",
@@ -519,30 +521,14 @@ RULE_DISPLAY_FIELDS = [
 
 @frappe.whitelist()
 def get_customer_billing(customer):
-	"""Prefill payload for the Set Billing modal: the customer's current assignment
-	plus the active Subscription rules available to pick from. Subscription rules are
-	configured in Seal Billing Rate; Leasing has no list to pick from — it's a private,
-	per-customer contract entered directly in the modal, so ``current.rule`` (when the
-	customer's current assignment is a Leasing rate) carries its terms for prefill."""
+	"""Prefill payload for the Set Billing modal: the customer's current
+	assignment. Neither billing type picks from a shared list anymore — both
+	are private, per-customer contracts entered directly in the modal, so
+	``current.rule`` carries their terms for prefill (rate_type/
+	billing_period_type/first_period_amount/etc. for Subscription, the same
+	fields for Leasing)."""
 	if not customer or not frappe.db.exists("Customer", customer):
 		frappe.throw(_("Customer not found."))
-
-	# Only Approved rules are offered — a rule Pending (re-)approval by the
-	# Managing Director cannot yet be assigned to a customer. The seeded PCB
-	# Scenario rates (seed_pcb_journey_billing_scenarios) are per-journey
-	# transactional rates, not generic subscription rate cards, so they're
-	# excluded from the Set Billing modal's picker — only generic rules show.
-	subscription_rules = frappe.get_all(
-		"Seal Billing Rate",
-		filters={
-			"active": 1,
-			"billing_type": "Subscription",
-			"approval_status": "Approved",
-			"billing_rule_name": ["not like", "PCB Scenario%"],
-		},
-		fields=RULE_DISPLAY_FIELDS,
-		order_by="first_period_days asc, billing_rule_name asc",
-	)
 
 	current = {
 		"billing_type": "Subscription",
@@ -607,7 +593,6 @@ def get_customer_billing(customer):
 	return {
 		"customer": customer,
 		"customer_name": frappe.db.get_value("Customer", customer, "customer_name") or customer,
-		"subscription_rules": subscription_rules,
 		"current": current,
 		"tax_category": frappe.db.get_value("Customer", customer, "custom_tax_category") or TAX_CATEGORY_NORMAL,
 	}
@@ -618,6 +603,9 @@ def set_customer_billing(
 	customer,
 	billing_type,
 	billing_rule=None,
+	rate_type=None,
+	computation_method=None,
+	billing_period_type=None,
 	period_from_date=None,
 	period_to_date=None,
 	first_period_days=None,
@@ -630,22 +618,25 @@ def set_customer_billing(
 ):
 	"""Assign billing to the customer.
 
-	Subscription picks an existing, active shared rate card (``billing_rule``).
-	``period_from_date``/``period_to_date`` are the customer's own billing window.
-	``first_period_amount``/``currency`` are optional here too — when given (and
-	different from the rule's own values) they're saved as a per-customer Rate/
-	Currency override on the assignment (billing.apply_billing_overrides),
-	without touching the shared rule or any other customer assigned to it.
+	Neither billing type picks from a shared list of pre-approved rate cards
+	anymore — both are private, per-customer contracts entered directly here
+	and saved onto the customer's own auto-named rule ("<Customer> BR"):
 
-	Leasing has no rule to pick — it's a private, per-customer contract, so its
-	terms (``first_period_days``/``first_period_amount``/``extra_day_rate``/
-	``currency``) are entered directly here and saved onto the customer's own
-	auto-named rule (see ``_upsert_customer_leasing_rule``).
+	- Subscription: classified as ``rate_type`` (Flat Rate — a single fixed
+	  recurring charge, day-tiering fields ignored — or Non-Flat Rate — day-
+	  tiered like a per-journey rate) and billed on ``billing_period_type``
+	  (the modal's "Frequency", now entered directly instead of mirrored from
+	  a picked rule) — see ``_upsert_customer_subscription_rule``.
+	- Leasing has never had a rule to pick — its terms
+	  (``first_period_days``/``first_period_amount``/``extra_day_rate``/
+	  ``currency``) are entered directly here — see
+	  ``_upsert_customer_leasing_rule``.
 
-	``outright_purchase``/``owned_seal_count`` (Set Billing modal's Seal
-	Ownership section) record whether this customer owns their seals outright —
-	independent of ``billing_type``, so captured the same way for both
-	Subscription and Leasing."""
+	``period_from_date``/``period_to_date`` are the customer's own billing
+	window. ``outright_purchase``/``owned_seal_count`` (Set Billing modal's
+	Seal Ownership section) record whether this customer owns their seals
+	outright — independent of ``billing_type``, so captured the same way for
+	both Subscription and Leasing."""
 	if not frappe.has_permission("Customer", "write"):
 		frappe.throw(_("Not permitted to update customers."), frappe.PermissionError)
 	if not customer or not frappe.db.exists("Customer", customer):
@@ -671,11 +662,12 @@ def set_customer_billing(
 			_("Customers who own their seals outright cannot be billed as Leasing here. Use the Extra Billing agreement instead.")
 		)
 
+	customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
+
 	if billing_type == "Leasing":
 		if not first_period_days or first_period_amount in (None, "") or extra_day_rate in (None, ""):
 			frappe.throw(_("Enter First Period Days, First Period Amount and Extra Day Rate."))
 
-		customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
 		rule_name = _upsert_customer_leasing_rule(
 			customer,
 			customer_name,
@@ -710,41 +702,49 @@ def set_customer_billing(
 			"billing_type": rule.billing_type,
 		}
 
-	rule = frappe.db.get_value(
-		"Seal Billing Rate",
-		{"name": billing_rule, "active": 1},
-		["name", "billing_type", "billing_rule_name", "approval_status", "first_period_amount", "currency"],
-		as_dict=True,
-	)
-	if not billing_rule or not rule:
-		frappe.throw(_("Choose an active billing rule."))
-	if rule.billing_type != billing_type:
-		frappe.throw(_("Selected rule does not match the chosen billing type."))
-	if rule.approval_status != "Approved":
-		frappe.throw(_("This billing rule is still awaiting Managing Director approval and cannot be assigned yet."))
+	if rate_type not in ("Flat Rate", "Non-Flat Rate"):
+		frappe.throw(_("Choose a Rate Type — Flat Rate or Non-Flat Rate."))
+	if not billing_period_type:
+		frappe.throw(_("Choose a Frequency."))
+	if first_period_amount in (None, ""):
+		frappe.throw(_("Enter the Rate."))
+	if rate_type == "Non-Flat Rate" and (not first_period_days or extra_day_rate in (None, "")):
+		frappe.throw(_("Enter First Period Days and Extra Day Rate for a Non-Flat Rate."))
+	# Computation (Simple/Compound) only applies to Non-Flat Rate — Flat Rate
+	# has no per-journey day-tiering to batch, so it's always Simple.
+	if computation_method not in (None, "", "Simple", "Compound"):
+		frappe.throw(_("Invalid Computation."))
+	resolved_computation = computation_method if rate_type == "Non-Flat Rate" and computation_method else "Simple"
 
-	# Only persist as an override when it actually differs from the rule's own
-	# Rate/Currency — otherwise every save would pin the rule's *current*
-	# values onto the assignment, and this customer would stop following the
-	# shared rule if its rate is ever updated later.
-	rate_override = (
-		flt(first_period_amount) if first_period_amount not in (None, "") and flt(first_period_amount) != flt(rule.first_period_amount) else None
+	rule_name = _upsert_customer_subscription_rule(
+		customer,
+		customer_name,
+		rate_type,
+		resolved_computation,
+		billing_period_type,
+		first_period_days if rate_type == "Non-Flat Rate" else 0,
+		first_period_amount,
+		extra_day_rate if rate_type == "Non-Flat Rate" else 0,
+		currency,
 	)
-	currency_override = currency if currency and currency != rule.currency else None
-
 	_upsert_customer_assignment(
 		customer,
-		rule.name,
+		rule_name,
 		effective_from=period_from_date or None,
 		effective_to=period_to_date or None,
-		override_first_period_amount=rate_override,
-		override_currency=currency_override,
+		# Subscription now bills off the customer's own fully private rate too
+		# (same as Leasing) — no shared rule left to override on top of.
+		override_first_period_amount=None,
+		override_currency=None,
 		outright_purchase=outright_purchase,
 		owned_seal_count=owned_seal_count,
 	)
 
 	frappe.db.set_value("Customer", customer, "disabled", 1)
 	frappe.db.commit()
+	rule = frappe.db.get_value(
+		"Seal Billing Rate", rule_name, ["name", "billing_rule_name", "billing_type"], as_dict=True
+	)
 	return {
 		"customer": customer,
 		"billing_rule": rule.name,
@@ -797,6 +797,86 @@ def _upsert_customer_leasing_rule(
 		"extra_day_rate": flt(extra_day_rate),
 	}
 
+	frappe.flags.in_import = True
+	try:
+		if existing_rule:
+			doc = frappe.get_doc("Seal Billing Rate", existing_rule)
+			doc.update(values)
+			doc.save(ignore_permissions=True)
+		else:
+			doc = frappe.get_doc({"doctype": "Seal Billing Rate", **values})
+			doc.insert(ignore_permissions=True)
+	finally:
+		frappe.flags.in_import = False
+
+	return doc.name
+
+
+def _upsert_customer_subscription_rule(
+	customer,
+	customer_name,
+	rate_type,
+	computation_method,
+	billing_period_type,
+	first_period_days,
+	first_period_amount,
+	extra_day_rate,
+	currency=None,
+):
+	"""Create or update the customer's private Subscription rate, auto-named
+	"<Customer Name> BR" — same mechanism as ``_upsert_customer_leasing_rule``,
+	just billing_type Subscription. Reused only when the customer's *current*
+	assignment already points at a rule bearing this exact auto-generated
+	name — never a rule with any other name, so an old shared rate card (one
+	of the previously-picked, Managing-Director-approved cards other
+	customers may still reference) is never mutated in place.
+
+	rate_type classifies the private rule as Flat Rate (a single fixed
+	recurring charge — first_period_days/extra_day_rate are zeroed by the
+	caller) or Non-Flat Rate (day-tiered, same formula as a per-journey rate).
+	billing_period_type is the modal's "Frequency", entered directly rather
+	than mirrored from a picked rule.
+
+	computation_method (Non-Flat Rate only — caller forces "Simple" for Flat
+	Rate) is Simple (each journey billed on its own day count, the historical
+	behavior — see Seal Journey.set_billing) or Compound (the per-journey
+	charge is zeroed and instead batched across every journey billed together
+	at Sales Order generation time — see completed_journeys.generate_sales_order
+	/ _billing_summary's compound_charges)."""
+	expected_name = f"{customer_name} BR"
+	existing_rule = None
+	current_rule_name = frappe.db.get_value(
+		"Customer Billing Assignment",
+		{"assignment_type": "Customer", "customer": customer, "active": 1},
+		"billing_rule",
+		order_by="priority desc, modified desc",
+	)
+	if current_rule_name:
+		row = frappe.db.get_value(
+			"Seal Billing Rate", current_rule_name, ["name", "billing_type", "billing_rule_name"], as_dict=True
+		)
+		if row and row.billing_type == "Subscription" and row.billing_rule_name == expected_name:
+			existing_rule = row.name
+
+	values = {
+		"billing_rule_name": expected_name,
+		"billing_type": "Subscription",
+		"rate_type": rate_type,
+		"computation_method": computation_method,
+		"active": 1,
+		"is_global_default": 0,
+		"currency": currency or "KES",
+		"billing_period_type": billing_period_type,
+		"first_period_days": cint(first_period_days),
+		"first_period_amount": flt(first_period_amount),
+		"extra_day_rate": flt(extra_day_rate),
+	}
+
+	# frappe.flags.in_import bypasses the Select options check on
+	# billing_period_type for a value like "Bi-Weekly" not yet in every
+	# existing rule's option list, and lets this private rule skip the
+	# Managing Director approval workflow meant for shared rate cards — same
+	# escape hatch _upsert_customer_leasing_rule already relies on.
 	frappe.flags.in_import = True
 	try:
 		if existing_rule:

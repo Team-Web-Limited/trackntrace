@@ -4,6 +4,8 @@ const CUSTOMER_JOURNEY_API =
 	"tnt_seal_management.tnt_seal_management.api.customer_completed_journeys";
 const COMPLETED_JOURNEYS_EXPORT_API =
 	"tnt_seal_management.tnt_seal_management.api.completed_journeys";
+const CUSTOMER_SALES_ORDER_API =
+	"tnt_seal_management.tnt_seal_management.api.customer_sales_orders";
 
 frappe.ready(() => {
 	const root = document.querySelector("[data-customer-portal]");
@@ -30,6 +32,10 @@ function bindTabs(root) {
 			if (button.dataset.tabTrigger === "journeys" && !root._journeysLoaded) {
 				root._journeysLoaded = true;
 				loadJourneys(root);
+			}
+			if (button.dataset.tabTrigger === "sales-orders" && !root._salesOrdersLoaded) {
+				root._salesOrdersLoaded = true;
+				loadSalesOrders(root);
 			}
 		});
 	});
@@ -387,6 +393,221 @@ function journeyPaginationHtml(pagination) {
 			</div>
 		</div>
 	`;
+}
+
+async function loadSalesOrders(root) {
+	setError(root, "");
+	root.querySelector("[data-so-loading]").classList.remove("d-none");
+
+	try {
+		const response = await frappe.call({
+			method: `${CUSTOMER_SALES_ORDER_API}.get_customer_sales_orders`,
+		});
+		renderSalesOrders(root, (response.message && response.message.sales_orders) || []);
+	} catch (error) {
+		setError(root, getErrorMessage(error));
+	} finally {
+		root.querySelector("[data-so-loading]").classList.add("d-none");
+	}
+}
+
+function renderSalesOrders(root, orders) {
+	const content = root.querySelector("[data-so-content]");
+
+	if (!orders.length) {
+		content.innerHTML = `<div class="cj-empty">${__("No sales orders found.")}</div>`;
+		return;
+	}
+
+	const rows = orders.map(salesOrderRowHtml).join("");
+	content.innerHTML = `
+		<div class="cj-table-wrap">
+			<table class="cj-table cj-table--compact">
+				<thead>
+					<tr>
+						<th>${__("Order #")}</th>
+						<th>${__("Date")}</th>
+						<th>${__("Status")}</th>
+						<th class="cj-col-amount">${__("Amount")}</th>
+						<th>${__("Response")}</th>
+						<th>${__("Actions")}</th>
+					</tr>
+				</thead>
+				<tbody>${rows}</tbody>
+			</table>
+		</div>
+	`;
+
+	content.querySelectorAll("[data-so-view]").forEach((button) => {
+		button.addEventListener("click", () => openSalesOrderJourneys(root, button.dataset.soView));
+	});
+}
+
+function salesOrderRowHtml(so) {
+	const dash = `<span class="cj-muted">—</span>`;
+	return `
+		<tr>
+			<td>${escapeHtml(so.name)}</td>
+			<td>${so.transaction_date ? frappe.datetime.str_to_user(so.transaction_date) : dash}</td>
+			<td>${so.status ? escapeHtml(so.status) : dash}</td>
+			<td class="cj-col-amount">${format_currency(so.grand_total || 0, so.currency)}</td>
+			<td>${salesOrderStatusPillHtml(so.custom_customer_response)}</td>
+			<td><button class="cj-btn" type="button" data-so-view="${escapeHtml(so.name)}">${__("View")}</button></td>
+		</tr>
+	`;
+}
+
+// Three states: Pending (no response yet), Accepted, Rejected — see
+// api/customer_sales_orders.py's custom_customer_response.
+function salesOrderStatusPillHtml(customerResponse) {
+	const state = customerResponse || "Pending";
+	const variant = state === "Accepted" ? "accepted" : state === "Rejected" ? "rejected" : "pending";
+	return `<span class="cj-so-status-pill cj-so-status-pill--${variant}">${__(state)}</span>`;
+}
+
+async function openSalesOrderJourneys(root, salesOrder) {
+	// frappe.ui.Dialog's `fields` pipeline needs frappe.ui.form.make_control,
+	// which isn't bundled on website pages — build a raw bootstrap modal via
+	// frappe.get_modal instead, same as showChargesModal above.
+	const loadingHtml = `<div class="cj-loading-msg text-muted py-4 text-center">${__("Loading…")}</div>`;
+	const $modal = frappe.get_modal(__("Seal Journeys — {0}", [salesOrder]), loadingHtml);
+	$modal.find(".modal-dialog").addClass("modal-xl");
+	$modal.appendTo(document.body);
+	$modal.on("hidden.bs.modal", () => $modal.remove());
+	$modal.modal("show");
+
+	try {
+		const result = await fetchSalesOrderJourneys(salesOrder);
+		renderSalesOrderModalBody(root, $modal, salesOrder, result.journeys || [], result.response || {});
+	} catch (error) {
+		$modal.find(".modal-body").html(
+			`<div class="alert alert-danger">${escapeHtml(getErrorMessage(error))}</div>`
+		);
+	}
+}
+
+async function fetchSalesOrderJourneys(salesOrder) {
+	const response = await frappe.call({
+		method: `${CUSTOMER_SALES_ORDER_API}.get_sales_order_journeys`,
+		args: { sales_order: salesOrder },
+	});
+	return response.message || {};
+}
+
+function renderSalesOrderModalBody(root, $modal, salesOrder, journeys, response) {
+	$modal.find(".modal-body").html(
+		salesOrderJourneysHtml(journeys) + salesOrderResponseHtml(response)
+	);
+	bindSalesOrderResponseHandlers(root, $modal, salesOrder);
+}
+
+function salesOrderJourneysHtml(journeys) {
+	if (!journeys.length) {
+		return `<div class="cj-empty">${__("No seal journeys found for this sales order.")}</div>`;
+	}
+
+	const rows = journeys.map(journeyRowHtml).join("");
+	return `
+		<div class="cj-table-wrap">
+			<table class="cj-table">
+				<thead>
+					<tr>
+						<th>${__("Journey")}</th>
+						<th>${__("Container/Truck #")}</th>
+						<th>${__("Origin")}</th>
+						<th>${__("Destination")}</th>
+						<th>${__("Tagging Date")}</th>
+						<th>${__("Arrival Date")}</th>
+						<th>${__("Un-tagging Date")}</th>
+						<th>${__("Seal Number")}</th>
+						<th>${__("File Number")}</th>
+						<th>${__("Hours/Days Taken")}</th>
+						<th>${__("Contact Person")}</th>
+						<th>${__("Departure Card #")}</th>
+						<th>${__("Retrieval Card #")}</th>
+						<th class="cj-col-amount">${__("Amount")}</th>
+					</tr>
+				</thead>
+				<tbody>${rows}</tbody>
+			</table>
+		</div>
+	`;
+}
+
+// Accept/Reject + remarks — persisted on the Sales Order itself (see
+// api/customer_sales_orders.py's set_sales_order_response). Re-openable and
+// re-submittable: picking either button again overwrites the prior decision.
+function salesOrderResponseHtml(response) {
+	response = response || {};
+	const existing = response.custom_customer_response;
+
+	// One-shot: once a response is recorded it's final (server-side backstop
+	// in set_sales_order_response), so the buttons/textarea are dropped for
+	// good — only the resulting status is shown from then on.
+	if (existing) {
+		const remarksLine = response.custom_customer_response_remarks
+			? `<div>${escapeHtml(response.custom_customer_response_remarks)}</div>`
+			: "";
+		return `
+			<div class="cj-so-response">
+				<h5 class="tb-section-title">${__("Your Response")}</h5>
+				<div class="cj-so-response-status">
+					${__("You {0} this Sales Order", [`<b>${escapeHtml(existing)}</b>`])}
+					${response.custom_customer_response_date ? ` — ${frappe.datetime.str_to_user(response.custom_customer_response_date)}` : ""}
+				</div>
+				${remarksLine}
+			</div>
+		`;
+	}
+
+	return `
+		<div class="cj-so-response">
+			<h5 class="tb-section-title">${__("Your Response")}</h5>
+			<div class="form-group">
+				<label for="so-response-remarks">${__("Details")}</label>
+				<textarea class="form-control" id="so-response-remarks" data-so-remarks rows="3" placeholder="${__("Add any details for your decision (optional)")}"></textarea>
+			</div>
+			<div class="cj-so-response-actions">
+				<button class="btn btn-success" type="button" data-so-respond="Accepted">${__("Accept")}</button>
+				<button class="btn btn-danger" type="button" data-so-respond="Rejected">${__("Reject")}</button>
+			</div>
+		</div>
+	`;
+}
+
+function bindSalesOrderResponseHandlers(root, $modal, salesOrder) {
+	$modal.find("[data-so-respond]").off("click").on("click", async function () {
+		const response = this.dataset.soRespond;
+		const remarks = ($modal.find("[data-so-remarks]").val() || "").trim();
+
+		if (response === "Rejected" && !remarks) {
+			frappe.show_alert({ message: __("Enter a reason for rejecting this Sales Order."), indicator: "red" }, 5);
+			return;
+		}
+
+		const $buttons = $modal.find("[data-so-respond]");
+		$buttons.prop("disabled", true);
+
+		try {
+			await frappe.call({
+				method: `${CUSTOMER_SALES_ORDER_API}.set_sales_order_response`,
+				args: { sales_order: salesOrder, response, remarks },
+			});
+			frappe.show_alert(
+				{ message: __("Response recorded: {0}", [response]), indicator: response === "Accepted" ? "green" : "orange" },
+				5
+			);
+			const result = await fetchSalesOrderJourneys(salesOrder);
+			renderSalesOrderModalBody(root, $modal, salesOrder, result.journeys || [], result.response || {});
+			// Refresh the outer table so its Response pill reflects the new state
+			// without the customer having to close the modal and reload the tab.
+			loadSalesOrders(root);
+		} catch (error) {
+			frappe.show_alert({ message: getErrorMessage(error), indicator: "red" }, 5);
+		} finally {
+			$buttons.prop("disabled", false);
+		}
+	});
 }
 
 function journeyRowHtml(j) {

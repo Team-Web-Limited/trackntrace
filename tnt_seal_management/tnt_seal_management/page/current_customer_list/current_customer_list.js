@@ -405,20 +405,12 @@ function _customer_open_billing_modal(page, customer) {
 function _customer_show_billing_dialog(page, data) {
 	const cur = data.current || {};
 
-	// Subscription rules are configured in Seal Billing Rate and picked from a
-	// shared list here. Leasing is a private, per-customer contract — there is
-	// nothing to pick, so its terms are entered directly below and saved as the
+	// Neither billing type picks from a shared list anymore — both are
+	// private, per-customer contracts entered directly below and saved as the
 	// customer's own auto-named rule ("<Customer> BR").
-	const subscriptionRules = data.subscription_rules || [];
-	const subscriptionRuleMap = Object.fromEntries(
-		subscriptionRules.map((r) => [r.billing_rule_name || r.name, r])
-	);
-	const subscriptionRuleOptions = subscriptionRules.map((r) => r.billing_rule_name || r.name);
-
 	const initialType = cur.billing_type || "Subscription";
-	const currentLabel =
-		cur.billing_type === "Subscription" && cur.rule ? (cur.rule.billing_rule_name || cur.rule.name) : null;
 	const currentLeasingTerms = cur.billing_type === "Leasing" ? cur.rule || {} : {};
+	const currentSubscriptionTerms = cur.billing_type === "Subscription" ? cur.rule || {} : {};
 
 	// Tax treatment for this customer — drives VAT on Completed Journeys and
 	// elsewhere. Rendered as radio buttons (Set Billing modal spec), not a
@@ -430,6 +422,16 @@ function _customer_show_billing_dialog(page, data) {
 		{ value: "Zero Rated", label: __("Zero Rated") },
 	];
 	const currentTaxCategory = data.tax_category || "Normal Tax (16% VAT)";
+
+	// Computation (Simple/Compound) — see the computation_html field def
+	// below for what each means. Radio buttons for the same reason as Tax:
+	// two mutually-exclusive options.
+	const COMPUTATION_RADIO_NAME = "ccl_computation";
+	const computationOptions = [
+		{ value: "Simple", label: __("Simple") },
+		{ value: "Compound", label: __("Compound") },
+	];
+	const currentComputationMethod = currentSubscriptionTerms.computation_method || "Simple";
 
 	// Frappe's "Tab Break" fieldtype (frappe/public/js/frappe/form/tab.js)
 	// requires a real frm/doctype to build its DOM id — a plain frappe.ui.Dialog
@@ -474,13 +476,32 @@ function _customer_show_billing_dialog(page, data) {
 			},
 			{ fieldtype: "Column Break" },
 			{
+				// Flat Rate: one fixed recurring charge per cycle (day-tiering
+				// fields hidden below). Non-Flat Rate: day-tiered, same formula
+				// as a per-journey rate (First Period Days/Amount + Extra Day
+				// Rate) — see applyFieldModeForType.
 				fieldtype: "Select",
 				fieldname: "billing_rule_label",
 				label: __("Billing Rule"),
-				options: subscriptionRuleOptions,
-				default: currentLabel || subscriptionRuleOptions[0] || null,
+				options: ["Flat Rate", "Non-Flat Rate"],
+				default: currentSubscriptionTerms.rate_type || "Non-Flat Rate",
 				depends_on: 'eval:doc.billing_type=="Subscription"',
 				mandatory_depends_on: 'eval:doc.billing_type=="Subscription"',
+			},
+			{ fieldtype: "Column Break" },
+			{
+				// Simple: each journey billed on its own day count (the
+				// historical behavior). Compound: the per-journey charge is
+				// zeroed and instead batched across every journey billed
+				// together at Sales Order generation time — total days summed,
+				// divided by First Period Days, rounded up to a whole period,
+				// times First Period Amount (see completed_journeys.py's
+				// _compute_compound_charge). Only meaningful for a day-tiered
+				// rate, so shown for Non-Flat Rate Subscription only.
+				fieldtype: "HTML",
+				fieldname: "computation_html",
+				label: __("Computation"),
+				depends_on: 'eval:doc.billing_type=="Subscription" && doc.billing_rule_label=="Non-Flat Rate"',
 			},
 
 			// Only relevant for Subscription customers — a customer who owns
@@ -564,21 +585,18 @@ function _customer_show_billing_dialog(page, data) {
 				fieldtype: "Section Break",
 				fieldname: "rate_terms_section",
 				label: __("Rate Terms"),
-				description: __(
-					"Saved as this customer's own rate — \"{0} BR\".",
-					[data.customer_name]
-				),
 			},
 			{
-				// Read-only mirror of the picked Billing Rule's period — for a
-				// leased-seat rate this doubles as the leasing billing cycle
-				// (pick Default Weekly → billed weekly, Default Monthly →
-				// monthly), which is why switching the rule is the intended way
-				// to change the cycle without touching the seat-based Rate.
-				fieldtype: "Select",
+				// Editable dropdown (Autocomplete: suggests these options but
+				// doesn't lock the value to them) — the customer's own billing
+				// cycle, entered directly instead of mirrored from a picked
+				// rule. For a leased-seat rate this doubles as the leasing
+				// billing cycle (see BILLING_PERIOD_TO_LEASE_INTERVAL).
+				fieldtype: "Autocomplete",
 				fieldname: "billing_period_type",
-				label: __("Billing Period Type"),
-				read_only: 1,
+				label: __("Frequency"),
+				options: "\nWeekly\nBi-Weekly\nMonthly\nQuarterly\nSemi-Annually\nAnnually",
+				default: currentSubscriptionTerms.billing_period_type || "Monthly",
 				depends_on: 'eval:doc.billing_type=="Subscription"',
 			},
 			{ fieldtype: "Column Break" },
@@ -798,29 +816,53 @@ function _customer_show_billing_dialog(page, data) {
 				return;
 			}
 
-			const rule = subscriptionRuleMap[dialog.get_value("billing_rule_label")];
-			if (!rule) {
-				frappe.show_alert({ message: __("Choose a billing rule."), indicator: "red" }, 5);
+			const rateType = dialog.get_value("billing_rule_label");
+			if (!rateType) {
+				frappe.show_alert({ message: __("Choose a Rate Type — Flat Rate or Non-Flat Rate."), indicator: "red" }, 5);
+				return;
+			}
+			const frequency = dialog.get_value("billing_period_type");
+			if (!frequency) {
+				frappe.show_alert({ message: __("Choose a Frequency."), indicator: "red" }, 5);
+				return;
+			}
+			const subAmount = dialog.get_value("first_period_amount");
+			if (subAmount === "" || subAmount === null) {
+				frappe.show_alert({ message: __("Enter the Rate."), indicator: "red" }, 5);
+				return;
+			}
+			const subDays = dialog.get_value("first_period_days");
+			const subExtraRate = dialog.get_value("extra_day_rate");
+			if (rateType === "Non-Flat Rate" && (!subDays || subExtraRate === "" || subExtraRate === null)) {
+				frappe.show_alert(
+					{ message: __("Enter First Period Days and Extra Day Rate for a Non-Flat Rate."), indicator: "red" },
+					5
+				);
 				return;
 			}
 			if (!_customer_validate_period_bounds(dialog)) return;
+			// Computation only applies to Non-Flat Rate — Flat Rate has no
+			// per-journey day-tiering to batch, so it's always Simple.
+			const computationMethod = rateType === "Non-Flat Rate" ? _customer_get_computation_method(dialog) : "Simple";
 			_customer_submit_billing(
 				page,
 				data.customer,
-				rule.name,
-				billingType,
-				dialog.get_value("period_from_date"),
-				dialog.get_value("period_to_date"),
+				{
+					rate_type: rateType,
+					computation_method: computationMethod,
+					billing_period_type: frequency,
+					first_period_days: rateType === "Non-Flat Rate" ? subDays : 0,
+					first_period_amount: subAmount,
+					extra_day_rate: rateType === "Non-Flat Rate" ? subExtraRate : 0,
+					currency: dialog.get_value("leasing_currency") || "KES",
+					period_from_date: dialog.get_value("period_from_date"),
+					period_to_date: dialog.get_value("period_to_date"),
+					tax_category: taxCategory,
+					outright_purchase: outrightPurchase,
+					owned_seal_count: outrightPurchase ? ownedSealCount : 0,
+				},
 				dialog,
-				recurringArgs,
-				taxCategory,
-				// Rate/Currency are editable for Subscription now — the backend
-				// only persists these as a per-customer override when they
-				// actually differ from the picked rule's own values.
-				dialog.get_value("first_period_amount"),
-				dialog.get_value("leasing_currency"),
-				outrightPurchase,
-				outrightPurchase ? ownedSealCount : 0
+				recurringArgs
 			);
 		},
 	});
@@ -853,80 +895,58 @@ function _customer_show_billing_dialog(page, data) {
 		return sealCount > 0 && ratePerSeal > 0 ? { sealCount, ratePerSeal } : null;
 	};
 
-	const getSelectedRuleSource = () => {
-		const selectedLabel = dialog.get_value("billing_rule_label");
-		const rule = subscriptionRuleMap[selectedLabel];
-		// Still on the rule already assigned to this customer? Prefer cur.rule —
-		// the backend patches its first_period_amount/currency to this
-		// customer's own Rate/Currency override, if one is set (see
-		// get_customer_billing). Switching to a *different* rule always shows
-		// that rule's own raw values — a fresh pick has no override yet.
-		return selectedLabel && selectedLabel === currentLabel && cur.rule ? cur.rule : rule;
-	};
+	// Prefills Frequency/Currency/First Period Days/Extra Day Rate/Rate from
+	// this customer's own private Subscription rule (currentSubscriptionTerms)
+	// — there's no shared rule to preview anymore, so this only runs once per
+	// switch to Subscription (or on initial dialog show), not on every Rate
+	// Type change (see applyFieldModeForType).
+	const applySubscriptionTermsPrefill = () => {
+		dialog.set_value("billing_period_type", currentSubscriptionTerms.billing_period_type || "Monthly");
+		dialog.set_value("leasing_currency", currentSubscriptionTerms.currency || "KES");
+		dialog.set_value("first_period_days", currentSubscriptionTerms.first_period_days || "");
+		dialog.set_value("first_period_amount", currentSubscriptionTerms.first_period_amount || "");
+		dialog.set_value("extra_day_rate", currentSubscriptionTerms.extra_day_rate || "");
 
-	const applySubscriptionRuleDetails = () => {
-		const source = getSelectedRuleSource();
-		// Billing Period Type always mirrors the picked rule (its read-only
-		// display / the leasing billing cycle).
-		dialog.set_value("billing_period_type", source ? source.billing_period_type : "");
-		dialog.set_value("leasing_currency", source ? source.currency : "");
-		dialog.set_value("first_period_days", source ? source.first_period_days : "");
-		// first_period_amount (Rate) is owned solely by applySeatBasedRateOverride
-		// below — set it in exactly one place so a seat-based product isn't
-		// briefly overwritten by the rule's own rate and then lost to the
-		// async set_value / is_value_same race.
-		dialog.set_value("extra_day_rate", source ? source.extra_day_rate : "");
-
-		// Set the Rate (product when seat-based, else this rule's own rate) —
-		// the single writer of first_period_amount for Subscription.
 		applySeatBasedRateOverride();
 	};
 
 	const applyFieldModeForType = () => {
 		const isSubscription = dialog.get_value("billing_type") === "Subscription";
-		// Billing Period Type is always read-only — it mirrors the picked rule
-		// (and, for a leased-seat rate, is the leasing billing cycle). Rate and
-		// Currency are editable for both billing types (except when seat-based,
-		// where applySeatBasedRateOverride locks Rate to the product): for
-		// Subscription an edit is saved as a per-customer override on top of the
-		// shared rule (see set_customer_billing), for Leasing it's the
-		// customer's own private rate.
+		const isNonFlatRate = isSubscription && dialog.get_value("billing_rule_label") === "Non-Flat Rate";
 
-		// A Subscription rule is a flat recurring rate — the per-journey day-count
-		// fields don't apply, so hide First Period Days and Extra Day Rate and
-		// relabel the amount to just "Rate". Leasing keeps the full per-journey
-		// terms (First Period Days / Amount / Extra Day Rate).
-		dialog.set_df_property("first_period_days", "hidden", isSubscription ? 1 : 0);
-		dialog.set_df_property("extra_day_rate", "hidden", isSubscription ? 1 : 0);
+		// Flat Rate (the Subscription default) is a single fixed recurring
+		// charge — the per-journey day-count fields don't apply, so hide First
+		// Period Days and Extra Day Rate and relabel the amount to just "Rate".
+		// Non-Flat Rate (Subscription) and Leasing both keep the full
+		// per-journey terms (First Period Days / Amount / Extra Day Rate).
+		const hideDayTieredFields = isSubscription && !isNonFlatRate;
+		dialog.set_df_property("first_period_days", "hidden", hideDayTieredFields ? 1 : 0);
+		dialog.set_df_property("extra_day_rate", "hidden", hideDayTieredFields ? 1 : 0);
 		dialog.set_df_property("billing_rule_label", "hidden", isSubscription ? 0 : 1);
 		dialog.set_df_property(
 			"first_period_amount",
 			"label",
-			isSubscription ? __("Rate") : __("First Period Amount")
+			hideDayTieredFields ? __("Rate") : __("First Period Amount")
 		);
 
-		// The "Saved as this customer's own rate" note only applies to Leasing
-		// (a private per-customer rate); Subscription just assigns a shared
-		// rule, so hide it there. Section descriptions are rendered once at
-		// construction (frappe/form/section.js make()) and aren't re-rendered
-		// by set_df_property, so the wrapper is toggled directly.
-		const rateTermsSection = dialog.fields_dict.rate_terms_section;
-		if (rateTermsSection && rateTermsSection.description_wrapper) {
-			rateTermsSection.description_wrapper.toggleClass("hide-control", isSubscription);
-		}
-
 		if (isSubscription) {
-			// Sets the rule fields and, via applySeatBasedRateOverride, the Rate.
-			applySubscriptionRuleDetails();
+			// Re-hiding/showing the day-tiered fields (Rate Type toggle) should
+			// not stomp on values the user already typed — only prefill from
+			// the customer's saved rule the first time we land on Subscription.
+			if (!dialog.ccl_subscription_prefilled) {
+				dialog.ccl_subscription_prefilled = true;
+				applySubscriptionTermsPrefill();
+			} else {
+				applySeatBasedRateOverride();
+			}
 		} else {
+			dialog.ccl_subscription_prefilled = false;
 			// Leasing: restore this customer's own saved terms rather than
-			// whatever a previously-selected Subscription rule copied in.
+			// whatever Subscription entry left behind.
 			dialog.set_value("first_period_days", currentLeasingTerms.first_period_days || "");
 			dialog.set_value("first_period_amount", currentLeasingTerms.first_period_amount || "");
 			dialog.set_value("extra_day_rate", currentLeasingTerms.extra_day_rate || "");
 			dialog.set_value("leasing_currency", currentLeasingTerms.currency || "KES");
-			// Reset the Rate read-only flag (seat-based only applies to
-			// Subscription); leaves the leasing amount above untouched.
 			applySeatBasedRateOverride();
 		}
 
@@ -938,24 +958,19 @@ function _customer_show_billing_dialog(page, data) {
 	// first_period_amount (Rate) for a Subscription customer, so it's set
 	// exactly once per pass and never lost to the async set_value /
 	// is_value_same race. When Number of Seals (Leased or Owned) + its Rate
-	// per Seal are both filled, the Rate is the fixed product count × rate —
-	// held regardless of which Billing Rule is picked (the rule only sets the
-	// cycle, not the amount). Otherwise it falls back to the picked rule's own
-	// rate. Leasing (non-Subscription) manages its own rate, so this leaves it
-	// untouched there. This is a display preview only — the real per-journey
-	// charge is separately zeroed for seat-based customers (see
+	// per Seal are both filled, the Rate is the fixed product count × rate.
+	// Otherwise leaves whatever Rate/First Period Amount is already entered
+	// untouched — both billing types are direct entry now, there's no shared
+	// rule to fall back to. This is a display preview only — the real
+	// per-journey charge is separately zeroed for seat-based customers (see
 	// seal_journey.py::set_billing / customer_has_seat_subscription).
 	const applySeatBasedRateOverride = () => {
-		const isSubscription = dialog.get_value("billing_type") === "Subscription";
 		const seatBasis = isLeaseSeatBased();
 		const isSeatBased = !!seatBasis;
 
 		dialog.set_df_property("first_period_amount", "read_only", isSeatBased ? 1 : 0);
 		if (isSeatBased) {
 			dialog.set_value("first_period_amount", seatBasis.sealCount * seatBasis.ratePerSeal);
-		} else if (isSubscription) {
-			const source = getSelectedRuleSource();
-			dialog.set_value("first_period_amount", source ? source.first_period_amount : "");
 		}
 	};
 
@@ -1047,7 +1062,7 @@ function _customer_show_billing_dialog(page, data) {
 	};
 
 	dialog.fields_dict.billing_type.df.onchange = applyFieldModeForType;
-	dialog.fields_dict.billing_rule_label.df.onchange = applySubscriptionRuleDetails;
+	dialog.fields_dict.billing_rule_label.df.onchange = applyFieldModeForType;
 	dialog.fields_dict.outright_purchase.df.onchange = applyBillingTypeOptionsForOwnership;
 	// Number of Seals (Leased or Owned) / Rate per Seal drive both the
 	// seat-based Rate override (applySeatBasedRateOverride) and Extra Billing
@@ -1090,6 +1105,22 @@ function _customer_show_billing_dialog(page, data) {
 		.join("");
 	dialog.fields_dict.tax_category_html.$wrapper.html(
 		`<div class="ccl-tax-radio-group">${taxRadioHtml}</div>`
+	);
+
+	const computationRadioHtml = computationOptions
+		.map(
+			(opt) => `
+				<label class="ccl-tax-radio">
+					<input type="radio" name="${COMPUTATION_RADIO_NAME}" value="${frappe.utils.escape_html(opt.value)}" ${
+				opt.value === currentComputationMethod ? "checked" : ""
+			} />
+					<span>${opt.label}</span>
+				</label>
+			`
+		)
+		.join("");
+	dialog.fields_dict.computation_html.$wrapper.html(
+		`<div class="ccl-tax-radio-group">${computationRadioHtml}</div>`
 	);
 
 	dialog.fields_dict.recurring_loading_html.$wrapper.html(
@@ -1169,6 +1200,10 @@ function _customer_show_billing_dialog(page, data) {
 
 function _customer_get_tax_category(dialog) {
 	return dialog.$wrapper.find('input[name="ccl_tax_category"]:checked').val() || "Normal Tax (16% VAT)";
+}
+
+function _customer_get_computation_method(dialog) {
+	return dialog.$wrapper.find('input[name="ccl_computation"]:checked').val() || "Simple";
 }
 
 // Switches the Set Billing modal between its "Billing" and "Recurring Fees"
@@ -1557,34 +1592,24 @@ function _customer_validate_period_bounds(dialog) {
 	return true;
 }
 
-function _customer_submit_billing(
-	page,
-	customer,
-	billingRule,
-	billingType,
-	periodFromDate,
-	periodToDate,
-	dialog,
-	recurringArgs,
-	taxCategory,
-	firstPeriodAmount,
-	currency,
-	outrightPurchase,
-	ownedSealCount
-) {
+function _customer_submit_billing(page, customer, terms, dialog, recurringArgs) {
 	frappe.call({
 		method: "tnt_seal_management.tnt_seal_management.api.current_customers.set_customer_billing",
 		args: {
 			customer,
-			billing_rule: billingRule,
-			billing_type: billingType,
-			period_from_date: periodFromDate || null,
-			period_to_date: periodToDate || null,
-			tax_category: taxCategory,
-			first_period_amount: firstPeriodAmount === "" ? null : firstPeriodAmount,
-			currency: currency || null,
-			outright_purchase: outrightPurchase,
-			owned_seal_count: ownedSealCount,
+			billing_type: "Subscription",
+			rate_type: terms.rate_type,
+			computation_method: terms.computation_method,
+			billing_period_type: terms.billing_period_type,
+			first_period_days: terms.first_period_days,
+			first_period_amount: terms.first_period_amount,
+			extra_day_rate: terms.extra_day_rate,
+			currency: terms.currency,
+			period_from_date: terms.period_from_date || null,
+			period_to_date: terms.period_to_date || null,
+			tax_category: terms.tax_category,
+			outright_purchase: terms.outright_purchase,
+			owned_seal_count: terms.owned_seal_count,
 		},
 		freeze: true,
 		freeze_message: __("Saving billing…"),

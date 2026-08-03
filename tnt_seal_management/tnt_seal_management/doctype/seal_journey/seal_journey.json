@@ -135,6 +135,7 @@
   "seal_return_photos",
   "billing_tab",
   "billing_rule",
+  "currency",
   "billing_status",
   "billing_dates_column_break",
   "billing_start_date",
@@ -853,6 +854,14 @@
    "fieldtype": "Link",
    "label": "Billing Rule",
    "options": "Seal Billing Rate",
+   "read_only": 1
+  },
+  {
+   "description": "Snapshotted from the Billing Rule at the time this journey was billed — frozen once Billing Status is Billed, so a later change to the customer's billing currency does not retroactively affect this journey.",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
    "read_only": 1
   },
   {

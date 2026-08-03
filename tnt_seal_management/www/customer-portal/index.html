@@ -27,6 +27,9 @@
 		<button class="tb-tab" type="button" data-tab-trigger="journeys">
 			{{ _("Completed Journeys") }}
 		</button>
+		<button class="tb-tab" type="button" data-tab-trigger="sales-orders">
+			{{ _("Sales Orders") }}
+		</button>
 	</div>
 
 	<section class="card mt-3" data-tab-panel="new">
@@ -134,6 +137,13 @@
 
 			<div class="cj-loading-msg text-muted py-4 text-center" data-cj-loading>{{ _("Loading completed journeys…") }}</div>
 			<div class="cj-content" data-cj-content></div>
+		</div>
+	</section>
+
+	<section class="card mt-3 d-none" data-tab-panel="sales-orders">
+		<div class="card-body tb-card-body">
+			<div class="cj-loading-msg text-muted py-4 text-center" data-so-loading>{{ _("Loading sales orders…") }}</div>
+			<div class="cj-content" data-so-content></div>
 		</div>
 	</section>
 </div>
@@ -415,6 +425,14 @@
 	color: #334155;
 }
 
+.cj-table--compact {
+	min-width: 0;
+}
+
+.cj-table--compact th, .cj-table--compact td {
+	padding: 6px 7px;
+}
+
 .cj-table th {
 	position: sticky;
 	top: 0;
@@ -513,6 +531,48 @@
 	font-size: 15px;
 	border: 1px dashed #c9daf8;
 	border-radius: 16px;
+}
+
+.cj-so-response {
+	margin-top: 20px;
+	padding-top: 16px;
+	border-top: 1px solid #e5edf9;
+}
+
+.cj-so-response-status {
+	margin-bottom: 10px;
+	font-size: 13px;
+	color: #334155;
+}
+
+.cj-so-response-actions {
+	display: flex;
+	gap: 10px;
+	margin-top: 10px;
+}
+
+.cj-so-status-pill {
+	display: inline-block;
+	padding: 3px 10px;
+	border-radius: 999px;
+	font-size: 12px;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.cj-so-status-pill--pending {
+	background: #fef3c7;
+	color: #92400e;
+}
+
+.cj-so-status-pill--accepted {
+	background: #d1fae5;
+	color: #065f46;
+}
+
+.cj-so-status-pill--rejected {
+	background: #fee2e2;
+	color: #991b1b;
 }
 
 .cj-pagination {

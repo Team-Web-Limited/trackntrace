@@ -11,6 +11,7 @@
   "booking_details_section",
   "client_name",
   "branch",
+  "vehicles",
   "booking_details_column",
   "booking_status",
   "booking_source",
@@ -30,7 +31,9 @@
   "finance_pcb_approval_date_time",
   "finance_pcb_remarks",
   "pcb_job_order_reference",
-  "seal_journey_reference"
+  "seal_journey_reference",
+  "selected_vehicles_section",
+  "selected_vehicles"
  ],
  "fields": [
   {
@@ -50,6 +53,12 @@
    "fieldtype": "Autocomplete",
    "label": "Branch",
    "options": "\n"
+  },
+  {
+   "fieldname": "vehicles",
+   "fieldtype": "Table MultiSelect",
+   "label": "Vehicles",
+   "options": "Tagging Booking Vehicle"
   },
   {
    "fieldname": "booking_details_column",
@@ -96,10 +105,9 @@
   },
   {
    "fieldname": "location",
-   "fieldtype": "Autocomplete",
+   "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Location",
-   "options": "\nNairobi\nMombasa\nKisumu\nNakuru\nEldoret\nThika\nMalindi\nKitale\nGarissa\nKakamega\nNyeri\nMachakos\nMeru\nKericho\nEmbu\nNaivasha\nNanyuki\nKilifi\nVoi\nNamanga\nBusia\nIsiolo\nLamu\nLodwar\nMarsabit\nMandera\nWajir\nNarok\nKajiado\nKitui",
    "reqd": 1
   },
   {
@@ -184,6 +192,16 @@
    "label": "Seal Journey",
    "options": "Seal Journey",
    "read_only": 1
+  },
+  {
+   "fieldname": "selected_vehicles_section",
+   "fieldtype": "Section Break",
+   "label": "Selected Vehicles"
+  },
+  {
+   "fieldname": "selected_vehicles",
+   "fieldtype": "Table",
+   "options": "Tagging Booking Selected Vehicle"
   }
  ],
  "grid_page_length": 50,

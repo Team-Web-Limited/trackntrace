@@ -10,6 +10,8 @@
   "rule_details_section",
   "billing_rule_name",
   "billing_type",
+  "rate_type",
+  "computation_method",
   "active",
   "rule_details_column_break",
   "currency",
@@ -54,6 +56,25 @@
    "options": "Subscription"
   },
   {
+   "depends_on": "eval:doc.billing_type=='Subscription'",
+   "description": "Flat Rate: one fixed recurring charge per cycle, day-tiering fields hidden. Non-Flat Rate: day-tiered like a per-journey rate (First Period Days/Amount + Extra Day Rate). Set from Current Customer List → Set Billing.",
+   "fieldname": "rate_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Rate Type",
+   "options": "\nFlat Rate\nNon-Flat Rate"
+  },
+  {
+   "default": "Simple",
+   "depends_on": "eval:doc.rate_type=='Non-Flat Rate'",
+   "description": "Simple: each journey is billed on its own day count. Compound: total days across every journey billed together are summed, divided by First Period Days, rounded up to a whole period, and multiplied by First Period Amount — computed once at Sales Order generation, not per journey. Set from Current Customer List → Set Billing.",
+   "fieldname": "computation_method",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Computation",
+   "options": "Simple\nCompound"
+  },
+  {
    "default": "1",
    "fieldname": "active",
    "fieldtype": "Check",
@@ -78,7 +99,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Billing Period Type",
-   "options": "Weekly\nMonthly\nQuarterly\nSemi-Annually\nAnnually\nDate Range\nDays"
+   "options": "Weekly\nBi-Weekly\nMonthly\nQuarterly\nSemi-Annually\nAnnually\nDate Range\nDays"
   },
   {
    "default": "0",

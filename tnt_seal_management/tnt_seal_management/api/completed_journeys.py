@@ -10,6 +10,8 @@ group carrying its own Normal/Extra/VAT/Total Payable billing summary
 per journey by Seal Journey's billing logic — see billing.py).
 """
 
+import math
+
 import frappe
 from frappe import _
 from frappe.utils import cint, flt
@@ -139,7 +141,8 @@ _FIELDS = [
 	"extra_billing_amount", "extra_billing_seal_count",
 	"extra_billing_first_period_amount", "extra_billing_extra_days",
 	"extra_billing_extra_day_amount",
-	"sales_order_reference", "billing_status", "extra_days",
+	"sales_order_reference", "billing_status", "extra_days", "currency",
+	"billable_days",
 ]
 
 
@@ -201,6 +204,26 @@ def _require_billing_permission():
 		frappe.throw(_("Not permitted to view completed journey billing data."), frappe.PermissionError)
 
 
+@frappe.whitelist()
+def is_journey_sales_order(sales_order):
+	"""True if any Seal Journey was billed onto ``sales_order`` — i.e. it came
+	out of generate_sales_order rather than being an unrelated ERPNext order.
+	Drives whether the desk Sales Order form shows the customer-response pill
+	(see public/js/sales_order.js). Kept separate from the item-code check the
+	client does first, because a journey-generated order falls back to generic
+	items (SJ-Subscription / Extra Days) when the customer's billing rule
+	doesn't resolve — those orders are still journey orders."""
+	if not sales_order:
+		return False
+	if not frappe.has_permission("Sales Order", "read", doc=sales_order):
+		frappe.throw(_("Not permitted to read this Sales Order."), frappe.PermissionError)
+	# Seal Journey read permission is intentionally not required — this leaks
+	# only a boolean about an order the caller can already read.
+	return bool(
+		frappe.db.exists("Seal Journey", {"sales_order_reference": sales_order})
+	)
+
+
 def _fetch_journeys(from_date, to_date, customer):
 	conditions = {"journey_status": "Completed"}
 	if customer:
@@ -258,6 +281,45 @@ def _get_seals_by_journey(journey_names):
 	return {parent: ", ".join(seals) for parent, seals in seals_by_journey.items()}
 
 
+def _get_customer_compound_rule(customer):
+	"""The customer's currently resolved billing rule, if its Computation is
+	Compound (Set Billing modal, Non-Flat Rate Subscription only) — None for
+	everyone else (including Simple). Each such journey's own charge was
+	already zeroed at billing time (Seal Journey.set_billing) — the real
+	charge only exists in aggregate: total billable_days across every journey
+	billed together, divided by this rule's first_period_days, rounded up to
+	a whole period, times first_period_amount (see _billing_summary's
+	compound_charges / generate_sales_order)."""
+	rule_name = resolve_customer_billing(customer).get("billing_rule")
+	if not rule_name:
+		return None
+	rule = frappe.db.get_value(
+		"Seal Billing Rate", rule_name,
+		["name", "computation_method", "first_period_days", "first_period_amount"],
+		as_dict=True,
+	)
+	if not rule or rule.computation_method != "Compound":
+		return None
+	return rule
+
+
+def _compute_compound_charge(compound_rule, group):
+	"""Batches every journey in ``group`` together: sum their billable_days,
+	divide by the rule's first_period_days, round UP to a whole period (any
+	partial period bills a full one — Set Billing modal's Computation =
+	Compound spec), times first_period_amount. Zero when there are no days
+	to bill (an empty group, or a customer who only carries a recurring fee
+	this period)."""
+	if not compound_rule:
+		return 0, 0
+	total_days = sum(cint(j.get("billable_days")) for j in group)
+	if not total_days:
+		return 0, 0
+	period_days = cint(compound_rule.first_period_days) or 1
+	periods = math.ceil(total_days / period_days)
+	return periods * flt(compound_rule.first_period_amount), total_days
+
+
 def _build_customer_groups(journeys, customer_filter=None):
 	groups = {}
 	order = []
@@ -287,6 +349,7 @@ def _build_customer_groups(journeys, customer_filter=None):
 		group = groups[c]
 		recurring = recurring_by_customer.get(c, [])
 		tax_category = tax_category_by_customer.get(c, TAX_CATEGORY_NORMAL)
+		compound_rule = _get_customer_compound_rule(c)
 		customers.append({
 			"customer": c,
 			"journeys": group,
@@ -294,7 +357,7 @@ def _build_customer_groups(journeys, customer_filter=None):
 			"total_days_taken": sum(flt(j.get("days_taken")) for j in group),
 			"recurring_fees": recurring,
 			"tax_category": tax_category,
-			"summary": _billing_summary(group, recurring, tax_category),
+			"summary": _billing_summary(group, recurring, tax_category, compound_rule),
 		})
 
 	grand_total = None
@@ -353,9 +416,24 @@ def generate_sales_order(customer, from_date=None, to_date=None):
 	summary = customer_data["summary"]
 	recurring_fees = customer_data["recurring_fees"]
 
+	if summary.get("mixed_currency"):
+		frappe.throw(
+			_(
+				"These journeys were billed in more than one currency (the customer's "
+				"billing currency changed between them). Bill them in separate Sales "
+				"Orders per currency instead of combining them."
+			)
+		)
+
 	so = frappe.new_doc("Sales Order")
 	so.customer = customer
 	so.transaction_date = frappe.utils.today()
+	if summary.get("currency"):
+		# Snapshot from the journeys' own billed currency (Seal Journey.currency)
+		# rather than re-resolving the customer's *current* billing currency —
+		# a later change to that setting must not retroactively affect a Sales
+		# Order for journeys already billed under the old currency.
+		so.currency = summary["currency"]
 	if summary.get("tax_category") and summary["tax_category"] != TAX_CATEGORY_NORMAL:
 		so.tax_category = summary["tax_category"]
 
@@ -448,6 +526,17 @@ def generate_sales_order(customer, from_date=None, to_date=None):
 			# Fallback if seal count is 0 (should not happen if extra_billing_total > 0)
 			add_item(ITEM_LEASING, 1, summary["extra_billing_total"], "Completed Journeys - Extra Billing (leased seals)")
 
+	if flt(summary.get("compound_charges")) > 0:
+		# Computation = Compound (Set Billing modal, Non-Flat Rate Subscription):
+		# each journey's own charge was already zeroed at billing time — this is
+		# the one batched line for the whole period (see _compute_compound_charge),
+		# a single quantity-1 line rather than per-journey/per-seal, since the
+		# amount only exists in aggregate.
+		add_item(
+			rental_item, 1, summary["compound_charges"],
+			_("Completed Journeys - Compound Billing ({0} days)").format(cint(summary.get("compound_days"))),
+		)
+
 	for r in recurring_fees:
 		if flt(r["amount"]) > 0:
 			# The recurring items might be set up in ERPNext, but we fallback to rental_item if needed.
@@ -483,6 +572,14 @@ def _sum_summaries(summaries):
 	distinct_rates = {s["vat_rate"] for s in summaries}
 	mixed_vat_rates = len(distinct_rates) > 1
 
+	# Same reasoning as _billing_summary's own mixed_currency: once any
+	# customer in the grand total carries mixed_currency, or two customers
+	# were billed in different currencies, there's no single currency to sum
+	# into — the grand total figure is still shown (as raw numbers) but the
+	# client must not label it with one currency symbol.
+	distinct_currencies = {s["currency"] for s in summaries if s["currency"]}
+	mixed_currency = any(s.get("mixed_currency") for s in summaries) or len(distinct_currencies) > 1
+
 	return {
 		"normal_charges": sum(s["normal_charges"] for s in summaries),
 		"extra_charges": sum(s["extra_charges"] for s in summaries),
@@ -491,11 +588,14 @@ def _sum_summaries(summaries):
 		"extra_billing_base": sum(s["extra_billing_base"] for s in summaries),
 		"extra_billing_extra_day_total": sum(s["extra_billing_extra_day_total"] for s in summaries),
 		"recurring_total": sum(s["recurring_total"] for s in summaries),
+		"compound_charges": sum(s.get("compound_charges") or 0 for s in summaries),
 		"total_cost": total_cost,
 		"vat_rate": None if mixed_vat_rates else next(iter(distinct_rates), 0.0),
 		"mixed_vat_rates": mixed_vat_rates,
 		"vat": vat,
 		"total_payable": total_cost + vat,
+		"currency": None if mixed_currency else next(iter(distinct_currencies), None),
+		"mixed_currency": mixed_currency,
 	}
 
 
@@ -554,7 +654,7 @@ def _get_recurring_fees_by_customer(customer_filter=None):
 	return fees_by_customer
 
 
-def _billing_summary(group, recurring=None, tax_category=None):
+def _billing_summary(group, recurring=None, tax_category=None, compound_rule=None):
 	"""Normal Charges / Extra Charges / Extra Billing / Recurring Fees / Total
 	Cost / VAT / Total Payable for a set of journeys plus any recurring
 	subscription fees. first_period_amount and extra_day_amount are stored
@@ -563,7 +663,13 @@ def _billing_summary(group, recurring=None, tax_category=None):
 	(Scenario 6 — leased seals beyond an outright-purchase customer's owned
 	pool, see billing.resolve_customer_extra_billing) is already a per-journey
 	total, not per-seal, so it's summed as-is. Tax Exempt / Zero Rated
-	customers owe no VAT — see ``_vat_rate_for_category``."""
+	customers owe no VAT — see ``_vat_rate_for_category``.
+
+	``compound_rule`` (Set Billing modal's Computation = Compound, Non-Flat
+	Rate Subscription only — see _get_customer_compound_rule) means
+	normal_charges/journey_total are already zero (each journey's own charge
+	was zeroed at billing time); the real charge is compound_charges, batched
+	across every journey in ``group`` — see _compute_compound_charge."""
 	recurring = recurring or []
 	tax_category = tax_category or TAX_CATEGORY_NORMAL
 	vat_rate = _vat_rate_for_category(tax_category)
@@ -586,9 +692,20 @@ def _billing_summary(group, recurring=None, tax_category=None):
 	extra_billing_base = sum(scaled_extra_billing("extra_billing_first_period_amount", j) for j in group)
 	extra_billing_extra_day_total = sum(scaled_extra_billing("extra_billing_extra_day_amount", j) for j in group)
 	recurring_total = sum(flt(f["amount"]) for f in recurring)
-	total_cost = journey_total + extra_billing_total + recurring_total
+	compound_charges, compound_days = _compute_compound_charge(compound_rule, group)
+	total_cost = journey_total + extra_billing_total + recurring_total + compound_charges
 	vat = total_cost * vat_rate
 	total_payable = total_cost + vat
+
+	# Each journey's currency was snapshotted at the time it was billed (see
+	# Seal Journey.set_billing) — a customer whose billing currency changed
+	# between journeys can carry more than one here. When they all agree we
+	# report the single currency; otherwise there's no one right answer to
+	# display/bill in, so callers must handle mixed_currency explicitly
+	# (Sales Order generation refuses to combine currencies into one order).
+	currencies = {j.get("currency") for j in group if j.get("currency")}
+	currencies.update(f.get("currency") for f in recurring if f.get("currency"))
+	mixed_currency = len(currencies) > 1
 
 	return {
 		"normal_charges": normal_charges,
@@ -598,11 +715,15 @@ def _billing_summary(group, recurring=None, tax_category=None):
 		"extra_billing_base": extra_billing_base,
 		"extra_billing_extra_day_total": extra_billing_extra_day_total,
 		"recurring_total": recurring_total,
+		"compound_charges": compound_charges,
+		"compound_days": compound_days,
 		"total_cost": total_cost,
 		"tax_category": tax_category,
 		"vat_rate": vat_rate,
 		"vat": vat,
 		"total_payable": total_payable,
+		"currency": None if mixed_currency else next(iter(currencies), None),
+		"mixed_currency": mixed_currency,
 	}
 
 @frappe.whitelist()

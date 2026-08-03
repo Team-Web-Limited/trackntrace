@@ -8,6 +8,9 @@ frappe.ui.form.on("Tagging Booking", {
 			frappe.set_route("tagging-booking-list");
 		}
 	},
+	vehicles(frm) {
+		sync_selected_vehicles(frm);
+	},
 	refresh(frm) {
 		load_branch_options(frm);
 		frm.add_custom_button(__("Back"), () => {
@@ -172,6 +175,20 @@ frappe.ui.form.on("Tagging Booking", {
 	},
 });
 
+
+function sync_selected_vehicles(frm) {
+	const selected_vehicles = (frm.doc.vehicles || [])
+		.map((row) => row.vehicle)
+		.filter(Boolean);
+
+	frm.clear_table("selected_vehicles");
+	selected_vehicles.forEach((vehicle) => {
+		const row = frm.add_child("selected_vehicles");
+		frappe.model.set_value(row.doctype, row.name, "vehicle", vehicle);
+	});
+
+	frm.refresh_field("selected_vehicles");
+}
 
 function load_branch_options(frm) {
 	if (frm._loading_branch_options) return frm._loading_branch_options;

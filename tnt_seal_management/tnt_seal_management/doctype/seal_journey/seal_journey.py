@@ -179,6 +179,7 @@ class SealJourney(Document):
 				"first_period_days",
 				"first_period_amount",
 				"extra_day_rate",
+				"computation_method",
 			],
 			as_dict=True,
 		)
@@ -199,7 +200,20 @@ class SealJourney(Document):
 		# per-journey rate). Their journeys still resolve a rule/total_days
 		# above and still run set_extra_billing below — Scenario 6's overflow
 		# charge is independent of the base being zeroed.
-		if customer_has_seat_subscription(self.customer):
+		#
+		# Computation = Compound (Non-Flat Rate Subscription, Set Billing
+		# modal): a customer whose day-tiered rate is meant to be batched —
+		# total days summed across every journey billed together, divided by
+		# first_period_days, rounded up to a whole period, times
+		# first_period_amount — rather than charged per journey (which would
+		# round up on *each* journey separately and overcharge). That batching
+		# only makes sense in aggregate at Sales Order generation time (see
+		# completed_journeys.generate_sales_order /
+		# completed_journeys._billing_summary), so the per-journey charge here
+		# is zeroed exactly like the seat-subscription case above —
+		# billable_days still needs to survive so the aggregate total can be
+		# computed later.
+		if customer_has_seat_subscription(self.customer) or rule.computation_method == "Compound":
 			result = {
 				"billable_days": total_days, "first_period_days": 0, "first_period_amount": 0,
 				"extra_days": 0, "extra_day_rate": 0, "extra_day_amount": 0,
@@ -211,6 +225,7 @@ class SealJourney(Document):
 			billing_status = "Pending Billing"
 
 		self.billing_rule = rule.name
+		self.currency = rule.currency
 		self.billable_days = result["billable_days"]
 		self.first_period_days = result["first_period_days"]
 		self.first_period_amount = result["first_period_amount"]
@@ -386,6 +401,7 @@ class SealJourney(Document):
 
 	def _clear_billing(self, status="Not Billed"):
 		self.billing_rule = None
+		self.currency = None
 		self.billable_days = 0
 		self.first_period_days = 0
 		self.first_period_amount = 0
