@@ -34,6 +34,7 @@
   "status_section",
   "last_sync_date_time",
   "last_full_fleet_sync_time",
+  "last_active_journey_sync_time",
   "status_col",
   "last_successful_sync_time",
   "failure_section",
@@ -196,6 +197,13 @@
    "label": "Last Full Fleet Sync Time",
    "read_only": 1,
    "description": "Last time the automatic full-fleet sync ran successfully"
+  },
+  {
+   "fieldname": "last_active_journey_sync_time",
+   "fieldtype": "Datetime",
+   "label": "Last Active Journey Sync Time",
+   "read_only": 1,
+   "description": "Last time the active-journey sync cycle ran. Tracked separately from Last Successful Sync Time, which any successful API call updates."
   },
   {
    "fieldname": "status_col",

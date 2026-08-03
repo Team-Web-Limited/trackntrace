@@ -452,4 +452,4 @@ def _save_sync_log(data):
 		doc.insert(ignore_permissions=True)
 		frappe.db.commit()
 	except Exception as exc:
-		frappe.log_error(f"Seal API Sync Log write failed: {exc}", "Seal API Log Error")
+		frappe.log_error("Seal API Log Error", f"Seal API Sync Log write failed: {exc}")

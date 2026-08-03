@@ -6,6 +6,7 @@ Also exposes @frappe.whitelist() methods for manual form buttons.
 """
 
 import json
+import re
 
 import frappe
 from frappe import _
@@ -18,6 +19,14 @@ from tnt_seal_management.tnt_seal_management.api.seal_api_client import (
 )
 
 _SYNC_LOG_DOCTYPE = "Seal API Sync Log"
+
+# Full-fleet syncs are split into batches of this many IMEIs. The upstream API
+# fails a request outright if any single IMEI in it is not owned by the
+# configured account, so smaller batches bound the blast radius. Each batch is
+# a separate HTTP call and Seal API Settings enforces
+# "Minimum Request Gap Seconds" between calls — keep this large enough that a
+# full sync still finishes well inside the sync interval.
+_FLEET_CHUNK_SIZE = 250
 
 # ---------------------------------------------------------------------------
 # Response normalisation
@@ -147,8 +156,8 @@ def sync_seal_device(seal_device_name, sync_type="Manual Device Sync"):
 			_apply_to_seal_journey_seals(device.current_journey, seal_device_name, matched)
 		except Exception as exc:
 			frappe.log_error(
-				f"Journey update failed for {device.current_journey}: {exc}",
 				"Seal Journey Sync",
+				f"Journey update failed for {device.current_journey}: {exc}",
 			)
 
 	if device.current_journey_request:
@@ -156,16 +165,16 @@ def sync_seal_device(seal_device_name, sync_type="Manual Device Sync"):
 			_apply_to_journey_request_seals(device.current_journey_request, seal_device_name, matched)
 		except Exception as exc:
 			frappe.log_error(
-				f"Journey Request update failed for {device.current_journey_request}: {exc}",
 				"Seal Journey Request Sync",
+				f"Journey Request update failed for {device.current_journey_request}: {exc}",
 			)
 
 	try:
 		_reconcile_alert_log(device)
 	except Exception as exc:
 		frappe.log_error(
-			f"Alert log reconcile failed for {seal_device_name}: {exc}",
 			"Seal Alert Log Sync",
+			f"Alert log reconcile failed for {seal_device_name}: {exc}",
 		)
 
 	return matched
@@ -250,8 +259,8 @@ def _reconcile_alert_log_safe(device_name):
 		_reconcile_alert_log(frappe.get_doc("Seal Device", device_name))
 	except Exception as exc:
 		frappe.log_error(
-			f"Alert log reconcile failed for {device_name}: {exc}",
 			"Seal Alert Log Sync",
+			f"Alert log reconcile failed for {device_name}: {exc}",
 		)
 
 
@@ -328,8 +337,8 @@ def _notify_critical_alert(
 			}).insert(ignore_permissions=True)
 		except Exception as exc:
 			frappe.log_error(
-				f"Critical alert desk notification failed for {user}: {exc}",
 				"Seal Alert Notify",
+				f"Critical alert desk notification failed for {user}: {exc}",
 			)
 
 	emails = [email for _user, email in recipients if email and "@" in email]
@@ -337,7 +346,7 @@ def _notify_critical_alert(
 		try:
 			frappe.sendmail(recipients=emails, subject=subject, message=body, now=False)
 		except Exception as exc:
-			frappe.log_error(f"Critical alert email failed: {exc}", "Seal Alert Notify")
+			frappe.log_error("Seal Alert Notify", f"Critical alert email failed: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -384,19 +393,36 @@ def scheduled_sync_active_journeys():
 	Scheduler entry point: sync all Seal Devices linked to active/in-transit journeys.
 	Failures on individual devices do not abort the batch.
 	Frequency is controlled by Sync Frequency Minutes in Seal API Settings.
+
+	Timing is tracked in its own field, last_active_journey_sync_time. It must
+	not use last_successful_sync_time: every successful API call updates that,
+	including the full-fleet job's, so a full-fleet sync on a shorter interval
+	would keep this job permanently inside its own gate and it would never run.
 	"""
 	settings = frappe.db.get_value(
 		"Seal API Settings",
 		"Seal API Settings",
-		["sync_frequency_minutes", "last_successful_sync_time"],
+		["sync_frequency_minutes", "last_active_journey_sync_time"],
 		as_dict=True,
 	) or {}
 	freq = int(settings.get("sync_frequency_minutes") or 15)
-	last_sync = settings.get("last_successful_sync_time")
+	last_sync = settings.get("last_active_journey_sync_time")
 	if last_sync:
 		elapsed_minutes = (now_datetime() - get_datetime(last_sync)).total_seconds() / 60
 		if elapsed_minutes < freq:
 			return
+
+	# Stamp the timer before doing any work, so the interval is honoured even
+	# when this cycle has nothing to sync or fails part-way. Stamping only on
+	# the success path lets the job re-run on every scheduler tick instead of
+	# every `freq` minutes.
+	frappe.db.set_value(
+		"Seal API Settings",
+		"Seal API Settings",
+		"last_active_journey_sync_time",
+		now_datetime(),
+	)
+	frappe.db.commit()
 
 	active = frappe.db.get_all(
 		"Seal Journey",
@@ -495,8 +521,8 @@ def scheduled_sync_active_journeys():
 						updated += 1
 					except Exception as exc:
 						frappe.log_error(
-							f"Scheduled sync: journey {jname} update failed: {exc}",
 							"Seal Scheduled Sync",
+							f"Scheduled sync: journey {jname} update failed: {exc}",
 						)
 				for jr_name in imei_journey_requests.get(imei, []):
 					try:
@@ -504,8 +530,8 @@ def scheduled_sync_active_journeys():
 						updated += 1
 					except Exception as exc:
 						frappe.log_error(
-							f"Scheduled sync: journey request {jr_name} update failed: {exc}",
 							"Seal Scheduled Sync",
+							f"Scheduled sync: journey request {jr_name} update failed: {exc}",
 						)
 				for sj_name, sj_device in imei_seal_journey_seals.get(imei, []):
 					try:
@@ -513,14 +539,14 @@ def scheduled_sync_active_journeys():
 						updated += 1
 					except Exception as exc:
 						frappe.log_error(
-							f"Scheduled sync: seal journey {sj_name} update failed: {exc}",
 							"Seal Scheduled Sync",
+							f"Scheduled sync: seal journey {sj_name} update failed: {exc}",
 						)
 				_reconcile_alert_log_safe(device_name)
 			except Exception as exc:
 				frappe.log_error(
-					f"Scheduled sync: device {device_name} (IMEI {imei}) failed: {exc}",
 					"Seal Scheduled Sync",
+					f"Scheduled sync: device {device_name} (IMEI {imei}) failed: {exc}",
 				)
 
 		frappe.db.commit()
@@ -556,7 +582,7 @@ def scheduled_sync_active_journeys():
 			{"last_failed_sync_time": now_datetime(), "last_error_message": str(exc)[:500]},
 		)
 		frappe.db.commit()
-		frappe.log_error(f"Scheduled seal sync failed: {exc}", "Seal Scheduled Sync")
+		frappe.log_error("Seal Scheduled Sync", f"Scheduled seal sync failed: {exc}")
 
 	_save_sync_log(log)
 
@@ -565,11 +591,71 @@ def scheduled_sync_active_journeys():
 # Full-fleet sync (all devices with an IMEI)
 # ---------------------------------------------------------------------------
 
+_UNOWNED_IMEI_RE = re.compile(
+	r"([\d,\s]+?)\s*Does\s+Not\s+Belongs?\s+To\s+Given\s+User", re.IGNORECASE
+)
+
+
+def _extract_unowned_imeis(error_message):
+	"""
+	Pull the offending IMEIs out of an API rejection such as
+	``API error: 123,456 Does Not Belongs To Given User``.
+	Returns [] when the message is some other kind of failure.
+	"""
+	match = _UNOWNED_IMEI_RE.search(str(error_message or ""))
+	if not match:
+		return []
+	return [part.strip() for part in match.group(1).split(",") if part.strip()]
+
+
+def _fetch_live_data_chunked(imeis, sync_type, chunk_size=_FLEET_CHUNK_SIZE):
+	"""
+	Fetch live data for many IMEIs without letting one bad device sink the rest.
+
+	The API rejects a whole request when any IMEI in it is not owned by the
+	configured account, naming the offenders in the error message. When that
+	happens the batch is retried once with those IMEIs removed. Any other batch
+	failure is recorded and the remaining batches still run.
+
+	Returns ``(records, unowned, errors)``.
+	"""
+	records = []
+	unowned = []
+	errors = []
+
+	for start in range(0, len(imeis), chunk_size):
+		chunk = imeis[start:start + chunk_size]
+		batch_no = start // chunk_size + 1
+
+		# Two attempts: the second one drops IMEIs the API named as unowned.
+		for attempt in (1, 2):
+			if not chunk:
+				break
+			try:
+				raw = get_live_data(imei_nos=",".join(chunk), sync_type=sync_type)
+				records.extend(normalize_live_data_response(raw))
+				break
+			except Exception as exc:
+				rejected = [i for i in _extract_unowned_imeis(exc) if i in chunk]
+				if attempt == 1 and rejected:
+					unowned.extend(rejected)
+					chunk = [i for i in chunk if i not in set(rejected)]
+					continue
+				errors.append(f"batch {batch_no}: {exc}")
+				frappe.log_error(
+					"Seal Bulk Sync",
+					f"Bulk sync batch {batch_no} ({len(chunk)} IMEIs) failed: {exc}",
+				)
+				break
+
+	return records, unowned, errors
+
+
 def sync_all_devices(sync_type="Manual Device Sync"):
 	"""
 	Pull live data for every Seal Device that has an IMEI number and update
 	their fields. Also updates linked Seal Journey API fields where present.
-	Failures on individual devices do not abort the batch.
+	Failures on individual devices, or on a whole batch, do not abort the rest.
 	"""
 	devices = frappe.db.get_all(
 		"Seal Device",
@@ -598,8 +684,9 @@ def sync_all_devices(sync_type="Manual Device Sync"):
 	updated = 0
 
 	try:
-		raw = get_live_data(imei_nos=all_imeis, sync_type=sync_type)
-		records = normalize_live_data_response(raw)
+		records, unowned, batch_errors = _fetch_live_data_chunked(
+			list(imei_device.keys()), sync_type
+		)
 
 		for rec in records:
 			imei = str(rec.get("imei") or "")
@@ -616,8 +703,8 @@ def sync_all_devices(sync_type="Manual Device Sync"):
 						updated += 1
 					except Exception as exc:
 						frappe.log_error(
-							f"Bulk sync: journey {device['current_journey']} update failed: {exc}",
 							"Seal Bulk Sync",
+							f"Bulk sync: journey {device['current_journey']} update failed: {exc}",
 						)
 				if device.get("current_journey_request"):
 					try:
@@ -625,25 +712,41 @@ def sync_all_devices(sync_type="Manual Device Sync"):
 						updated += 1
 					except Exception as exc:
 						frappe.log_error(
-							f"Bulk sync: journey request {device['current_journey_request']} update failed: {exc}",
 							"Seal Bulk Sync",
+							f"Bulk sync: journey request {device['current_journey_request']} update failed: {exc}",
 						)
 				_reconcile_alert_log_safe(device["name"])
 			except Exception as exc:
-				failed += 1
 				frappe.log_error(
-					f"Bulk sync: device {device['name']} (IMEI {imei}) failed: {exc}",
 					"Seal Bulk Sync",
+					f"Bulk sync: device {device['name']} (IMEI {imei}) failed: {exc}",
 				)
 
 		frappe.db.commit()
 
+		failed = len(devices) - synced
+
+		problems = []
+		if unowned:
+			problems.append(
+				f"{len(unowned)} IMEI(s) not owned by the API account: {','.join(unowned)}"
+			)
+		problems.extend(batch_errors)
+
+		if not synced:
+			status = "Failed"
+		elif problems:
+			status = "Partial"
+		else:
+			status = "Success"
+
 		log.update({
-			"sync_status": "Success" if synced > 0 else "Partial",
+			"sync_status": status,
 			"sync_completed_at": now_datetime(),
 			"devices_synced": synced,
 			"journeys_updated": updated,
-			"response_body": json.dumps(raw)[:3000],
+			"error_message": "; ".join(problems)[:500] if problems else None,
+			"response_body": json.dumps(records)[:3000],
 		})
 
 	except Exception as exc:
@@ -653,7 +756,7 @@ def sync_all_devices(sync_type="Manual Device Sync"):
 			"error_message": str(exc),
 			"sync_completed_at": now_datetime(),
 		})
-		frappe.log_error(f"Bulk fleet sync failed: {exc}", "Seal Bulk Sync")
+		frappe.log_error("Seal Bulk Sync", f"Bulk fleet sync failed: {exc}")
 
 	_save_sync_log(log)
 	return {"synced": synced, "failed": failed, "journeys_updated": updated}
@@ -685,17 +788,30 @@ def scheduled_sync_all_devices():
 		if elapsed_minutes < freq:
 			return
 
+	# Stamp the timer before syncing, not after. If sync_all_devices raises, a
+	# timer that is only written on the success path never advances and the job
+	# retries the whole fleet on every scheduler tick instead of every `freq`
+	# minutes.
+	frappe.db.set_value(
+		"Seal API Settings",
+		"Seal API Settings",
+		"last_full_fleet_sync_time",
+		now_datetime(),
+	)
+	frappe.db.commit()
+
 	result = sync_all_devices(sync_type="Scheduled Full Fleet Sync")
 
-	updates = {"last_full_fleet_sync_time": now_datetime()}
+	updates = {}
 	if not result.get("synced"):
 		updates["last_failed_sync_time"] = now_datetime()
 		updates["last_error_message"] = (
 			f"Scheduled full fleet sync: 0 devices synced, {result.get('failed', 0)} failed."
 		)[:500]
 
-	frappe.db.set_value("Seal API Settings", "Seal API Settings", updates)
-	frappe.db.commit()
+	if updates:
+		frappe.db.set_value("Seal API Settings", "Seal API Settings", updates)
+		frappe.db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -833,7 +949,7 @@ def manual_sync_alert_data(from_dt=None, to_dt=None):
 		result = sync_alert_data(from_dt=from_dt, to_dt=to_dt)
 		return {"status": "success", **result}
 	except Exception as exc:
-		frappe.log_error(f"Manual alert data sync failed: {exc}", "Seal Alert Data Sync")
+		frappe.log_error("Seal Alert Data Sync", f"Manual alert data sync failed: {exc}")
 		return {"status": "error", "message": str(exc)}
 
 
