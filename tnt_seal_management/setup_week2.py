@@ -35,7 +35,7 @@ def execute():
                 {"fieldname": "device_id", "label": "Device ID", "fieldtype": "Data", "reqd": 1},
                 {"fieldname": "seal_type", "label": "Seal Type", "fieldtype": "Data"},
                 {"fieldname": "serial_number", "label": "Serial Number", "fieldtype": "Data"},
-                {"fieldname": "current_status", "label": "Current Status", "fieldtype": "Select", "options": "Quality Check\nAvailable\nAssigned\nIn Journey\nArrived\nUntagged\nReturned\nDamaged\nLost\nInactive", "default": "Quality Check", "in_list_view": 1},
+                {"fieldname": "current_status", "label": "Current Status", "fieldtype": "Select", "options": "Quality Check\nAvailable\nAssigned\nIn Journey\nArrived\nUntagged\nDamaged\nLost\nInactive", "default": "Quality Check", "in_list_view": 1},
                 {"fieldname": "condition", "label": "Condition", "fieldtype": "Select", "options": "Good\nDamaged\nLost"},
                 
                 {"fieldname": "assignment_tab", "label": "Assignment", "fieldtype": "Tab Break"},

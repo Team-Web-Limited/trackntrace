@@ -58,7 +58,8 @@
    "fieldname": "vehicles",
    "fieldtype": "Table MultiSelect",
    "label": "Vehicles",
-   "options": "Tagging Booking Vehicle"
+   "options": "Tagging Booking Vehicle",
+   "reqd": 1
   },
   {
    "fieldname": "booking_details_column",

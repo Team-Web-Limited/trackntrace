@@ -266,15 +266,15 @@ function _asg_render_table(page, assignments) {
 	$(page.body).find(".asg-table-wrap").html(`
 		<table class="asg-table">
 			<thead><tr>
+				<th>${__("Status")}</th>
 				<th>${__("Type")}</th>
-				<th>${__("Job Order / Journey")}</th>
+				<th>${__("Tag Operator")}</th>
 				<th>${__("Client")}</th>
 				<th>${__("Location")}</th>
 				<th>${__("Scheduled")}</th>
 				<th>${__("Contact Person")}</th>
 				<th>${__("Phone")}</th>
-				<th>${__("Tag Operator")}</th>
-				<th>${__("Status")}</th>
+				<th>${__("Job Order / Journey")}</th>
 			</tr></thead>
 			<tbody>${assignments.map(_asg_row_html).join("")}</tbody>
 		</table>
@@ -321,15 +321,15 @@ function _asg_row_html(assignment) {
 
 	return `
 		<tr class="asg-row" data-name="${frappe.utils.escape_html(assignment.name)}">
+			<td><span class="asg-badge asg-badge--${statusClass}">${frappe.utils.escape_html(statusLabel)}</span></td>
 			<td>${typeBadge}</td>
-			<td>${frappe.utils.escape_html(source)}</td>
+			<td>${frappe.utils.escape_html(assignment.assigned_field_technician || "—")}</td>
 			<td>${clientHtml}</td>
 			<td>${frappe.utils.escape_html(assignment.location || "—")}</td>
 			<td>${frappe.utils.escape_html(scheduled)}</td>
 			<td>${frappe.utils.escape_html(assignment.contact_person_name || "—")}</td>
 			<td>${frappe.utils.escape_html(assignment.contact_person_phone || "—")}</td>
-			<td>${frappe.utils.escape_html(assignment.assigned_field_technician || "—")}</td>
-			<td><span class="asg-badge asg-badge--${statusClass}">${frappe.utils.escape_html(statusLabel)}</span></td>
+			<td>${frappe.utils.escape_html(source)}</td>
 		</tr>
 	`;
 }

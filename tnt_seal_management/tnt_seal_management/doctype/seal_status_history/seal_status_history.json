@@ -10,11 +10,12 @@
   "seal",
   "journey",
   "entry_type",
-  "warehouse",
+  "start_warehouse",
   "tagging_to",
   "customer",
   "untagging_to",
   "seal_return_to",
+  "return_warehouse",
   "status_date_time",
   "updated_by",
   "remarks"
@@ -43,11 +44,10 @@
   },
   {
    "columns": 2,
-   "fieldname": "warehouse",
+   "fieldname": "start_warehouse",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Warehouse",
-   "description": "Main warehouse the seal starts from and returns to (destination warehouse for a Seal Transfer)."
+   "label": "Start Warehouse"
   },
   {
    "columns": 2,
@@ -73,8 +73,14 @@
   {
    "fieldname": "seal_return_to",
    "fieldtype": "Data",
-   "label": "Seal Return TO",
-   "description": "Field Technician who collected the seal when arrival used a remote unlock (untagging skipped)."
+   "label": "Seal Return TO"
+  },
+  {
+   "columns": 2,
+   "fieldname": "return_warehouse",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Return Warehouse"
   },
   {
    "fieldname": "status_date_time",

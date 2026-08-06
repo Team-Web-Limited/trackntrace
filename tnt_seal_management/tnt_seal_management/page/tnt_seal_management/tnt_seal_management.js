@@ -55,7 +55,7 @@ const TNT_DASHBOARD_CARDS = [
 		title: "PCB Job Orders",
 		icon: "📋",
 		route: "pcb-job-order-list",
-		roles: ["System Manager", "Finance PCB", "Management", "Managing Director"],
+		roles: ["System Manager", "Finance PCB", "Management", "Managing Director", "PCB Team Leader"],
 	},
 	{
 		title: "Assignments",

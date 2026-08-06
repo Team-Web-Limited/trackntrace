@@ -26,6 +26,7 @@ frappe.pages["control-room"].on_page_load = function (wrapper) {
 		alertTotal: 0,
 		alertFilterOptions: { levels: [], types: [] },
 		alertSummary: { open: 0, critical_open: 0, unacknowledged_open: 0 },
+		alertMessageGroups: [],
 		alertPollTimer: null,
 		arrivals: [],
 		arrivalsLoading: false,
@@ -121,6 +122,29 @@ function _control_room_stop_alert_polling(page) {
 const CR_METHOD = (name) =>
 	`tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.${name}`;
 
+// Information pills sitting beside the Approve / Alert tabs: one per kind of
+// open alert ("Device offline 301", "Low battery 188"), worst level first.
+// They are read-outs, not tabs — clicking one jumps to the Alert tab filtered
+// to that kind, since the group label is what the alert search matches on.
+const CR_INFO_PILL_LIMIT = 5;
+
+function _control_room_info_pills_html(state) {
+	const groups = (state.alertMessageGroups || []).slice(0, CR_INFO_PILL_LIMIT);
+	if (!groups.length) return "";
+
+	return groups
+		.map((group) => {
+			const levelClass = (group.level || "info").toLowerCase();
+			const label = frappe.utils.escape_html(group.label || "");
+			return `<button class="cr-info-pill cr-info-pill--${levelClass}" data-cr-group="${label}"
+				title="${__("Show {0} alerts", [label])}">
+					<span class="cr-info-pill-label">${label}</span>
+					<span class="cr-info-pill-count">${group.count || 0}</span>
+				</button>`;
+		})
+		.join("");
+}
+
 function _control_room_render(page) {
 	const state = page.control_room_state;
 	$(page.body).html(`
@@ -135,6 +159,7 @@ function _control_room_render(page) {
 						${__("Alert")}
 						<span class="cr-tab-count ${state.alertSummary.critical_open ? "cr-tab-count--critical" : ""}" data-cr-alert-count>${state.alertSummary.open || 0}</span>
 					</button>
+					<div class="cr-info-pills" data-cr-info-pills>${_control_room_info_pills_html(state)}</div>
 				</div>
 				<div class="cr-toolbar" style="display: ${state.tab === "approve" ? "block" : "none"}">
 					<div class="cr-toolbar-top">
@@ -239,6 +264,23 @@ function _control_room_render(page) {
 			}
 		});
 
+	$(page.body)
+		.off("click", ".cr-info-pill")
+		.on("click", ".cr-info-pill", function () {
+			const group = $(this).attr("data-cr-group");
+			if (!group) return;
+			const state = page.control_room_state;
+			// Toggle: clicking the active pill clears the filter again.
+			state.alertSearch = state.alertSearch === String(group) ? "" : String(group);
+			state.alertStatus = "open";
+			state.alertPage = 1;
+			state.tab = "alert";
+			_control_room_render(page);
+			_control_room_render_body(page);
+			_control_room_load_alerts(page);
+			_control_room_start_alert_polling(page);
+		});
+
 	const delayedAlertSearch = _cr_debounce(() => {
 		page.control_room_state.alertSearch = ($(page.body).find(".cr-alert-search").val() || "").trim();
 		page.control_room_state.alertPage = 1;
@@ -306,16 +348,17 @@ function _control_room_render(page) {
 		.on("click", ".cr-alert-ack-btn", function () {
 			const docname = $(this).data("name");
 			if (!docname) return;
-			frappe.prompt(
+			const alert = (page.control_room_state.alerts || []).find((a) => a.name === docname);
+			const dialog = frappe.prompt(
 				[
 					{
 						fieldname: "status",
 						fieldtype: "Select",
 						label: __("Status"),
-						options: ["Resolved", "Underway"].join("\n"),
+						options: ["Resolved", "Escalated"].join("\n"),
 						default: "Resolved",
 						reqd: 1,
-						description: __("Resolved if handled. Underway if acknowledged but further action is still needed."),
+						description: __("Resolved if handled. Escalated if acknowledged but further action is still needed."),
 					},
 					{
 						fieldname: "remarks",
@@ -342,6 +385,10 @@ function _control_room_render(page) {
 				__("Acknowledge {0}", [docname]),
 				__("Submit")
 			);
+
+			if (alert && alert.level === "Critical") {
+				_control_room_add_alert_send_action(dialog, docname, alert);
+			}
 		});
 
 	$(page.body)
@@ -953,9 +1000,11 @@ function _control_room_load_alerts(page) {
 			state.alertTotal = res.total || 0;
 			state.alertFilterOptions = res.filter_options || { levels: [], types: [] };
 			state.alertSummary = res.summary || { open: 0, critical_open: 0, unacknowledged_open: 0 };
+			state.alertMessageGroups = res.message_groups || [];
 			$(page.body).find("[data-cr-alert-count]")
 				.text(state.alertSummary.open || 0)
 				.toggleClass("cr-tab-count--critical", !!state.alertSummary.critical_open);
+			$(page.body).find("[data-cr-info-pills]").html(_control_room_info_pills_html(state));
 			if (state.tab === "alert") _control_room_render_body(page);
 		},
 		error() {
@@ -964,6 +1013,62 @@ function _control_room_load_alerts(page) {
 			frappe.show_alert({ message: __("Could not load alert queue"), indicator: "red" }, 5);
 		},
 	});
+}
+
+// Critical alerts get a Send button beside Submit in the acknowledge dialog: it
+// emails the alert to whoever is physically holding the seal right now — the
+// customer while it is on their journey, the warehouse once it is back in
+// store, the technician while they carry it (see the seal's custody pointer).
+// Sending is separate from acknowledging, so the dialog stays open afterwards.
+function _control_room_add_alert_send_action(dialog, docname, alert) {
+	const target = alert.notify_target || {};
+	const holder = target.label || __("the current custodian");
+
+	dialog.set_secondary_action_label(__("Send"));
+	dialog.set_secondary_action(() => {
+		if (!target.custodian) {
+			frappe.msgprint({
+				message: __("Seal {0} has no current custodian to notify.", [alert.seal_device || "—"]),
+				title: __("No Custodian"),
+				indicator: "orange",
+			});
+			return;
+		}
+		if (!target.email) {
+			frappe.msgprint({
+				message: __("{0} has no email address on file, so this alert cannot be sent.", [holder]),
+				title: __("No Email Address"),
+				indicator: "orange",
+			});
+			return;
+		}
+
+		frappe.confirm(
+			__("Send this alert to {0} ({1})?", [holder, target.email]),
+			() => {
+				frappe.call({
+					method: "tnt_seal_management.tnt_seal_management.doctype.seal_alert_log.seal_alert_log.notify_alert_custodian",
+					args: { docname, remarks: dialog.get_value("remarks") || null },
+					freeze: true,
+					freeze_message: __("Sending…"),
+					callback(r) {
+						const sent = (r.message || {}).email || target.email;
+						frappe.show_alert({ message: __("Alert sent to {0}", [sent]), indicator: "green" }, 5);
+					},
+				});
+			}
+		);
+	});
+
+	// Say up front who the alert would reach, so the operator isn't sending blind.
+	const note = target.email
+		? __("Send emails this alert to {0} ({1}), who is holding the seal.", [holder, target.email])
+		: target.custodian
+		? __("{0} is holding the seal but has no email address on file.", [holder])
+		: __("This seal has no current custodian to send to.");
+	dialog.$wrapper
+		.find(".modal-body")
+		.append(`<p class="cr-alert-send-note">${frappe.utils.escape_html(note)}</p>`);
 }
 
 function _control_room_alert_pagination(state) {
@@ -997,16 +1102,16 @@ function _control_room_alert_table(alerts) {
 				: `<span class="cr-alert-badge cr-alert-badge--${levelClass}">${frappe.utils.escape_html(a.level || "")}</span>`;
 			const resStatus = a.is_resolved
 				? "Resolved"
-				: a.resolution_status === "Underway"
-				? "Underway"
+				: a.resolution_status === "Escalated"
+				? "Escalated"
 				: "Open";
 			const resClass =
-				resStatus === "Resolved" ? "resolved" : resStatus === "Underway" ? "underway" : "open";
+				resStatus === "Resolved" ? "resolved" : resStatus === "Escalated" ? "escalated" : "open";
 			const statusBtn = `<button class="cr-alert-open-btn cr-res-badge--${resClass}" data-name="${frappe.utils.escape_html(a.name)}" title="${__("View details")}">${frappe.utils.escape_html(resStatus)}</button>`;
 			const actBtn =
 				resStatus !== "Resolved"
 					? `<button class="cr-alert-ack-btn" data-name="${frappe.utils.escape_html(a.name)}">${
-							resStatus === "Underway" ? __("Update") : __("Action")
+							resStatus === "Escalated" ? __("Update") : __("Action")
 					  }</button>`
 					: "";
 			const ackCell = `<div class="cr-res-cell">${statusBtn}${actBtn}</div>`;
@@ -1050,11 +1155,11 @@ function _control_room_open_alert_details(alert) {
 	const target = alert.seal_journey || alert.journey_request || alert.seal_device || "—";
 	const resStatus = alert.is_resolved
 		? "Resolved"
-		: alert.resolution_status === "Underway"
-		? "Underway"
+		: alert.resolution_status === "Escalated"
+		? "Escalated"
 		: "Open";
 	const resClass =
-		resStatus === "Resolved" ? "resolved" : resStatus === "Underway" ? "underway" : "open";
+		resStatus === "Resolved" ? "resolved" : resStatus === "Escalated" ? "escalated" : "open";
 
 	const row = (label, value) => `
 		<tr>
@@ -1287,11 +1392,50 @@ function _control_room_inject_styles() {
 		}
 		.cr-tabs {
 			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
 			gap: 10px;
 			padding: 16px 18px;
 			border-bottom: 1px solid #dbeafe;
 			background: #f8fbff;
 		}
+		.cr-info-pills {
+			display: flex;
+			flex-wrap: wrap;
+			align-items: center;
+			gap: 8px;
+			margin-left: auto;
+		}
+		.cr-info-pill {
+			display: inline-flex;
+			align-items: center;
+			gap: 7px;
+			border: 1px solid #e2e8f0;
+			border-radius: 999px;
+			background: #fff;
+			color: #475569;
+			padding: 7px 14px;
+			font-size: 12px;
+			font-weight: 700;
+			cursor: pointer;
+		}
+		.cr-info-pill:hover { border-color: #94a3b8; }
+		.cr-info-pill-count {
+			min-width: 20px;
+			padding: 1px 7px;
+			border-radius: 999px;
+			background: #f1f5f9;
+			color: #334155;
+			font-size: 11px;
+			font-weight: 800;
+			text-align: center;
+		}
+		.cr-info-pill--critical { border-color: #fecaca; color: #b91c1c; }
+		.cr-info-pill--critical .cr-info-pill-count { background: #fee2e2; color: #b91c1c; }
+		.cr-info-pill--warning { border-color: #fde68a; color: #92400e; }
+		.cr-info-pill--warning .cr-info-pill-count { background: #fef3c7; color: #92400e; }
+		.cr-info-pill--info { border-color: #bfdbfe; color: #075985; }
+		.cr-info-pill--info .cr-info-pill-count { background: #e0f2fe; color: #0369a1; }
 		.cr-tab {
 			display: inline-flex;
 			align-items: center;
@@ -1319,6 +1463,14 @@ function _control_room_inject_styles() {
 		.cr-tab-count--critical { background: #fee2e2; color: #b91c1c; }
 		.cr-tab.active .cr-tab-count--critical { background: #fff; color: #b91c1c; }
 		.cr-tab-body { padding: 22px; }
+		.cr-alert-send-note {
+			margin: 4px 0 0;
+			padding: 9px 12px;
+			border-radius: 8px;
+			background: #f1f5f9;
+			color: #475569;
+			font-size: 12px;
+		}
 		.cr-alert-badge {
 			display: inline-block;
 			padding: 2px 9px;
@@ -1354,7 +1506,7 @@ function _control_room_inject_styles() {
 			white-space: nowrap;
 		}
 		.cr-res-badge--open { background: #f1f5f9; color: #475569; }
-		.cr-res-badge--underway { background: #fef3c7; color: #92400e; }
+		.cr-res-badge--escalated { background: #fef3c7; color: #92400e; }
 		.cr-res-badge--resolved { background: #dcfce7; color: #15803d; }
 		/* status button: reads the resolution status, opens the details modal */
 		.cr-alert-open-btn {
@@ -1902,6 +2054,16 @@ function _control_room_inject_styles() {
 		[data-theme="dark"] .cr-tabs { background: #0f172a; border-color: #334155; }
 		[data-theme="dark"] .cr-tab { background: #1e293b; border-color: #334155; color: #cbd5e1; }
 		[data-theme="dark"] .cr-tab.active { background: #0284c7; color: #fff; border-color: #0284c7; }
+		[data-theme="dark"] .cr-alert-send-note { background: #0f172a; color: #cbd5e1; }
+		[data-theme="dark"] .cr-info-pill { background: #1e293b; border-color: #334155; color: #cbd5e1; }
+		[data-theme="dark"] .cr-info-pill:hover { border-color: #64748b; }
+		[data-theme="dark"] .cr-info-pill-count { background: #0f172a; color: #e2e8f0; }
+		[data-theme="dark"] .cr-info-pill--critical { border-color: #7f1d1d; color: #fca5a5; }
+		[data-theme="dark"] .cr-info-pill--critical .cr-info-pill-count { background: #450a0a; color: #fca5a5; }
+		[data-theme="dark"] .cr-info-pill--warning { border-color: #78350f; color: #fcd34d; }
+		[data-theme="dark"] .cr-info-pill--warning .cr-info-pill-count { background: #451a03; color: #fcd34d; }
+		[data-theme="dark"] .cr-info-pill--info { border-color: #075985; color: #7dd3fc; }
+		[data-theme="dark"] .cr-info-pill--info .cr-info-pill-count { background: #082f49; color: #7dd3fc; }
 		[data-theme="dark"] .cr-req-head { background: #0b3a52; border-color: #334155; }
 		[data-theme="dark"] .cr-arrival { background: #1e293b; border-color: #075985; }
 		[data-theme="dark"] .cr-arrival-head { background: #082f49; border-color: #075985; }

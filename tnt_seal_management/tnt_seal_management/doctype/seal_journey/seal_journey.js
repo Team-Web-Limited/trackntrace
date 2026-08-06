@@ -323,12 +323,12 @@ function _build_warehouse_timeline_payload(frm, sealDoc) {
 	const status = frm.doc.journey_status || "Draft";
 	const current = STATUS_TO_MILESTONE[status] != null ? STATUS_TO_MILESTONE[status] : 0;
 	// Custody for this journey now lives in a single "Journey Summary" row on the
-	// seal, whose columns fill in as the seal changes hands (warehouse ->
-	// tagging_to -> customer -> untagging_to / seal_return_to -> warehouse).
+	// seal, whose columns fill in as the seal changes hands (start_warehouse ->
+	// tagging_to -> customer -> untagging_to / seal_return_to -> return_warehouse).
 	const summary = _journey_summary_row(frm, sealDoc);
 
-	const firstWarehouse = (summary && summary.warehouse) || _current_warehouse_label(sealDoc);
-	const returnWarehouse = (summary && summary.warehouse) || _current_warehouse_label(sealDoc);
+	const firstWarehouse = (summary && summary.start_warehouse) || _current_warehouse_label(sealDoc);
+	const returnWarehouse = (summary && summary.return_warehouse) || _current_warehouse_label(sealDoc);
 	const assignedAt = frm.doc.technician_assignment_date_time;
 	const returnedAt = frm.doc.completion_date_time;
 
@@ -455,11 +455,12 @@ function _warehouse_timeline_html(frm, payload) {
 // Custody stages of the single Journey Summary row, in the order the seal
 // moves through them. Mirrors JOURNEY_CUSTODY_COLUMNS in seal_device.py.
 const WAREHOUSE_CUSTODY_STAGES = [
-	{ field: "warehouse", label: __("Warehouse") },
+	{ field: "start_warehouse", label: __("Start Warehouse") },
 	{ field: "tagging_to", label: __("Tagging TO") },
 	{ field: "customer", label: __("Customer") },
 	{ field: "untagging_to", label: __("Untagging TO") },
 	{ field: "seal_return_to", label: __("Seal Return TO") },
+	{ field: "return_warehouse", label: __("Return Warehouse") },
 ];
 
 function _journey_summary_row(frm, sealDoc) {

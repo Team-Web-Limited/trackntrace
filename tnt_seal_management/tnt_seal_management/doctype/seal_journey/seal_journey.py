@@ -916,10 +916,9 @@ def resolve_seal_journey_mirror_values(seal_journey):
 		)
 		if jr:
 			put("journey_request", jr_name)
-			vehicle_plate = (
-				frappe.db.get_value("Vehicle", jr.vehicle, "registration_number") if jr.vehicle else None
-			) or jr.vehicle
-			put("vehicle_plate_number", vehicle_plate)
+			# Plain text carried over from the Tagging Booking — see
+			# start_seal_journey in journey_request.py.
+			put("vehicle_plate_number", jr.vehicle)
 			put("container_number", jr.container_number)
 			put("file_number", jr.file_number)
 			put("departure_card_number", jr.departure_card_number)

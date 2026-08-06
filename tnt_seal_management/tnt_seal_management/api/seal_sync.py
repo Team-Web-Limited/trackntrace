@@ -1096,6 +1096,50 @@ def get_device_dashboard_data():
 
 
 @frappe.whitelist()
+def export_pdf(html, filename):
+	"""Render the Seal Device Dashboard's currently filtered table (built
+	client-side, same approach as Completed Journeys' export) to a PDF."""
+	from frappe.utils.pdf import get_pdf
+
+	_require_dashboard_permission()
+
+	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
+
+	options = {
+		"page-size": "A4",
+		"orientation": "Landscape",
+		"margin-top": "15mm",
+		"margin-right": "15mm",
+		"margin-bottom": "15mm",
+		"margin-left": "15mm",
+	}
+
+	frappe.local.response.filename = f"{filename}.pdf"
+	frappe.local.response.filecontent = get_pdf(html, options=options)
+	frappe.local.response.type = "pdf"
+
+
+def _get_tnt_logo_img_tag():
+	"""Track and Trace logo, inlined as a base64 data URI so the (unpatched,
+	pre-Qt-WebKit) wkhtmltopdf on this box renders it without an HTTP round
+	trip back to the site. The AVIF the customer portal uses isn't supported
+	by that old renderer, so this reads the PNG copy of the same logo instead
+	(tnt_seal_management/public/images/trackntrace.png, converted once from
+	the .avif)."""
+	import base64
+	import os
+
+	path = frappe.get_app_path("tnt_seal_management", "public", "images", "trackntrace.png")
+	if not os.path.exists(path):
+		return ""
+
+	with open(path, "rb") as f:
+		encoded = base64.b64encode(f.read()).decode("ascii")
+
+	return f'<img src="data:image/png;base64,{encoded}" class="tnt-pdf-logo" alt="Track and Trace">'
+
+
+@frappe.whitelist()
 def trigger_sync_all():
 	"""Manually trigger the scheduled batch sync (active journeys only) from the dashboard."""
 	_require_sync_permission()
@@ -1199,7 +1243,7 @@ def _apply_to_device(device_name, rec):
 # technician/customer on a live journey. Only in these states do we let a GPS
 # geofence match auto-assign the seal to a physical warehouse (custody stages
 # 1 and 7). Mid-journey, the custodian is driven by workflow events instead.
-_RESTING_STATUSES = {"Available", "Returned", "Quality Check", "Untagged"}
+_RESTING_STATUSES = {"Available", "Quality Check", "Untagged"}
 
 
 def _auto_detect_warehouse_custody(device_name, rec):

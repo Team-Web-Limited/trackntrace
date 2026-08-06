@@ -34,6 +34,7 @@ JOURNEY_REQUEST_STATUSES = (
 # Field groups used by the per-status / per-role lock matrix.
 CONTENT_FIELDS = (
 	"job_order",
+	"journey_type",
 	"vehicle",
 	"entry_number",
 	"container_number",
@@ -56,7 +57,7 @@ TAGGING_FIELDS = (
 # Untagging reuses the same Seal Trip Photo child shape as EVIDENCE_FIELDS — the
 # Untagging Documents & Photos section on the Journey Request only appears once
 # the journey reaches the untagging phase (see jr_untagging_section's depends_on).
-UNTAGGING_FIELDS = ("untagging_entry_document", "untagging_photos")
+UNTAGGING_FIELDS = ("untagging_entry_document",)
 # Technician confirmation stamps the authoritative untagging completion fields
 # and opens the seal-return window without a Control Room approval gate.
 UNTAGGING_CONFIRMATION_FIELDS = ("untagging_confirmed_by_technician",)
@@ -76,13 +77,13 @@ PHOTO_TABLE_TYPES = {
 	"entry_document": "Pre-Tagging",
 	"tagging_photos": "Tagging",
 	"untagging_entry_document": "Untagging",
-	"untagging_photos": "Untagging",
 	"seal_return_entry_document": "Seal Return",
 	"seal_return_photos": "Seal Return",
 }
 
 _FIELD_LABELS = {
 	"job_order": "Job Order",
+	"journey_type": "Journey Type",
 	"vehicle": "Vehicle",
 	"entry_number": "Entry Number",
 	"container_number": "Container Number",
@@ -100,7 +101,6 @@ _FIELD_LABELS = {
 	"tagging_completed": "Tagging Completed",
 	"tagging_remarks": "Tagging Remarks",
 	"untagging_entry_document": "Entry Pictures (Untagging)",
-	"untagging_photos": "Untagging Pictures",
 	"untagging_confirmed_by_technician": "Confirmed by Technician",
 	"seal_return_entry_document": "Entry Pictures (Seal Return)",
 	"seal_return_photos": "Seal Return Pictures",
@@ -492,7 +492,7 @@ def submit_to_control_room(docname):
 	sync_seal_journey_mirror(doc.journey_reference)
 
 	# First recorded custody hop of the journey: seals leave the warehouse and are
-	# handed to the Field Technician who submitted them. The warehouse column is
+	# handed to the Field Technician who submitted them. The start warehouse is
 	# the seal's last known warehouse (where it was returned to on its previous
 	# journey) — blank if this is the seal's first cycle, since there's nothing to
 	# reference yet; it starts getting logged from the next cycle onward.
@@ -500,7 +500,9 @@ def submit_to_control_room(docname):
 		for row in doc.seals:
 			origin_warehouse = last_known_warehouse(row.seal_device, exclude_journey=doc.journey_reference)
 			if origin_warehouse:
-				record_journey_custody(row.seal_device, doc.journey_reference, "warehouse", origin_warehouse)
+				record_journey_custody(
+					row.seal_device, doc.journey_reference, "start_warehouse", origin_warehouse
+				)
 			set_seal_custody(
 				row.seal_device,
 				"User",
@@ -792,11 +794,6 @@ def confirm_untagging(docname, manual_location=None, remarks=None):
 			_("Attach at least one untagging entry picture before confirming."),
 			title=_("Evidence Required"),
 		)
-	if not doc.untagging_photos:
-		frappe.throw(
-			_("Attach at least one untagging evidence photo before confirming."),
-			title=_("Evidence Required"),
-		)
 
 	location = _pull_untagging_location(doc)
 	manual_location = cstr(manual_location).strip()
@@ -938,12 +935,17 @@ def confirm_seal_return(docname, manual_location=None, remarks=None):
 	# (there is no configured main warehouse). Logged with the GPS location that was
 	# captured at return, in brackets, for auditability — e.g.
 	# "Nanak warehouse - TD (-1.30, 36.81)". If no warehouse was selected, the
-	# warehouse column stays blank for now and gets logged on the next cycle.
+	# return warehouse column stays blank for now and gets logged on the next cycle.
 	return_warehouse = doc.return_warehouse
 	warehouse_label = None
 	if return_warehouse:
 		wh_name = frappe.db.get_value("Warehouse", return_warehouse, "warehouse_name") or return_warehouse
 		warehouse_label = f"{wh_name} ({doc.seal_return_location})" if doc.seal_return_location else wh_name
+	# A returned seal goes straight back into the pool — there is no separate
+	# "Returned" resting status. Only a bad condition on return keeps it out.
+	returned_status = (
+		doc.seal_return_condition if doc.seal_return_condition in ("Damaged", "Lost") else "Available"
+	)
 	for row in doc.seals:
 		if not row.seal_device:
 			continue
@@ -951,7 +953,8 @@ def confirm_seal_return(docname, manual_location=None, remarks=None):
 			"Seal Device",
 			row.seal_device,
 			{
-				"current_status": "Returned",
+				"current_status": returned_status,
+				"condition": doc.seal_return_condition,
 				"current_journey": None,
 				"current_journey_request": None,
 				"current_technician": None,
@@ -962,7 +965,7 @@ def confirm_seal_return(docname, manual_location=None, remarks=None):
 		if return_warehouse:
 			# Final hop: seal is back in a warehouse. Update the live pointer to that
 			# warehouse, then close the journey's single custody row by writing the
-			# warehouse column as "selected warehouse (gps location)".
+			# return warehouse column as "selected warehouse (gps location)".
 			set_seal_custody(
 				row.seal_device,
 				"Warehouse",
@@ -973,9 +976,11 @@ def confirm_seal_return(docname, manual_location=None, remarks=None):
 			record_journey_custody(
 				row.seal_device,
 				doc.journey_reference,
-				"warehouse",
+				"return_warehouse",
 				warehouse_label,
-				remarks=f"Returned to {return_warehouse}",
+				# Whatever the technician typed when confirming the return, if
+				# anything — the warehouse itself is already in the column.
+				remarks=cstr(remarks).strip() or None,
 			)
 
 	_copy_seal_return_evidence_to_journey(doc)
@@ -1050,9 +1055,10 @@ def _finalize_seal_journey_from_request(jr):
 	Reuses the Seal Journey created when the Tagging Booking was first saved
 	(linked via ``jr.journey_reference``). Falls back to creating one for legacy
 	requests that have no linked journey."""
-	vehicle_plate = (
-		frappe.db.get_value("Vehicle", jr.vehicle, "registration_number") if jr.vehicle else None
-	) or jr.vehicle
+	# vehicle is plain text carried over from the Tagging Booking — the Field
+	# Technician has no access to the Vehicle doctype, so there is no record to
+	# resolve a registration number from.
+	vehicle_plate = jr.vehicle
 
 	if jr.journey_reference and frappe.db.exists("Seal Journey", jr.journey_reference):
 		journey = frappe.get_doc("Seal Journey", jr.journey_reference)

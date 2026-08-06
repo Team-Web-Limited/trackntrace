@@ -4,7 +4,7 @@
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2026-07-24 12:54:54.624031",
+ "modified": "2026-08-05 16:37:24.410764",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "seal-journey-list",
@@ -22,6 +22,9 @@
   },
   {
    "role": "Finance PCB"
+  },
+  {
+   "role": "Operations Control Room"
   }
  ],
  "script": null,

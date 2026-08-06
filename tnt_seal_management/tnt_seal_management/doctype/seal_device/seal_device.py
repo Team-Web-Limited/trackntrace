@@ -34,7 +34,14 @@ _CUSTODY_TYPE_PREFIX = {
 # order a seal moves through them. Callers pass one of these as ``column`` so the
 # handoff is recorded inline against the journey's one row instead of a row per
 # hop. See set_seal_custody / record_journey_custody.
-JOURNEY_CUSTODY_COLUMNS = ("warehouse", "tagging_to", "customer", "untagging_to", "seal_return_to")
+JOURNEY_CUSTODY_COLUMNS = (
+	"start_warehouse",
+	"tagging_to",
+	"customer",
+	"untagging_to",
+	"seal_return_to",
+	"return_warehouse",
+)
 
 _ENTRY_TYPE_JOURNEY_SUMMARY = "Journey Summary"
 
@@ -69,22 +76,30 @@ def main_warehouse_name():
 
 def last_known_warehouse(seal_device, exclude_journey=None):
 	"""
-	The most recent "warehouse" value recorded for this seal across its past
-	journeys — i.e. where it was last returned to. Used as the origin warehouse
+	The most recent return warehouse recorded for this seal across its past
+	journeys — i.e. where it was last returned to. Used as the start warehouse
 	for a new journey's custody row. Returns None if the seal has no prior
-	journey with a recorded warehouse (e.g. its first cycle) — the caller should
-	leave the column blank in that case; it will start getting logged from the
-	next cycle onward.
+	journey with a recorded return warehouse (e.g. its first cycle) — the caller
+	should leave the column blank in that case; it will start getting logged from
+	the next cycle onward.
 	"""
 	if not seal_device:
 		return None
-	filters = {"seal": seal_device, "entry_type": _ENTRY_TYPE_JOURNEY_SUMMARY, "warehouse": ["!=", ""]}
+	filters = {
+		"seal": seal_device,
+		"entry_type": _ENTRY_TYPE_JOURNEY_SUMMARY,
+		"return_warehouse": ["!=", ""],
+	}
 	if exclude_journey:
 		filters["journey"] = ["!=", exclude_journey]
 	rows = frappe.get_all(
-		"Seal Status History", filters=filters, fields=["warehouse"], order_by="modified desc", limit=1
+		"Seal Status History",
+		filters=filters,
+		fields=["return_warehouse"],
+		order_by="modified desc",
+		limit=1,
 	)
-	return rows[0].warehouse if rows else None
+	return rows[0].return_warehouse if rows else None
 
 
 def record_journey_custody(seal_device, journey, column, values=None, remarks=None):
@@ -93,8 +108,8 @@ def record_journey_custody(seal_device, journey, column, values=None, remarks=No
 	status history and set one or more custody columns on it inline.
 
 	Instead of a row per handoff, one row per journey accumulates the whole
-	custody path across its columns (warehouse -> tagging_to -> customer ->
-	untagging_to / seal_return_to -> warehouse) as the seal changes hands.
+	custody path across its columns (start_warehouse -> tagging_to -> customer ->
+	untagging_to / seal_return_to -> return_warehouse) as the seal changes hands.
 
 	``column``/``values``: pass a single ``column`` name with the value supplied
 	positionally via ``values`` (a string), or pass ``column=None`` and a dict of
@@ -129,8 +144,10 @@ def record_journey_custody(seal_device, journey, column, values=None, remarks=No
 		row.set(key, value)
 	row.status_date_time = now_datetime()
 	row.updated_by = frappe.session.user
-	if remarks:
-		row.remarks = remarks
+	# Remarks describe the hop just recorded, like status_date_time and
+	# updated_by — a hop without one clears the previous hop's text rather than
+	# leaving stale remarks attached to a newer handoff.
+	row.remarks = remarks or None
 	doc.save(ignore_permissions=True)
 
 

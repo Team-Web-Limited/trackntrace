@@ -12,6 +12,7 @@
   "job_order",
   "jr_row_1_column",
   "client_name",
+  "journey_type",
   "jr_row_2_section",
   "vehicle",
   "jr_row_2_column",
@@ -60,8 +61,6 @@
   "approval_log",
   "jr_untagging_section",
   "untagging_entry_document",
-  "jr_untagging_column",
-  "untagging_photos",
   "untagging_confirmed_by_technician",
   "jr_untagging_row2_section",
   "actual_untagging_date_time",
@@ -124,15 +123,24 @@
    "read_only": 1
   },
   {
+   "default": "Local",
+   "fieldname": "journey_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Journey Type",
+   "options": "Local\nImport\nExport",
+   "reqd": 1
+  },
+  {
    "fieldname": "jr_row_2_section",
    "fieldtype": "Section Break",
    "label": "Vehicle Details"
   },
   {
    "fieldname": "vehicle",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "label": "Vehicle",
-   "options": "Vehicle",
+   "read_only": 1,
    "reqd": 1
   },
   {
@@ -246,8 +254,7 @@
   {
    "fieldname": "jr_checkpoints_section",
    "fieldtype": "Section Break",
-   "label": "Checkpoints",
-   "description": "Optional intermediate stops between origin and destination, in order of travel."
+   "label": "Checkpoints"
   },
   {
    "fieldname": "checkpoints",
@@ -399,16 +406,6 @@
    "fieldname": "untagging_entry_document",
    "fieldtype": "Table",
    "label": "Entry Pictures",
-   "options": "Seal Trip Photo"
-  },
-  {
-   "fieldname": "jr_untagging_column",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "untagging_photos",
-   "fieldtype": "Table",
-   "label": "Untagging Pictures",
    "options": "Seal Trip Photo"
   },
   {

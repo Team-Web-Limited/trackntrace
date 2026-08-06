@@ -11,7 +11,6 @@ frappe.ui.form.on("Journey Request", {
 		_journey_request_configure_photo_tables(frm);
 		_journey_request_lock_remarks_log(frm);
 		_journey_request_apply_role_visibility(frm);
-		_journey_request_enable_vehicle_creation(frm);
 		_journey_request_add_list_button(frm);
 		_journey_request_add_seals_grid_button(frm);
 
@@ -78,10 +77,6 @@ frappe.ui.form.on("Seal Trip Photo", {
 		_journey_request_set_photo_type(cdt, cdn, "Untagging");
 	},
 
-	untagging_photos_add(frm, cdt, cdn) {
-		_journey_request_set_photo_type(cdt, cdn, "Untagging");
-	},
-
 	seal_return_entry_document_add(frm, cdt, cdn) {
 		_journey_request_set_photo_type(cdt, cdn, "Seal Return");
 	},
@@ -108,7 +103,6 @@ const JR_PHOTO_TABLE_TYPES = {
 	entry_document: "Pre-Tagging",
 	tagging_photos: "Tagging",
 	untagging_entry_document: "Untagging",
-	untagging_photos: "Untagging",
 	seal_return_entry_document: "Seal Return",
 	seal_return_photos: "Seal Return",
 };
@@ -200,10 +194,10 @@ function _jr_prompt_confirm_untagging(frm) {
 		});
 		return;
 	}
-	if (!(frm.doc.untagging_entry_document || []).length || !(frm.doc.untagging_photos || []).length) {
+	if (!(frm.doc.untagging_entry_document || []).length) {
 		frappe.msgprint({
 			message: __(
-				"Attach at least one Entry Picture and one Untagging Picture under Untagging Documents & Photos before confirming."
+				"Attach at least one Entry Picture under Untagging Documents & Photos before confirming."
 			),
 			title: __("Evidence Required"),
 			indicator: "orange",
@@ -411,22 +405,6 @@ function _jr_swap_seal(frm) {
 	);
 }
 
-function _journey_request_enable_vehicle_creation(frm) {
-	const isAdmin = frappe.user.has_role("System Manager");
-	const isTech = frappe.user.has_role("Field Technician") || isAdmin;
-	const canCreateVehicle = isTech && (frm.is_new() || frm.doc.journey_request_status === "Draft");
-
-	frm.set_df_property("vehicle", "only_select", canCreateVehicle ? 0 : 1);
-	frm.set_df_property("vehicle", "no_create", canCreateVehicle ? 0 : 1);
-	frm.set_df_property("vehicle", "no_quick_entry", canCreateVehicle ? 0 : 1);
-
-	if (!canCreateVehicle) return;
-
-	frm.add_custom_button(__("Add Vehicle"), () => {
-		frappe.new_doc("Vehicle");
-	}, __("Create"));
-}
-
 function _journey_request_add_list_button(frm) {
 	frm.add_custom_button(__("Back"), () => {
 		frappe.set_route("journey-request-list");
@@ -488,7 +466,6 @@ const JR_TAGGING_FIELDS = [
 // "read_only": 1 in journey_request.json) rather than being technician-edited.
 const JR_UNTAGGING_FIELDS = [
 	"untagging_entry_document",
-	"untagging_photos",
 	"untagging_confirmed_by_technician",
 ];
 const JR_SEAL_RETURN_FIELDS = [

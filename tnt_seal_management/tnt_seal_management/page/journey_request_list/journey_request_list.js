@@ -224,13 +224,13 @@ function _jrl_render_table(page, requests) {
 	$(page.body).find(".jrl-table-wrap").html(`
 		<table class="jrl-table">
 			<thead><tr>
+				<th>${__("Status")}</th>
 				<th>${__("Client Name")}</th>
 				<th>${__("Vehicle")}</th>
 				<th>${__("Entry Number")}</th>
 				<th>${__("Seal Serial Number(s)")}</th>
 				<th>${__("Origin")}</th>
 				<th>${__("Destination")}</th>
-				<th>${__("Status")}</th>
 			</tr></thead>
 			<tbody>${requests.map(_jrl_row_html).join("")}</tbody>
 		</table>
@@ -249,13 +249,13 @@ function _jrl_row_html(request) {
 
 	return `
 		<tr class="jrl-row" data-name="${frappe.utils.escape_html(request.name)}">
+			<td><span class="jrl-badge jrl-badge--${_jrl_status_class(request.journey_request_status)}">${frappe.utils.escape_html(request.journey_request_status || "—")}</span></td>
 			<td>${clientHtml}</td>
 			<td>${frappe.utils.escape_html(request.vehicle || "—")}</td>
 			<td>${frappe.utils.escape_html(request.entry_number || "—")}</td>
 			<td>${frappe.utils.escape_html(request.seal_serial_numbers || "—")}</td>
 			<td>${frappe.utils.escape_html(request.origin || "—")}</td>
 			<td>${frappe.utils.escape_html(request.destination || "—")}</td>
-			<td><span class="jrl-badge jrl-badge--${_jrl_status_class(request.journey_request_status)}">${frappe.utils.escape_html(request.journey_request_status || "—")}</span></td>
 		</tr>
 	`;
 }

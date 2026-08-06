@@ -163,9 +163,9 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Resolution Status",
-   "options": "Open\nUnderway\nResolved",
+   "options": "Open\nEscalated\nResolved",
    "read_only": 1,
-   "description": "Open: not yet handled. Underway: acknowledged, further action needed. Resolved: handled."
+   "description": "Open: not yet handled. Escalated: acknowledged, further action needed. Resolved: handled."
   },
   {
    "default": "0",

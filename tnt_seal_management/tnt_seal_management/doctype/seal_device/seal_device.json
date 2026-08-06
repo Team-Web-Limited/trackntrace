@@ -97,7 +97,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Current Status",
-   "options": "Quality Check\nAvailable\nAssigned\nIn Journey\nArrived\nUntagged\nReturned\nDamaged\nLost\nInactive"
+   "options": "Quality Check\nAvailable\nAssigned\nIn Journey\nArrived\nUntagged\nDamaged\nLost\nInactive"
   },
   {
    "fieldname": "condition",

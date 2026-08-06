@@ -15,6 +15,7 @@ frappe.pages["seal-device-dashboard"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Download Report"), () => _export_seal_devices_pdf(page));
 	page.add_inner_button(__("Refresh"), () => _load_seal_devices(page));
 
 	const $statsBar = $('<div class="sd-header-stats"></div>');
@@ -450,6 +451,101 @@ function _render_seal_device_pagination(page, totalRecords, rangeStart, rangeEnd
 			<button class="sd-page-btn" data-page="${currentPage + 1}" ${currentPage === totalPages ? "disabled" : ""}>${__("Next")}</button>
 		</div>
 	`);
+}
+
+// ---------------------------------------------------------------------------
+// PDF export — mirrors Completed Journeys' _export_pdf (build HTML client-side,
+// POST it to a whitelisted method that renders it with get_pdf).
+// ---------------------------------------------------------------------------
+
+function _export_seal_devices_pdf(page) {
+	const devices = _get_filtered_seal_devices(page);
+	if (!devices.length) {
+		frappe.show_alert({ message: __("No seal devices match the current filters."), indicator: "orange" }, 5);
+		return;
+	}
+
+	const filterLabel = $(page.body).find(".sd-filter-btn-label").text() || __("All");
+	const branch = page.sd_state.branch || __("All Branches");
+	const generatedOn = frappe.datetime.str_to_user(frappe.datetime.now_datetime());
+
+	const rows = devices.map(_seal_device_pdf_row_html).join("");
+	const html = `
+		<html>
+			<head>
+				<title>${__("Seal Device Report")}</title>
+				<style>${_seal_device_print_styles()}</style>
+			</head>
+			<body>
+				<div class="sd-print-header">
+					<div>
+						<h2>${__("Seal Device Report")}</h2>
+						<p class="sd-print-meta">
+							${__("Filter")}: ${frappe.utils.escape_html(filterLabel)}
+							&nbsp;•&nbsp; ${__("Branch")}: ${frappe.utils.escape_html(branch)}
+							&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+							&nbsp;•&nbsp; ${__("{0} seal(s)", [devices.length])}
+						</p>
+					</div>
+					{{TNT_LOGO}}
+				</div>
+				<table class="sd-print-table">
+					<thead>
+						<tr>
+							<th>${__("Seal")}</th>
+							<th>${__("Status")}</th>
+							<th>${__("Warehouse")}</th>
+							<th>${__("Journey")}</th>
+							<th>${__("Vehicle")}</th>
+							<th>${__("Location")}</th>
+							<th>${__("Battery")}</th>
+							<th>${__("Last Sync")}</th>
+						</tr>
+					</thead>
+					<tbody>${rows}</tbody>
+				</table>
+			</body>
+		</html>
+	`;
+
+	open_url_post("/api/method/tnt_seal_management.tnt_seal_management.api.seal_sync.export_pdf", {
+		html: html,
+		filename: `Seal Device Report - ${frappe.datetime.get_today()}`,
+	});
+}
+
+function _seal_device_pdf_row_html(d) {
+	const esc = frappe.utils.escape_html;
+	const dash = "—";
+	const lastSync = d.last_successful_sync_time
+		? frappe.datetime.str_to_user(d.last_successful_sync_time)
+		: __("Never");
+
+	return `
+		<tr>
+			<td>${esc(d.name)}</td>
+			<td>${esc(d.current_status || __("Unknown"))}</td>
+			<td>${d.api_branch ? esc(d.api_branch) : dash}</td>
+			<td>${d.current_journey ? esc(d.current_journey) : dash}</td>
+			<td>${esc(d.journey_vehicle || d.current_vehicle || dash)}</td>
+			<td>${esc((d.current_location || d.last_known_api_location || dash))}</td>
+			<td>${d.battery_level ? esc(String(d.battery_level)) + "%" : dash}</td>
+			<td>${esc(lastSync)}</td>
+		</tr>
+	`;
+}
+
+function _seal_device_print_styles() {
+	return `
+		body { font-family: sans-serif; padding: 24px; color: #1e293b; }
+		h2 { margin-bottom: 2px; }
+		.sd-print-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 12px; }
+		.sd-print-meta { color: #64748b; margin-top: 0; margin-bottom: 0; font-size: 12px; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.sd-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+		.sd-print-table th, .sd-print-table td { border-bottom: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; }
+		.sd-print-table th { background: #f8fafc; }
+	`;
 }
 
 function _get_filtered_seal_devices(page) {

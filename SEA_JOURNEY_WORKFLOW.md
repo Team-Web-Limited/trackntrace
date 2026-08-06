@@ -71,7 +71,8 @@ central record that every other doctype mirrors its status onto.
 - Field Technician runs `confirm_seal_return` on the Journey Request (seal condition,
   retrieval card number, return warehouse, evidence photos) →
   Journey Request `Seal Returned`; Seal Journey → `Completed`;
-  Seal Device → `Returned`, custody → **Warehouse**.
+  Seal Device → back to `Available` automatically (or `Damaged` / `Lost` if that
+  was the return condition), custody → **Warehouse**.
 
 ### 11. Billing
 - Billing is recomputed on every Seal Journey save via **Seal Billing Rate**
@@ -129,8 +130,9 @@ Pending → Assigned
 
 **Seal Device (`current_status`)**:
 ```
-Quality Check → Available → Assigned → In Journey → Arrived → Untagged → Returned
-(or Damaged / Lost / Inactive at any point)
+Quality Check → Available → Assigned → In Journey → Arrived → Untagged → Available
+(on seal return the device goes straight back to Available — there is no
+"Returned" status; Damaged / Lost / Inactive can apply at any point)
 ```
 
 ## Cancellation / Rework Paths

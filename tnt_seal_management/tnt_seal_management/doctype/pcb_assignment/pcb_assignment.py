@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cint, getdate, now_datetime
+from frappe.utils import cint, cstr, getdate, now_datetime
 
 from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey import (
 	set_journey_status,
@@ -164,6 +164,14 @@ class PCBAssignment(Document):
 		):
 			_notify_field_technician_assigned(self)
 
+		# Push newly written Team Leader remarks through to the Journey Request the
+		# Tag Operator works from. Runs after the _ensure_*_journey_request calls
+		# above so an untagging/seal-return handoff in this same save lands first.
+		remarks = cstr(self.remarks).strip()
+		previous_remarks = cstr(previous.remarks).strip() if previous else ""
+		if remarks and remarks != previous_remarks:
+			_sync_remarks_to_journey_request(self, remarks)
+
 	def _validate_field_technician_role(self):
 		if not self.assigned_field_technician:
 			return
@@ -264,6 +272,38 @@ def _seal_journey_for_job_order(job_order_name):
 	return frappe.db.get_value("Tagging Booking", booking, "seal_journey_reference")
 
 
+def booked_vehicles_for_journey(seal_journey):
+	"""The vehicle(s) the client named in the Selected Vehicles section of the
+	Tagging Booking, as the plain text the Journey Request's read-only Vehicle
+	field carries. The Field Technician has no access to the Vehicle doctype, so
+	this prefill is the only way that field is ever populated — which is also why a
+	multi-vehicle booking is joined into one string rather than dropped: nobody
+	downstream can fill in what is left out. (Selected Vehicles is a read-only
+	mirror the booking form builds from its Vehicles table, so the Vehicles table
+	is what's read here.)"""
+	if not seal_journey:
+		return None
+
+	booking = frappe.db.get_value("Seal Journey", seal_journey, "tagging_booking")
+	if not booking:
+		return None
+
+	plates = []
+	for vehicle in frappe.get_all(
+		"Tagging Booking Vehicle",
+		filters={"parent": booking, "parenttype": "Tagging Booking"},
+		pluck="vehicle",
+		order_by="idx",
+	):
+		if not vehicle:
+			continue
+		# Vehicles are named by plate historically and by a VEH-… series now, so
+		# prefer the registration number and fall back to the record name.
+		plates.append(frappe.db.get_value("Vehicle", vehicle, "registration_number") or vehicle)
+
+	return ", ".join(plates) or None
+
+
 def _ensure_journey_request(assignment):
 	# A Cancelled Journey Request belongs to a prior, unwound assignment cycle
 	# (see _cancel_assignment) — it must not block a fresh one from being
@@ -276,13 +316,16 @@ def _ensure_journey_request(assignment):
 
 	seal_journey = _seal_journey_for_job_order(assignment.pcb_job_order)
 
-	frappe.get_doc(
+	journey_request = frappe.get_doc(
 		{
 			"doctype": "Journey Request",
 			"job_order": assignment.pcb_job_order,
 			"client_name": assignment.client_name,
 			"assigned_technician": assignment.assigned_field_technician,
 			"journey_reference": seal_journey,
+			# Carried over from the Tagging Booking's Selected Vehicles — the field
+			# is read-only on the request, so this is where it gets its value.
+			"vehicle": booked_vehicles_for_journey(seal_journey),
 			# Leave the route blank at this stage — origin and destination are set
 			# later in the Journey Request. Passing empty strings prevents Frappe
 			# from auto-filling both mandatory Select fields with their first
@@ -290,11 +333,69 @@ def _ensure_journey_request(assignment):
 			"origin": "",
 			"destination": "",
 		}
-	).insert(ignore_permissions=True, ignore_mandatory=True)
+	)
+
+	# Carry across any remarks the Team Leader wrote on the assignment before
+	# assigning — at that point there was no Journey Request for on_update's
+	# _sync_remarks_to_journey_request to write to.
+	if cstr(assignment.remarks).strip():
+		journey_request.append("remarks_log", {"remarks": cstr(assignment.remarks).strip()})
+		journey_request.flags.allow_remarks_log_append = True
+
+	journey_request.insert(ignore_permissions=True, ignore_mandatory=True)
 
 	if seal_journey:
 		set_journey_status(seal_journey, "Technician Assigned")
 		sync_seal_journey_mirror(seal_journey)
+
+
+def _journey_request_for_assignment(assignment):
+	"""Locate the Journey Request this assignment feeds. Tagging assignments own a
+	PCB Job Order, so the request is found through it (skipping Cancelled rows from
+	prior, unwound cycles — see _cancel_assignment). Untagging/Seal Return
+	assignments have no job order of their own and reuse the journey's existing
+	request, found through the Seal Journey."""
+	if assignment.pcb_job_order:
+		journey_request = frappe.db.get_value(
+			"Journey Request",
+			{"job_order": assignment.pcb_job_order, "journey_request_status": ["!=", "Cancelled"]},
+			"name",
+		)
+		if journey_request:
+			return journey_request
+
+	seal_journey = resolve_assignment_seal_journey(assignment)
+	if seal_journey:
+		return frappe.db.get_value("Journey Request", {"journey_reference": seal_journey}, "name")
+
+	return None
+
+
+def _sync_remarks_to_journey_request(assignment, remarks):
+	"""Mirror the PCB Team Leader's assignment remarks onto the linked Journey
+	Request's append-only Remarks History, which is where the Tag Operator reads
+	them (the assignment itself is scoped to the Team Leader — see
+	get_permission_query_conditions — so the technician never sees it)."""
+	journey_request_name = _journey_request_for_assignment(assignment)
+	if not journey_request_name:
+		# The Journey Request doesn't exist yet (remarks written before the
+		# "Assign" action). _ensure_journey_request seeds it at creation instead.
+		return
+
+	entry = cstr(remarks).strip()
+
+	journey_request = frappe.get_doc("Journey Request", journey_request_name)
+	if any(cstr(row.remarks) == entry for row in journey_request.remarks_log):
+		return
+
+	journey_request.append("remarks_log", {"remarks": entry})
+	journey_request.flags.allow_remarks_log_append = True
+	journey_request.flags.ignore_field_locks = True
+	# Early in the tagging cycle the request is still the stub _ensure_journey_request
+	# inserted (ignore_mandatory) — the technician has yet to fill in the vehicle,
+	# route and container details. A Team Leader's remark must not be blocked on that.
+	journey_request.flags.ignore_mandatory = True
+	journey_request.save(ignore_permissions=True)
 
 
 def _ensure_assignment_status_permission(assignment):
