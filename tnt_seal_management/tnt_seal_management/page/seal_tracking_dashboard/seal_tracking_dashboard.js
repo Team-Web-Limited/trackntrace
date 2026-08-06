@@ -15,6 +15,7 @@ frappe.pages["seal-tracking-dashboard"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button("Dashboard", () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Download Report"), () => _export_tracking_pdf(page));
 	_inject_styles();
 	_build_skeleton(page);
 	_load_data(page);
@@ -324,6 +325,140 @@ function _row_search_text(d) {
 		.filter(value => value !== null && value !== undefined && value !== "")
 		.join(" ")
 		.toLowerCase();
+}
+
+
+// ---------------------------------------------------------------------------
+// PDF export — mirrors the Seal Device Dashboard's export (build HTML
+// client-side from the currently filtered devices, POST it to a whitelisted
+// method that renders it with get_pdf), styled in the app's blue theme.
+// ---------------------------------------------------------------------------
+
+function _export_tracking_pdf(page) {
+	const devices = _get_filtered_devices(page);
+	if (!devices.length) {
+		frappe.show_alert({ message: __("No devices match the current filters."), indicator: "orange" }, 5);
+		return;
+	}
+
+	const filterLabel = $(page.body).find(".std-filter-btn.active").text() || __("All");
+	const generatedOn = frappe.datetime.str_to_user(frappe.datetime.now_datetime());
+
+	const rows = devices.map(_tracking_pdf_row_html).join("");
+	const html = `
+		<html>
+			<head>
+				<title>${__("Seal Tracking Report")}</title>
+				<style>${_tracking_print_styles()}</style>
+			</head>
+			<body>
+				<div class="std-print-header">
+					<div>
+						<h2>${__("Seal Tracking Report")}</h2>
+						<p class="std-print-meta">
+							${__("Filter")}: ${frappe.utils.escape_html(filterLabel)}
+							&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+							&nbsp;•&nbsp; ${__("{0} device(s)", [devices.length])}
+						</p>
+					</div>
+					{{TNT_LOGO}}
+				</div>
+				<table class="std-print-table">
+					<thead>
+						<tr>
+							<th>${__("Device")}</th>
+							<th>${__("Status")}</th>
+							<th>${__("Lock Status")}</th>
+							<th>${__("Journey")}</th>
+							<th>${__("Vehicle")}</th>
+							<th>${__("Location")}</th>
+							<th>${__("Speed")}</th>
+							<th>${__("Battery")}</th>
+							<th>${__("Last Sync")}</th>
+						</tr>
+					</thead>
+					<tbody>${rows}</tbody>
+				</table>
+			</body>
+		</html>
+	`;
+
+	open_url_post("/api/method/tnt_seal_management.tnt_seal_management.api.seal_sync.export_tracking_pdf", {
+		html: html,
+		filename: `Seal Tracking Report - ${frappe.datetime.get_today()}`,
+	});
+}
+
+function _tracking_pdf_row_html(d) {
+	const esc = frappe.utils.escape_html;
+	const dash = "—";
+	const statusText = d.last_api_status || d.current_status || __("Unknown");
+	const lockStatus = d.lock_status || __("Unknown");
+	const speed = d.speed != null ? `${d.speed} km/h` : dash;
+	const battery = d.battery_level != null ? `${d.battery_level}%` : dash;
+	const location = d.last_known_api_location || d.current_location || dash;
+	const syncTime = d.last_successful_sync_time
+		? frappe.datetime.str_to_user(d.last_successful_sync_time)
+		: __("Never");
+
+	return `
+		<tr>
+			<td>${esc(d.name)}</td>
+			<td><span class="std-print-badge std-print-badge--${_status_class(statusText)}">${esc(statusText)}</span></td>
+			<td>${esc(lockStatus)}</td>
+			<td>${d.current_journey ? esc(d.current_journey) : dash}</td>
+			<td>${esc(d.journey_vehicle || d.current_vehicle || dash)}</td>
+			<td>${esc(location)}</td>
+			<td>${esc(speed)}</td>
+			<td>${esc(battery)}</td>
+			<td>${esc(syncTime)}</td>
+		</tr>
+	`;
+}
+
+function _tracking_print_styles() {
+	return `
+		body { font-family: sans-serif; padding: 24px; color: #0c4a6e; }
+		h2 { margin-bottom: 2px; color: #075985; }
+		.std-print-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 20px;
+			margin-bottom: 16px;
+			padding-bottom: 14px;
+			border-bottom: 3px solid #0284c7;
+		}
+		.std-print-meta { color: #0369a1; margin-top: 4px; margin-bottom: 0; font-size: 12px; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.std-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+		.std-print-table th, .std-print-table td {
+			border-bottom: 1px solid #e0f2fe;
+			padding: 7px 8px;
+			text-align: left;
+		}
+		.std-print-table th {
+			background: #0284c7;
+			color: #fff;
+			font-weight: 700;
+			text-transform: uppercase;
+			font-size: 10px;
+			letter-spacing: .04em;
+		}
+		.std-print-table tbody tr:nth-child(even) { background: #f0f9ff; }
+		.std-print-badge {
+			display: inline-block;
+			border-radius: 999px;
+			padding: 3px 9px;
+			font-size: 10px;
+			font-weight: 700;
+			text-transform: uppercase;
+		}
+		.std-print-badge--active { background: #dcfce7; color: #15803d; }
+		.std-print-badge--idle { background: #fef9c3; color: #a16207; }
+		.std-print-badge--offline { background: #fee2e2; color: #b91c1c; }
+		.std-print-badge--unknown { background: #f3f4f6; color: #6b7280; }
+	`;
 }
 
 

@@ -18,6 +18,7 @@ frappe.pages["pcb-job-order-list"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Download Report"), () => _pjo_export_pdf(page));
 	page.add_inner_button(__("Refresh"), () => _pjo_load(page));
 
 	const $statsBar = $('<div class="pjo-header-stats"></div>');
@@ -172,6 +173,153 @@ function _pjo_load(page) {
 			frappe.show_alert({ message: __("Could not load PCB Job Orders"), indicator: "red" }, 5);
 		},
 	});
+}
+
+// ---------------------------------------------------------------------------
+// PDF export — mirrors the Seal Device Dashboard's export (build HTML
+// client-side from the full filtered set, POST it to a whitelisted method
+// that renders it with get_pdf), styled in the app's blue theme.
+// ---------------------------------------------------------------------------
+
+function _pjo_export_pdf(page) {
+	frappe.call({
+		method:
+			"tnt_seal_management.tnt_seal_management.doctype.pcb_job_order.pcb_job_order.get_all_job_orders_for_export",
+		args: {
+			search: page.pjo_state.search,
+			status: page.pjo_state.status,
+			team_leader: page.pjo_state.team_leader,
+			from_date: page.pjo_state.from_date,
+			to_date: page.pjo_state.to_date,
+		},
+		freeze: true,
+		freeze_message: __("Preparing report…"),
+		callback(r) {
+			const jobOrders = r.message || [];
+			if (!jobOrders.length) {
+				frappe.show_alert({ message: __("No PCB Job Orders match the current filters."), indicator: "orange" }, 5);
+				return;
+			}
+
+			const filterLabel = $(page.body).find(".pjo-filter-btn-label").text() || __("All Job Orders");
+			const generatedOn = frappe.datetime.str_to_user(frappe.datetime.now_datetime());
+
+			const rows = jobOrders.map(_pjo_pdf_row_html).join("");
+			const html = `
+				<html>
+					<head>
+						<title>${__("PCB Job Order Report")}</title>
+						<style>${_pjo_print_styles()}</style>
+					</head>
+					<body>
+						<div class="pjo-print-header">
+							<div>
+								<h2>${__("PCB Job Order Report")}</h2>
+								<p class="pjo-print-meta">
+									${__("Status")}: ${frappe.utils.escape_html(filterLabel)}
+									&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+									&nbsp;•&nbsp; ${__("{0} job order(s)", [jobOrders.length])}
+								</p>
+							</div>
+							{{TNT_LOGO}}
+						</div>
+						<table class="pjo-print-table">
+							<thead>
+								<tr>
+									<th>${__("Job Order")}</th>
+									<th>${__("Tagging Booking")}</th>
+									<th>${__("Client")}</th>
+									<th>${__("Location")}</th>
+									<th>${__("Scheduled")}</th>
+									<th>${__("Contact Person")}</th>
+									<th>${__("Phone")}</th>
+									<th>${__("PCB Team Leader")}</th>
+									<th>${__("Status")}</th>
+								</tr>
+							</thead>
+							<tbody>${rows}</tbody>
+						</table>
+					</body>
+				</html>
+			`;
+
+			open_url_post("/api/method/tnt_seal_management.tnt_seal_management.doctype.pcb_job_order.pcb_job_order.export_pdf", {
+				html: html,
+				filename: `PCB Job Order Report - ${frappe.datetime.get_today()}`,
+			});
+		},
+		error() {
+			frappe.show_alert({ message: __("Failed to prepare the report"), indicator: "red" }, 5);
+		},
+	});
+}
+
+function _pjo_pdf_row_html(order) {
+	const esc = frappe.utils.escape_html;
+	const dash = "—";
+	const status = order.job_order_status || __("Unassigned");
+	const statusClass = status.toLowerCase().replaceAll(" ", "-");
+	const scheduled = order.scheduled_date_time
+		? frappe.datetime.str_to_user(order.scheduled_date_time)
+		: dash;
+
+	return `
+		<tr>
+			<td>${esc(order.name)}</td>
+			<td>${esc(order.tagging_booking || dash)}</td>
+			<td>${esc(order.client_name || dash)}</td>
+			<td>${esc(order.location || dash)}</td>
+			<td>${esc(scheduled)}</td>
+			<td>${esc(order.contact_person_name || dash)}</td>
+			<td>${esc(order.contact_person_phone || dash)}</td>
+			<td>${esc(order.assigned_pcb_team_leader || __("Not assigned"))}</td>
+			<td><span class="pjo-print-badge pjo-print-badge--${statusClass}">${esc(status === "Completed" ? __("Assignment Completed") : status)}</span></td>
+		</tr>
+	`;
+}
+
+function _pjo_print_styles() {
+	return `
+		body { font-family: sans-serif; padding: 24px; color: #0c4a6e; }
+		h2 { margin-bottom: 2px; color: #075985; }
+		.pjo-print-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 20px;
+			margin-bottom: 16px;
+			padding-bottom: 14px;
+			border-bottom: 3px solid #0284c7;
+		}
+		.pjo-print-meta { color: #0369a1; margin-top: 4px; margin-bottom: 0; font-size: 12px; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.pjo-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+		.pjo-print-table th, .pjo-print-table td {
+			border-bottom: 1px solid #e0f2fe;
+			padding: 7px 8px;
+			text-align: left;
+		}
+		.pjo-print-table th {
+			background: #0284c7;
+			color: #fff;
+			font-weight: 700;
+			text-transform: uppercase;
+			font-size: 10px;
+			letter-spacing: .04em;
+		}
+		.pjo-print-table tbody tr:nth-child(even) { background: #f0f9ff; }
+		.pjo-print-badge {
+			display: inline-block;
+			border-radius: 999px;
+			padding: 3px 9px;
+			font-size: 10px;
+			font-weight: 700;
+		}
+		.pjo-print-badge--unassigned { background: #fef3c7; color: #92400e; }
+		.pjo-print-badge--team-leader-assigned { background: #dbeafe; color: #1d4ed8; }
+		.pjo-print-badge--completed { background: #dcfce7; color: #166534; }
+		.pjo-print-badge--cancelled { background: #fee2e2; color: #b91c1c; }
+	`;
 }
 
 function _pjo_render_stats(page, summary) {

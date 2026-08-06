@@ -18,6 +18,7 @@ frappe.pages["assignment-list"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Download Report"), () => _asg_export_pdf(page));
 	page.add_inner_button(__("Refresh"), () => _asg_load(page));
 
 	const $statsBar = $('<div class="asg-header-stats"></div>');
@@ -201,6 +202,178 @@ function _asg_load(page) {
 			frappe.show_alert({ message: __("Could not load assignments"), indicator: "red" }, 5);
 		},
 	});
+}
+
+// ---------------------------------------------------------------------------
+// PDF export — mirrors the Seal Device Dashboard's export (build HTML
+// client-side from the full filtered set, POST it to a whitelisted method
+// that renders it with get_pdf), styled in the app's blue theme.
+// ---------------------------------------------------------------------------
+
+function _asg_export_pdf(page) {
+	frappe.call({
+		method:
+			"tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment.get_all_assignments_for_export",
+		args: {
+			search: page.asg_state.search,
+			status: page.asg_state.status,
+			field_technician: page.asg_state.field_technician,
+			from_date: page.asg_state.from_date,
+			to_date: page.asg_state.to_date,
+		},
+		freeze: true,
+		freeze_message: __("Preparing report…"),
+		callback(r) {
+			const assignments = r.message || [];
+			if (!assignments.length) {
+				frappe.show_alert({ message: __("No assignments match the current filters."), indicator: "orange" }, 5);
+				return;
+			}
+
+			const filterLabel = $(page.body).find(".asg-filter-btn-label").text() || __("All Assignments");
+			const generatedOn = frappe.datetime.str_to_user(frappe.datetime.now_datetime());
+
+			const rows = assignments.map(_asg_pdf_row_html).join("");
+			const html = `
+				<html>
+					<head>
+						<title>${__("Assignment Report")}</title>
+						<style>${_asg_print_styles()}</style>
+					</head>
+					<body>
+						<div class="asg-print-header">
+							<div>
+								<h2>${__("Assignment Report")}</h2>
+								<p class="asg-print-meta">
+									${__("Status")}: ${frappe.utils.escape_html(filterLabel)}
+									&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+									&nbsp;•&nbsp; ${__("{0} assignment(s)", [assignments.length])}
+								</p>
+							</div>
+							{{TNT_LOGO}}
+						</div>
+						<table class="asg-print-table">
+							<thead>
+								<tr>
+									<th>${__("Status")}</th>
+									<th>${__("Type")}</th>
+									<th>${__("Tag Operator")}</th>
+									<th>${__("Client")}</th>
+									<th>${__("Location")}</th>
+									<th>${__("Scheduled")}</th>
+									<th>${__("Contact Person")}</th>
+									<th>${__("Phone")}</th>
+									<th>${__("Job Order / Journey")}</th>
+								</tr>
+							</thead>
+							<tbody>${rows}</tbody>
+						</table>
+					</body>
+				</html>
+			`;
+
+			open_url_post("/api/method/tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment.export_pdf", {
+				html: html,
+				filename: `Assignment Report - ${frappe.datetime.get_today()}`,
+			});
+		},
+		error() {
+			frappe.show_alert({ message: __("Failed to prepare the report"), indicator: "red" }, 5);
+		},
+	});
+}
+
+function _asg_pdf_row_html(assignment) {
+	const esc = frappe.utils.escape_html;
+	const dash = "—";
+	const status = assignment.assignment_status || "Pending";
+	const statusClass = status.toLowerCase().replaceAll(" ", "-");
+	const statusLabel = (ASG_STATUS_LABELS[status] || (() => status))();
+	const scheduled = assignment.scheduled_date_time
+		? frappe.datetime.str_to_user(assignment.scheduled_date_time)
+		: dash;
+
+	const isUntagging = assignment.request_type === "Untagging";
+	const isSealReturn = assignment.request_type === "Seal Return";
+	const typeLabel = isUntagging ? __("Untagging") : isSealReturn ? __("Seal Return") : __("Tagging");
+	const typeClass = isUntagging ? "untagging" : isSealReturn ? "seal-return" : "tagging";
+	const source = isUntagging || isSealReturn
+		? (assignment.seal_journey || dash)
+		: (assignment.pcb_job_order || dash);
+
+	return `
+		<tr>
+			<td><span class="asg-print-badge asg-print-badge--${statusClass}">${esc(statusLabel)}</span></td>
+			<td><span class="asg-print-type asg-print-type--${typeClass}">${esc(typeLabel)}</span></td>
+			<td>${esc(assignment.assigned_field_technician || dash)}</td>
+			<td>${esc(assignment.client_name || dash)}</td>
+			<td>${esc(assignment.location || dash)}</td>
+			<td>${esc(scheduled)}</td>
+			<td>${esc(assignment.contact_person_name || dash)}</td>
+			<td>${esc(assignment.contact_person_phone || dash)}</td>
+			<td>${esc(source)}</td>
+		</tr>
+	`;
+}
+
+function _asg_print_styles() {
+	return `
+		body { font-family: sans-serif; padding: 24px; color: #0c4a6e; }
+		h2 { margin-bottom: 2px; color: #075985; }
+		.asg-print-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 20px;
+			margin-bottom: 16px;
+			padding-bottom: 14px;
+			border-bottom: 3px solid #0284c7;
+		}
+		.asg-print-meta { color: #0369a1; margin-top: 4px; margin-bottom: 0; font-size: 12px; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.asg-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+		.asg-print-table th, .asg-print-table td {
+			border-bottom: 1px solid #e0f2fe;
+			padding: 7px 8px;
+			text-align: left;
+		}
+		.asg-print-table th {
+			background: #0284c7;
+			color: #fff;
+			font-weight: 700;
+			text-transform: uppercase;
+			font-size: 10px;
+			letter-spacing: .04em;
+		}
+		.asg-print-table tbody tr:nth-child(even) { background: #f0f9ff; }
+		.asg-print-badge {
+			display: inline-block;
+			border-radius: 999px;
+			padding: 3px 9px;
+			font-size: 10px;
+			font-weight: 700;
+			white-space: nowrap;
+		}
+		.asg-print-badge--assigned { background: #dbeafe; color: #1d4ed8; }
+		.asg-print-badge--pending { background: #fef3c7; color: #92400e; }
+		.asg-print-badge--pending-untagging-assignment { background: #fed7aa; color: #9a3412; }
+		.asg-print-badge--untagging-assigned { background: #ddd6fe; color: #5b21b6; }
+		.asg-print-badge--pending-seal-return-assignment { background: #fbcfe8; color: #9d174d; }
+		.asg-print-badge--seal-return-assigned { background: #ede9fe; color: #5b21b6; }
+		.asg-print-badge--cancelled { background: #fee2e2; color: #b91c1c; }
+		.asg-print-type {
+			display: inline-block;
+			border-radius: 5px;
+			padding: 2px 7px;
+			font-size: 9px;
+			font-weight: 800;
+			text-transform: uppercase;
+			letter-spacing: .03em;
+		}
+		.asg-print-type--tagging { background: #e0f2fe; color: #0369a1; }
+		.asg-print-type--untagging { background: #fff7ed; color: #c2410c; }
+		.asg-print-type--seal-return { background: #f5f3ff; color: #5b21b6; }
+	`;
 }
 
 function _asg_render_stats(page, summary) {

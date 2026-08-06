@@ -119,19 +119,7 @@ def get_branch_options():
 	return [(row.api_branch or "").strip() for row in rows if (row.api_branch or "").strip()]
 
 
-@frappe.whitelist()
-def get_booking_list(
-	search=None,
-	status=None,
-	customer=None,
-	from_date=None,
-	to_date=None,
-	page=1,
-	page_length=25,
-):
-	page = max(cint(page), 1)
-	page_length = min(max(cint(page_length), 1), 100)
-
+def _build_booking_filters(search=None, status=None, customer=None, from_date=None, to_date=None):
 	if from_date and to_date and getdate(from_date) > getdate(to_date):
 		frappe.throw(_("From Date cannot be after To Date."))
 
@@ -157,6 +145,26 @@ def get_booking_list(
 	filters = list(base_filters)
 	if status and status != "All":
 		filters.append(["booking_status", "=", status])
+
+	return base_filters, or_filters, filters
+
+
+@frappe.whitelist()
+def get_booking_list(
+	search=None,
+	status=None,
+	customer=None,
+	from_date=None,
+	to_date=None,
+	page=1,
+	page_length=25,
+):
+	page = max(cint(page), 1)
+	page_length = min(max(cint(page_length), 1), 100)
+
+	base_filters, or_filters, filters = _build_booking_filters(
+		search, status, customer, from_date, to_date
+	)
 
 	bookings = frappe.get_list(
 		"Tagging Booking",
@@ -218,6 +226,83 @@ def get_booking_list(
 		"page_length": page_length,
 		"summary": summary,
 	}
+
+
+@frappe.whitelist()
+def get_all_bookings_for_export(search=None, status=None, customer=None, from_date=None, to_date=None):
+	"""Same filters as get_booking_list but unpaginated, for the PDF export."""
+	_, or_filters, filters = _build_booking_filters(search, status, customer, from_date, to_date)
+
+	return frappe.get_list(
+		"Tagging Booking",
+		fields=[
+			"name",
+			"client_name",
+			"location",
+			"booking_date_time",
+			"contact_person_name",
+			"contact_person_phone",
+			"booking_status",
+		],
+		filters=filters,
+		or_filters=or_filters,
+		order_by="booking_date_time desc, creation desc",
+		limit_page_length=0,
+	)
+
+
+_EXPORT_ROLES = {
+	"System Manager",
+	"Account Manager",
+	"Finance PCB",
+	"Management",
+	"Managing Director",
+}
+
+
+@frappe.whitelist()
+def export_pdf(html, filename):
+	"""Render the Tagging Bookings list's currently filtered table (built
+	client-side, same approach as the Seal Device Dashboard's export) to a PDF."""
+	from frappe.utils.pdf import get_pdf
+
+	if not set(frappe.get_roles(frappe.session.user)) & _EXPORT_ROLES:
+		frappe.throw(
+			_("You do not have permission to export tagging bookings."),
+			frappe.PermissionError,
+		)
+
+	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
+
+	options = {
+		"page-size": "A4",
+		"orientation": "Landscape",
+		"margin-top": "15mm",
+		"margin-right": "15mm",
+		"margin-bottom": "15mm",
+		"margin-left": "15mm",
+	}
+
+	frappe.local.response.filename = f"{filename}.pdf"
+	frappe.local.response.filecontent = get_pdf(html, options=options)
+	frappe.local.response.type = "pdf"
+
+
+def _get_tnt_logo_img_tag():
+	"""Track and Trace logo, inlined as a base64 data URI so the (unpatched,
+	pre-Qt-WebKit) wkhtmltopdf on this box renders it without an HTTP round
+	trip back to the site."""
+	import base64
+	import os
+
+	path = frappe.get_app_path("tnt_seal_management", "public", "images", "trackntrace.png")
+	if not os.path.exists(path):
+		return ""
+
+	with open(path, "rb") as f:
+		encoded = base64.b64encode(f.read()).decode("ascii")
+
+	return f'<img src="data:image/png;base64,{encoded}" class="tnt-pdf-logo" alt="Track and Trace">'
 
 
 def _get_tagging_booking(docname):

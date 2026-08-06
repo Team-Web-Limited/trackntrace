@@ -1119,6 +1119,40 @@ def export_pdf(html, filename):
 	frappe.local.response.type = "pdf"
 
 
+# Matches the seal-tracking-dashboard Page's own role list — distinct from
+# _DASHBOARD_ROLES (which gates the Seal Device Dashboard) because this page
+# additionally grants Managing Director but not PCB Team Leader.
+_TRACKING_DASHBOARD_ROLES = {"System Manager", "Operations Control Room", "Management", "Managing Director"}
+
+
+@frappe.whitelist()
+def export_tracking_pdf(html, filename):
+	"""Render the Seal Tracking Dashboard's currently filtered table (built
+	client-side, same approach as the Seal Device Dashboard's export) to a PDF."""
+	from frappe.utils.pdf import get_pdf
+
+	if not set(frappe.get_roles(frappe.session.user)) & _TRACKING_DASHBOARD_ROLES:
+		frappe.throw(
+			_("You do not have permission to export the seal tracking dashboard."),
+			frappe.PermissionError,
+		)
+
+	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
+
+	options = {
+		"page-size": "A4",
+		"orientation": "Landscape",
+		"margin-top": "15mm",
+		"margin-right": "15mm",
+		"margin-bottom": "15mm",
+		"margin-left": "15mm",
+	}
+
+	frappe.local.response.filename = f"{filename}.pdf"
+	frappe.local.response.filecontent = get_pdf(html, options=options)
+	frappe.local.response.type = "pdf"
+
+
 def _get_tnt_logo_img_tag():
 	"""Track and Trace logo, inlined as a base64 data URI so the (unpatched,
 	pre-Qt-WebKit) wkhtmltopdf on this box renders it without an HTTP round

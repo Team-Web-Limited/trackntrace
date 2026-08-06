@@ -212,6 +212,7 @@ function _control_room_render(page) {
 						</label>
 						<div class="cr-actions">
 							<button class="cr-alert-clear-btn">${__("Clear filters")}</button>
+							<button class="cr-alert-download-btn">${__("Download Report")}</button>
 							<button class="cr-alert-refresh-btn">${__("Refresh")}</button>
 						</div>
 					</div>
@@ -333,6 +334,10 @@ function _control_room_render(page) {
 	$(page.body)
 		.off("click", ".cr-alert-refresh-btn")
 		.on("click", ".cr-alert-refresh-btn", () => _control_room_load_alerts(page));
+
+	$(page.body)
+		.off("click", ".cr-alert-download-btn")
+		.on("click", ".cr-alert-download-btn", () => _control_room_export_alerts_pdf(page));
 
 	$(page.body)
 		.off("click", ".cr-alert-page-btn")
@@ -1015,6 +1020,147 @@ function _control_room_load_alerts(page) {
 	});
 }
 
+// ---------------------------------------------------------------------------
+// PDF export — Alert tab only. Mirrors the Seal Device Dashboard's export
+// (build HTML client-side from the full filtered set, POST it to a
+// whitelisted method that renders it with get_pdf), styled in the app's
+// blue theme.
+// ---------------------------------------------------------------------------
+
+function _control_room_export_alerts_pdf(page) {
+	const state = page.control_room_state;
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.doctype.seal_alert_log.seal_alert_log.get_all_alerts_for_export",
+		args: {
+			search: state.alertSearch || "",
+			level: state.alertLevel || "all",
+			alert_type: state.alertType || "all",
+			status: state.alertStatus || "open",
+		},
+		freeze: true,
+		freeze_message: __("Preparing report…"),
+		callback(r) {
+			const alerts = r.message || [];
+			if (!alerts.length) {
+				frappe.show_alert({ message: __("No alerts match the current filters."), indicator: "orange" }, 5);
+				return;
+			}
+
+			const statusLabel = $(page.body).find(".cr-alert-status option:selected").text() || __("Open");
+			const generatedOn = frappe.datetime.str_to_user(frappe.datetime.now_datetime());
+
+			const rows = alerts.map(_control_room_alert_pdf_row_html).join("");
+			const html = `
+				<html>
+					<head>
+						<title>${__("Seal Alert Report")}</title>
+						<style>${_control_room_alert_print_styles()}</style>
+					</head>
+					<body>
+						<div class="cr-print-header">
+							<div>
+								<h2>${__("Seal Alert Report")}</h2>
+								<p class="cr-print-meta">
+									${__("Status")}: ${frappe.utils.escape_html(statusLabel)}
+									&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+									&nbsp;•&nbsp; ${__("{0} alert(s)", [alerts.length])}
+								</p>
+							</div>
+							{{TNT_LOGO}}
+						</div>
+						<table class="cr-print-table">
+							<thead>
+								<tr>
+									<th>${__("Level")}</th>
+									<th>${__("Type")}</th>
+									<th>${__("Message")}</th>
+									<th>${__("Seal")}</th>
+									<th>${__("Location")}</th>
+									<th>${__("Occurred At")}</th>
+									<th>${__("Resolution")}</th>
+								</tr>
+							</thead>
+							<tbody>${rows}</tbody>
+						</table>
+					</body>
+				</html>
+			`;
+
+			open_url_post("/api/method/tnt_seal_management.tnt_seal_management.doctype.seal_alert_log.seal_alert_log.export_pdf", {
+				html: html,
+				filename: `Seal Alert Report - ${frappe.datetime.get_today()}`,
+			});
+		},
+		error() {
+			frappe.show_alert({ message: __("Failed to prepare the report"), indicator: "red" }, 5);
+		},
+	});
+}
+
+function _control_room_alert_pdf_row_html(a) {
+	const esc = frappe.utils.escape_html;
+	const dash = "—";
+	const occurred = a.occurred_at ? frappe.datetime.str_to_user(a.occurred_at) : dash;
+	const levelClass = (a.level || "info").toLowerCase();
+	const resStatus = a.is_resolved ? "Resolved" : a.resolution_status === "Escalated" ? "Escalated" : "Open";
+
+	return `
+		<tr>
+			<td><span class="cr-print-badge cr-print-badge--${levelClass}">${esc(a.level || "—")}</span></td>
+			<td>${esc(a.alert_type || dash)}</td>
+			<td>${esc(a.message || dash)}</td>
+			<td>${esc(a.seal_device || dash)}</td>
+			<td>${esc(a.seal_location || dash)}</td>
+			<td>${esc(occurred)}</td>
+			<td>${esc(resStatus)}</td>
+		</tr>
+	`;
+}
+
+function _control_room_alert_print_styles() {
+	return `
+		body { font-family: sans-serif; padding: 24px; color: #0c4a6e; }
+		h2 { margin-bottom: 2px; color: #075985; }
+		.cr-print-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 20px;
+			margin-bottom: 16px;
+			padding-bottom: 14px;
+			border-bottom: 3px solid #0284c7;
+		}
+		.cr-print-meta { color: #0369a1; margin-top: 4px; margin-bottom: 0; font-size: 12px; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.cr-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+		.cr-print-table th, .cr-print-table td {
+			border-bottom: 1px solid #e0f2fe;
+			padding: 7px 8px;
+			text-align: left;
+		}
+		.cr-print-table th {
+			background: #0284c7;
+			color: #fff;
+			font-weight: 700;
+			text-transform: uppercase;
+			font-size: 10px;
+			letter-spacing: .04em;
+		}
+		.cr-print-table tbody tr:nth-child(even) { background: #f0f9ff; }
+		.cr-print-badge {
+			display: inline-block;
+			border-radius: 999px;
+			padding: 3px 9px;
+			font-size: 10px;
+			font-weight: 700;
+		}
+		.cr-print-badge--critical { background: #fee2e2; color: #b91c1c; }
+		.cr-print-badge--warning { background: #fef3c7; color: #92400e; }
+		.cr-print-badge--info { background: #e0f2fe; color: #075985; }
+	`;
+}
+
+
 // Critical alerts get a Send button beside Submit in the acknowledge dialog: it
 // emails the alert to whoever is physically holding the seal right now — the
 // customer while it is on their journey, the warehouse once it is back in
@@ -1378,7 +1524,7 @@ function _control_room_inject_styles() {
 	style.id = "control-room-page-styles";
 	style.textContent = `
 		.cr-page {
-			max-width: calc(1100px + 0.5rem);
+			max-width: 1580px;
 			margin: 0 auto;
 			padding: 24px 20px 48px;
 			font-family: var(--font-stack);
@@ -1561,7 +1707,7 @@ function _control_room_inject_styles() {
 			box-shadow: none;
 		}
 		/* keep columns from squishing; forces horizontal scroll on narrow widths */
-		.cr-alert-table-wrap .cr-queue-table { min-width: 1040px; }
+		.cr-alert-table-wrap .cr-queue-table { min-width: 1300px; }
 		.cr-alert-table-wrap .cr-queue-table th:first-child,
 		.cr-alert-table-wrap .cr-queue-table td:first-child { padding-left: 14px; }
 		.cr-alert-table-wrap .cr-queue-table th:last-child,
@@ -1663,6 +1809,7 @@ function _control_room_inject_styles() {
 		.cr-actions { display: flex; gap: 8px; padding-top: 20px; align-items: flex-end; }
 		.cr-clear-btn,
 		.cr-alert-clear-btn,
+		.cr-alert-download-btn,
 		.cr-alert-refresh-btn {
 			padding: 9px 16px;
 			border: 1px solid #cbd5e1;
@@ -1682,6 +1829,12 @@ function _control_room_inject_styles() {
 			color: #475569;
 		}
 		.cr-alert-clear-btn:hover { background: #f8fafc; border-color: #94a3b8; }
+		.cr-alert-download-btn {
+			border-color: #cbd5e1;
+			background: #fff;
+			color: #475569;
+		}
+		.cr-alert-download-btn:hover { background: #f8fafc; border-color: #94a3b8; }
 		.cr-alert-refresh-btn {
 			border-color: #7dd3fc;
 			background: #e0f2fe;
@@ -2044,6 +2197,7 @@ function _control_room_inject_styles() {
 		[data-theme="dark"] .cr-field select,
 		[data-theme="dark"] .cr-clear-btn,
 		[data-theme="dark"] .cr-alert-clear-btn,
+		[data-theme="dark"] .cr-alert-download-btn,
 		[data-theme="dark"] .cr-alert-refresh-btn {
 			background: #1e293b;
 			border-color: #334155;
@@ -2113,6 +2267,7 @@ function _control_room_inject_styles() {
 			.cr-field select,
 			.cr-clear-btn,
 			.cr-alert-clear-btn,
+			.cr-alert-download-btn,
 			.cr-alert-refresh-btn { width: 100%; }
 			.cr-meta { grid-template-columns: 1fr; }
 			.cr-meta-item--wide { grid-column: span 1; }

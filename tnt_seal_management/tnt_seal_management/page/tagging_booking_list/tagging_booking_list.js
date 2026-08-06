@@ -18,6 +18,7 @@ frappe.pages["tagging-booking-list"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Download Report"), () => _export_tagging_bookings_pdf(page));
 	page.add_inner_button(__("Refresh"), () => _load_tagging_bookings(page));
 	page.set_primary_action(__("New Booking"), () => frappe.new_doc("Tagging Booking"));
 
@@ -200,6 +201,118 @@ function _load_tagging_bookings(page) {
 			);
 		},
 	});
+}
+
+// ---------------------------------------------------------------------------
+// PDF export — mirrors the Seal Device Dashboard's export (build HTML
+// client-side from the full filtered set, POST it to a whitelisted method
+// that renders it with get_pdf).
+// ---------------------------------------------------------------------------
+
+function _export_tagging_bookings_pdf(page) {
+	frappe.call({
+		method:
+			"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.get_all_bookings_for_export",
+		args: {
+			search: page.tb_state.search,
+			status: page.tb_state.status,
+			customer: page.tb_state.customer,
+			from_date: page.tb_state.from_date,
+			to_date: page.tb_state.to_date,
+		},
+		freeze: true,
+		freeze_message: __("Preparing report…"),
+		callback(r) {
+			const bookings = r.message || [];
+			if (!bookings.length) {
+				frappe.show_alert({ message: __("No bookings match the current filters."), indicator: "orange" }, 5);
+				return;
+			}
+
+			const filterLabel = $(page.body).find(".tb-filter-btn-label").text() || __("All");
+			const customer = page.tb_state.customer || __("All Clients");
+			const generatedOn = frappe.datetime.str_to_user(frappe.datetime.now_datetime());
+
+			const rows = bookings.map(_tagging_booking_pdf_row_html).join("");
+			const html = `
+				<html>
+					<head>
+						<title>${__("Tagging Booking Report")}</title>
+						<style>${_tagging_booking_print_styles()}</style>
+					</head>
+					<body>
+						<div class="tb-print-header">
+							<div>
+								<h2>${__("Tagging Booking Report")}</h2>
+								<p class="tb-print-meta">
+									${__("Status")}: ${frappe.utils.escape_html(filterLabel)}
+									&nbsp;•&nbsp; ${__("Client")}: ${frappe.utils.escape_html(customer)}
+									&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+									&nbsp;•&nbsp; ${__("{0} booking(s)", [bookings.length])}
+								</p>
+							</div>
+							{{TNT_LOGO}}
+						</div>
+						<table class="tb-print-table">
+							<thead>
+								<tr>
+									<th>${__("Booking")}</th>
+									<th>${__("Client")}</th>
+									<th>${__("Location")}</th>
+									<th>${__("Date and Time")}</th>
+									<th>${__("Contact Person")}</th>
+									<th>${__("Phone")}</th>
+									<th>${__("Booking Status")}</th>
+								</tr>
+							</thead>
+							<tbody>${rows}</tbody>
+						</table>
+					</body>
+				</html>
+			`;
+
+			open_url_post("/api/method/tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.export_pdf", {
+				html: html,
+				filename: `Tagging Booking Report - ${frappe.datetime.get_today()}`,
+			});
+		},
+		error() {
+			frappe.show_alert({ message: __("Failed to prepare the report"), indicator: "red" }, 5);
+		},
+	});
+}
+
+function _tagging_booking_pdf_row_html(booking) {
+	const esc = frappe.utils.escape_html;
+	const dash = "—";
+	const bookingDate = booking.booking_date_time
+		? frappe.datetime.str_to_user(booking.booking_date_time)
+		: dash;
+
+	return `
+		<tr>
+			<td>${esc(booking.name)}</td>
+			<td>${esc(booking.client_name || dash)}</td>
+			<td>${esc(booking.location || dash)}</td>
+			<td>${esc(bookingDate)}</td>
+			<td>${esc(booking.contact_person_name || dash)}</td>
+			<td>${esc(booking.contact_person_phone || dash)}</td>
+			<td>${esc(booking.booking_status || __("Draft"))}</td>
+		</tr>
+	`;
+}
+
+function _tagging_booking_print_styles() {
+	return `
+		body { font-family: sans-serif; padding: 24px; color: #1e293b; }
+		h2 { margin-bottom: 2px; }
+		.tb-print-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 12px; }
+		.tb-print-meta { color: #64748b; margin-top: 0; margin-bottom: 0; font-size: 12px; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.tb-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+		.tb-print-table th, .tb-print-table td { border-bottom: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; }
+		.tb-print-table th { background: #f8fafc; }
+	`;
 }
 
 function _render_tagging_booking_stats(page, summary) {

@@ -15,8 +15,8 @@ frappe.pages["seal-journey-list"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Back"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Download Report"), () => _sjl_export_pdf(page));
 	page.add_inner_button(__("Refresh"), () => _sjl_load(page));
-	page.set_primary_action(__("New Journey"), () => frappe.new_doc("Seal Journey"));
 
 	const $statsBar = $('<div class="sjl-header-stats"></div>');
 	$(wrapper).find('.page-head .page-actions').before($statsBar);
@@ -143,6 +143,142 @@ function _sjl_load(page) {
 			frappe.show_alert({ message: __("Could not load journeys"), indicator: "red" }, 5);
 		},
 	});
+}
+
+// ---------------------------------------------------------------------------
+// PDF export — mirrors the Seal Device Dashboard's export (build HTML
+// client-side from the full filtered set, POST it to a whitelisted method
+// that renders it with get_pdf), styled in the app's blue theme.
+// ---------------------------------------------------------------------------
+
+function _sjl_export_pdf(page) {
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.seal_journey_list.get_all_seal_journeys_for_export",
+		args: {
+			search: page.sjl_state.search,
+			status: page.sjl_state.status,
+		},
+		freeze: true,
+		freeze_message: __("Preparing report…"),
+		callback(r) {
+			const journeys = r.message || [];
+			if (!journeys.length) {
+				frappe.show_alert({ message: __("No journeys match the current filters."), indicator: "orange" }, 5);
+				return;
+			}
+
+			const filterLabel = $(page.body).find(".sjl-filter-btn-label").text() || __("All Journeys");
+			const generatedOn = frappe.datetime.str_to_user(frappe.datetime.now_datetime());
+
+			const rows = journeys.map(_sjl_pdf_row_html).join("");
+			const html = `
+				<html>
+					<head>
+						<title>${__("Seal Journey Report")}</title>
+						<style>${_sjl_print_styles()}</style>
+					</head>
+					<body>
+						<div class="sjl-print-header">
+							<div>
+								<h2>${__("Seal Journey Report")}</h2>
+								<p class="sjl-print-meta">
+									${__("Status")}: ${frappe.utils.escape_html(filterLabel)}
+									&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+									&nbsp;•&nbsp; ${__("{0} journey(s)", [journeys.length])}
+								</p>
+							</div>
+							{{TNT_LOGO}}
+						</div>
+						<table class="sjl-print-table">
+							<thead>
+								<tr>
+									<th>${__("Journey ID")}</th>
+									<th>${__("Customer")}</th>
+									<th>${__("Vehicle")}</th>
+									<th>${__("Route")}</th>
+									<th>${__("Duration")}</th>
+									<th>${__("Status")}</th>
+								</tr>
+							</thead>
+							<tbody>${rows}</tbody>
+						</table>
+					</body>
+				</html>
+			`;
+
+			open_url_post("/api/method/tnt_seal_management.tnt_seal_management.api.seal_journey_list.export_pdf", {
+				html: html,
+				filename: `Seal Journey Report - ${frappe.datetime.get_today()}`,
+			});
+		},
+		error() {
+			frappe.show_alert({ message: __("Failed to prepare the report"), indicator: "red" }, 5);
+		},
+	});
+}
+
+function _sjl_pdf_row_html(j) {
+	const esc = frappe.utils.escape_html;
+	const dash = "—";
+	const routeStr = [j.origin, j.destination].filter(Boolean).join(" → ") || dash;
+	const duration = j.days_taken ? `${parseFloat(j.days_taken).toFixed(1)} days` : dash;
+
+	return `
+		<tr>
+			<td>${esc(j.name)}</td>
+			<td>${esc(j.customer || dash)}</td>
+			<td>${esc(j.vehicle_plate_number || dash)}</td>
+			<td>${esc(routeStr)}</td>
+			<td>${esc(duration)}</td>
+			<td><span class="sjl-print-badge sjl-print-badge--${_sjl_status_class(j.journey_status)}">${esc(j.journey_status || __("Unknown"))}</span></td>
+		</tr>
+	`;
+}
+
+function _sjl_print_styles() {
+	return `
+		body { font-family: sans-serif; padding: 24px; color: #0c4a6e; }
+		h2 { margin-bottom: 2px; color: #075985; }
+		.sjl-print-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 20px;
+			margin-bottom: 16px;
+			padding-bottom: 14px;
+			border-bottom: 3px solid #0284c7;
+		}
+		.sjl-print-meta { color: #0369a1; margin-top: 4px; margin-bottom: 0; font-size: 12px; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.sjl-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+		.sjl-print-table th, .sjl-print-table td {
+			border-bottom: 1px solid #e0f2fe;
+			padding: 7px 8px;
+			text-align: left;
+		}
+		.sjl-print-table th {
+			background: #0284c7;
+			color: #fff;
+			font-weight: 700;
+			text-transform: uppercase;
+			font-size: 10px;
+			letter-spacing: .04em;
+		}
+		.sjl-print-table tbody tr:nth-child(even) { background: #f0f9ff; }
+		.sjl-print-badge {
+			display: inline-block;
+			border-radius: 999px;
+			padding: 3px 9px;
+			font-size: 10px;
+			font-weight: 700;
+			white-space: nowrap;
+		}
+		.sjl-print-badge--active { background: #dbeafe; color: #1d4ed8; }
+		.sjl-print-badge--completed { background: #dcfce7; color: #16a34a; }
+		.sjl-print-badge--cancelled { background: #fee2e2; color: #dc2626; }
+		.sjl-print-badge--draft { background: #f1f5f9; color: #475569; }
+		.sjl-print-badge--default { background: #e2e8f0; color: #475569; }
+	`;
 }
 
 function _sjl_render_stats(page, summary) {

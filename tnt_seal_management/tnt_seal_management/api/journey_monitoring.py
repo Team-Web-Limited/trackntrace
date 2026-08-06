@@ -15,6 +15,7 @@ from frappe.utils import flt, get_datetime, now_datetime
 
 from tnt_seal_management.tnt_seal_management.billing import get_applicable_billing_rule
 from tnt_seal_management.tnt_seal_management.api.seal_sync import (
+	_get_tnt_logo_img_tag,
 	_require_dashboard_permission,
 	normalize_api_status,
 	normalize_elock_status,
@@ -136,6 +137,64 @@ def get_journey_monitoring_data(
 		"page_length": page_length,
 		"summary": _summary(from_date, to_date),
 	}
+
+
+@frappe.whitelist()
+def get_all_journeys_for_export(view="all", search=None, from_date=None, to_date=None):
+	"""Same filters as get_journey_monitoring_data but unpaginated, for the PDF export."""
+	_require_dashboard_permission()
+
+	filters = _build_filters(view, from_date, to_date)
+	or_filters = _build_or_filters(search)
+
+	if view == "alerts":
+		active_filters = _build_filters("active", from_date, to_date)
+		journeys = frappe.db.get_all(
+			"Seal Journey",
+			filters=active_filters,
+			or_filters=or_filters or None,
+			fields=_FIELDS,
+			order_by="modified desc",
+		)
+		_attach_seals(journeys)
+		journeys = [j for j in journeys if j.get("alert_level")]
+	else:
+		journeys = frappe.db.get_all(
+			"Seal Journey",
+			filters=filters,
+			or_filters=or_filters or None,
+			fields=_FIELDS,
+			order_by="modified desc",
+		)
+		_attach_seals(journeys)
+
+	_attach_longer_in_journey(journeys)
+	_attach_custodian(journeys)
+	return [dict(j) for j in journeys]
+
+
+@frappe.whitelist()
+def export_pdf(html, filename):
+	"""Render the Journey Monitoring list's currently filtered table (built
+	client-side, same approach as the Seal Device Dashboard's export) to a PDF."""
+	from frappe.utils.pdf import get_pdf
+
+	_require_dashboard_permission()
+
+	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
+
+	options = {
+		"page-size": "A4",
+		"orientation": "Landscape",
+		"margin-top": "15mm",
+		"margin-right": "15mm",
+		"margin-bottom": "15mm",
+		"margin-left": "15mm",
+	}
+
+	frappe.local.response.filename = f"{filename}.pdf"
+	frappe.local.response.filecontent = get_pdf(html, options=options)
+	frappe.local.response.type = "pdf"
 
 
 # ---------------------------------------------------------------------------

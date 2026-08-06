@@ -8,6 +8,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cint, cstr, format_datetime, now_datetime
 
+from tnt_seal_management.tnt_seal_management.api.seal_sync import _get_tnt_logo_img_tag
+
 
 class SealAlertLog(Document):
 	pass
@@ -187,20 +189,7 @@ def notify_alert_custodian(docname, remarks=None):
 	return {"email": target["email"], "label": target["label"]}
 
 
-@frappe.whitelist()
-def get_alert_queue(
-	search=None, level=None, alert_type=None, status="open",
-	from_date=None, to_date=None, page=1, page_length=30,
-):
-	"""Return Seal Alert Log rows for the Control Room Alert tab.
-
-	status: "open" (unresolved, default) | "resolved" | "all"
-	Honours Seal Alert Log permissions via frappe.get_list, so Operations
-	Control Room sees the full queue (read permission, no owner restriction).
-	"""
-	page = max(cint(page), 1)
-	page_length = min(max(cint(page_length), 1), 100)
-
+def _build_alert_filters(search=None, level=None, alert_type=None, status="open", from_date=None, to_date=None):
 	filters = []
 	if status == "open":
 		filters.append(["is_resolved", "=", 0])
@@ -227,6 +216,39 @@ def get_alert_queue(
 			["message", "like", like],
 		]
 
+	return filters, or_filters
+
+
+def _attach_alert_locations(rows):
+	device_names = list({r["seal_device"] for r in rows if r.get("seal_device")})
+	loc_map = {}
+	if device_names:
+		for d in frappe.get_all(
+			"Seal Device",
+			filters={"name": ["in", device_names]},
+			fields=["name", "last_known_api_location", "current_location"],
+		):
+			loc_map[d.name] = d.last_known_api_location or d.current_location or ""
+	for r in rows:
+		r["seal_location"] = loc_map.get(r.get("seal_device"), "")
+
+
+@frappe.whitelist()
+def get_alert_queue(
+	search=None, level=None, alert_type=None, status="open",
+	from_date=None, to_date=None, page=1, page_length=30,
+):
+	"""Return Seal Alert Log rows for the Control Room Alert tab.
+
+	status: "open" (unresolved, default) | "resolved" | "all"
+	Honours Seal Alert Log permissions via frappe.get_list, so Operations
+	Control Room sees the full queue (read permission, no owner restriction).
+	"""
+	page = max(cint(page), 1)
+	page_length = min(max(cint(page_length), 1), 100)
+
+	filters, or_filters = _build_alert_filters(search, level, alert_type, status, from_date, to_date)
+
 	fields = [
 		"name", "alert_source", "alert_type", "level", "message",
 		"seal_device", "seal_journey", "journey_request",
@@ -246,17 +268,7 @@ def get_alert_queue(
 	)
 	# Attach the seal's last-known location to each row (the alert log doesn't
 	# store it; it lives on the Seal Device).
-	device_names = list({r["seal_device"] for r in rows if r.get("seal_device")})
-	loc_map = {}
-	if device_names:
-		for d in frappe.get_all(
-			"Seal Device",
-			filters={"name": ["in", device_names]},
-			fields=["name", "last_known_api_location", "current_location"],
-		):
-			loc_map[d.name] = d.last_known_api_location or d.current_location or ""
-	for r in rows:
-		r["seal_location"] = loc_map.get(r.get("seal_device"), "")
+	_attach_alert_locations(rows)
 
 	# Critical alerts can be emailed to whoever is holding the seal, so the
 	# Control Room needs to know who that is before opening the dialog.
@@ -313,6 +325,60 @@ def get_alert_queue(
 		"filter_options": filter_options,
 		"message_groups": open_alert_message_groups(),
 	}
+
+
+@frappe.whitelist()
+def get_all_alerts_for_export(search=None, level=None, alert_type=None, status="open", from_date=None, to_date=None):
+	"""Same filters as get_alert_queue but unpaginated, for the PDF export.
+	Honours Seal Alert Log permissions via frappe.get_list, same as get_alert_queue."""
+	filters, or_filters = _build_alert_filters(search, level, alert_type, status, from_date, to_date)
+
+	fields = [
+		"name", "alert_type", "level", "message",
+		"seal_device", "occurred_at", "is_resolved", "resolution_status",
+	]
+
+	rows = frappe.get_list(
+		"Seal Alert Log",
+		fields=fields,
+		filters=filters,
+		or_filters=or_filters or None,
+		order_by="occurred_at desc",
+		limit_page_length=0,
+	)
+	_attach_alert_locations(rows)
+	return rows
+
+
+_EXPORT_ROLES = {"System Manager", "Operations Control Room", "Management", "Managing Director"}
+
+
+@frappe.whitelist()
+def export_pdf(html, filename):
+	"""Render the Control Room Alert tab's currently filtered table (built
+	client-side, same approach as the Seal Device Dashboard's export) to a PDF."""
+	from frappe.utils.pdf import get_pdf
+
+	if not set(frappe.get_roles(frappe.session.user)) & _EXPORT_ROLES:
+		frappe.throw(
+			_("You do not have permission to export seal alerts."),
+			frappe.PermissionError,
+		)
+
+	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
+
+	options = {
+		"page-size": "A4",
+		"orientation": "Landscape",
+		"margin-top": "15mm",
+		"margin-right": "15mm",
+		"margin-bottom": "15mm",
+		"margin-left": "15mm",
+	}
+
+	frappe.local.response.filename = f"{filename}.pdf"
+	frappe.local.response.filecontent = get_pdf(html, options=options)
+	frappe.local.response.type = "pdf"
 
 
 # Alert messages carry a per-device detail — "Low battery (5%)", "No update for

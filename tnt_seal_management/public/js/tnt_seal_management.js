@@ -1,7 +1,25 @@
+// The "TNT Sealmanagement" Workspace exists only to carry a sidebar/breadcrumb
+// entry; the real landing UI is the Page "tnt-seal-management". The two cannot
+// share a route (Workspace and Page are separate doctypes in one namespace), so
+// the workspace is named to slug differently and we bounce it to the Page here.
+//
+// The router resolves a workspace URL to ["Workspaces", <workspace title>] — it
+// keys off `title`, not the slug in the address bar — so match on that shape.
+const TNT_LANDING_PAGE = 'tnt-seal-management';
+const TNT_WORKSPACE_TITLES = [
+	'TNT Seal Management', // current title of the workspace record
+	'TNT Sealmanagement', // name/label, in case the router keys off it
+	'TNT Operations', // legacy names, kept so old links/bookmarks still land
+	'TNT Operations Hub',
+];
+
 frappe.router.on('change', () => {
-	if (frappe.get_route_str() === 'workspace/tnt-operations-hub') {
-		frappe.set_route('tnt-seal-management');
-	}
+	const route = frappe.router.current_route || [];
+	if (route[0] !== 'Workspaces') return;
+	if (!TNT_WORKSPACE_TITLES.includes(route[1])) return;
+
+	frappe.route_flags.replace_route = true;
+	frappe.set_route(TNT_LANDING_PAGE);
 });
 
 (function () {

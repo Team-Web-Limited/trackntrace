@@ -17,6 +17,7 @@ frappe.pages["journey-monitoring"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Download Report"), () => _export_journey_monitoring_pdf(page));
 	page.add_inner_button(__("Refresh"), () => _load_data(page));
 
 	// Inject compact stats bar into the Frappe page header
@@ -421,6 +422,177 @@ function _render_pagination(page, totalRecords) {
 			</button>
 		</div>
 	`);
+}
+
+
+// ---------------------------------------------------------------------------
+// PDF export — mirrors the Seal Device Dashboard's export (build HTML
+// client-side from the full filtered set, POST it to a whitelisted method
+// that renders it with get_pdf), styled in the app's blue theme.
+// ---------------------------------------------------------------------------
+
+function _export_journey_monitoring_pdf(page) {
+	const s = page.jm_state;
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.journey_monitoring.get_all_journeys_for_export",
+		args: {
+			view: s.view,
+			search: s.search,
+			from_date: s.from_date || null,
+			to_date: s.to_date || null,
+		},
+		freeze: true,
+		freeze_message: __("Preparing report…"),
+		callback(r) {
+			const journeys = r.message || [];
+			if (!journeys.length) {
+				frappe.show_alert({ message: __("No journeys match the current filters."), indicator: "orange" }, 5);
+				return;
+			}
+
+			const filterLabel = $(page.body).find(".jm-filter-btn-label").text() || __("All Journeys");
+			const generatedOn = frappe.datetime.str_to_user(frappe.datetime.now_datetime());
+
+			const rows = journeys.flatMap(_journey_pdf_rows_html).join("");
+			const html = `
+				<html>
+					<head>
+						<title>${__("Journey Monitoring Report")}</title>
+						<style>${_jm_print_styles()}</style>
+					</head>
+					<body>
+						<div class="jm-print-header">
+							<div>
+								<h2>${__("Journey Monitoring Report")}</h2>
+								<p class="jm-print-meta">
+									${__("Filter")}: ${frappe.utils.escape_html(filterLabel)}
+									&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+									&nbsp;•&nbsp; ${__("{0} journey(s)", [journeys.length])}
+								</p>
+							</div>
+							{{TNT_LOGO}}
+						</div>
+						<table class="jm-print-table">
+							<thead>
+								<tr>
+									<th>${__("Journey")}</th>
+									<th>${__("Client")}</th>
+									<th>${__("Vehicle")}</th>
+									<th>${__("Container")}</th>
+									<th>${__("Origin")}</th>
+									<th>${__("Destination")}</th>
+									<th>${__("Status")}</th>
+									<th>${__("Warehouse")}</th>
+									<th>${__("Seal")}</th>
+									<th>${__("Lock")}</th>
+									<th>${__("Battery")}</th>
+									<th>${__("Location")}</th>
+									<th>${__("Alerts")}</th>
+								</tr>
+							</thead>
+							<tbody>${rows}</tbody>
+						</table>
+					</body>
+				</html>
+			`;
+
+			open_url_post("/api/method/tnt_seal_management.tnt_seal_management.api.journey_monitoring.export_pdf", {
+				html: html,
+				filename: `Journey Monitoring Report - ${frappe.datetime.get_today()}`,
+			});
+		},
+		error() {
+			frappe.show_alert({ message: __("Failed to prepare the report"), indicator: "red" }, 5);
+		},
+	});
+}
+
+function _journey_pdf_rows_html(j) {
+	const seals = (j.seals && j.seals.length) ? j.seals : [null];
+	return seals.map(seal => _journey_pdf_row_html(j, seal));
+}
+
+function _journey_pdf_row_html(j, seal) {
+	const esc = frappe.utils.escape_html;
+	const dash = "—";
+
+	const warehouseLabel = j.current_warehouse
+		? (JM_CUSTODY_BADGE[j.custodian_type]
+			? `${JM_CUSTODY_BADGE[j.custodian_type].tag} - ${j.current_warehouse}`
+			: j.current_warehouse)
+		: dash;
+
+	const sealName = seal && seal.seal_number ? String(seal.seal_number) : dash;
+	const lock = seal && seal.lock_status ? seal.lock_status : dash;
+	const battery = seal && (seal.battery_level || seal.battery_level === 0) ? `${seal.battery_level}%` : dash;
+	const location = seal && seal.api_location ? String(seal.api_location) : dash;
+	const alerts = (seal && seal.alerts && seal.alerts.length)
+		? seal.alerts.map(a => a.message).join("; ")
+		: dash;
+
+	return `
+		<tr>
+			<td>${esc(j.name)}</td>
+			<td>${esc(j.customer || dash)}</td>
+			<td>${esc(j.vehicle_plate_number || dash)}</td>
+			<td>${esc(j.container_number || dash)}</td>
+			<td>${esc(j.origin || dash)}</td>
+			<td>${esc(j.destination || dash)}</td>
+			<td><span class="jm-print-badge jm-print-badge--${_status_class(j.journey_status || "")}">${esc(j.journey_status || __("Unknown"))}</span></td>
+			<td>${esc(warehouseLabel)}</td>
+			<td>${esc(sealName)}</td>
+			<td>${esc(lock)}</td>
+			<td>${esc(battery)}</td>
+			<td>${esc(location)}</td>
+			<td>${esc(alerts)}</td>
+		</tr>
+	`;
+}
+
+function _jm_print_styles() {
+	return `
+		body { font-family: sans-serif; padding: 24px; color: #0c4a6e; }
+		h2 { margin-bottom: 2px; color: #075985; }
+		.jm-print-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 20px;
+			margin-bottom: 16px;
+			padding-bottom: 14px;
+			border-bottom: 3px solid #0284c7;
+		}
+		.jm-print-meta { color: #0369a1; margin-top: 4px; margin-bottom: 0; font-size: 12px; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.jm-print-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+		.jm-print-table th, .jm-print-table td {
+			border-bottom: 1px solid #e0f2fe;
+			padding: 6px 7px;
+			text-align: left;
+		}
+		.jm-print-table th {
+			background: #0284c7;
+			color: #fff;
+			font-weight: 700;
+			text-transform: uppercase;
+			font-size: 9px;
+			letter-spacing: .04em;
+		}
+		.jm-print-table tbody tr:nth-child(even) { background: #f0f9ff; }
+		.jm-print-badge {
+			display: inline-block;
+			border-radius: 999px;
+			padding: 3px 8px;
+			font-size: 9px;
+			font-weight: 700;
+			white-space: nowrap;
+		}
+		.jm-print-badge--active { background: #dcfce7; color: #166534; }
+		.jm-print-badge--idle { background: #fef3c7; color: #92400e; }
+		.jm-print-badge--offline { background: #fee2e2; color: #b91c1c; }
+		.jm-print-badge--unknown { background: #f1f5f9; color: #475569; }
+		.jm-print-badge--blue { background: #e0f2fe; color: #075985; }
+	`;
 }
 
 

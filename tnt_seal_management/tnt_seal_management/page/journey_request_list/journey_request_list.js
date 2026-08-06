@@ -17,12 +17,8 @@ frappe.pages["journey-request-list"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Download Report"), () => _jrl_export_pdf(page));
 	page.add_inner_button(__("Refresh"), () => _jrl_load(page));
-	if (frappe.session.user === "Administrator" || frappe.user.has_role("System Manager")) {
-		page
-			.add_inner_button(__("+ Journey Request"), () => frappe.new_doc("Journey Request"))
-			.addClass("jrl-new-request-btn");
-	}
 
 	const $statsBar = $('<div class="jrl-header-stats"></div>');
 	$(wrapper).find('.page-head .page-actions').before($statsBar);
@@ -173,6 +169,146 @@ function _jrl_load(page) {
 			frappe.show_alert({ message: __("Could not load Journey Requests"), indicator: "red" }, 5);
 		},
 	});
+}
+
+// ---------------------------------------------------------------------------
+// PDF export — mirrors the Seal Device Dashboard's export (build HTML
+// client-side from the full filtered set, POST it to a whitelisted method
+// that renders it with get_pdf), styled in the app's blue theme.
+// ---------------------------------------------------------------------------
+
+function _jrl_export_pdf(page) {
+	frappe.call({
+		method:
+			"tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.get_all_journey_requests_for_export",
+		args: {
+			search: page.jrl_state.search,
+			status: page.jrl_state.status,
+			from_date: page.jrl_state.from_date,
+			to_date: page.jrl_state.to_date,
+		},
+		freeze: true,
+		freeze_message: __("Preparing report…"),
+		callback(r) {
+			const requests = r.message || [];
+			if (!requests.length) {
+				frappe.show_alert({ message: __("No Journey Requests match the current filters."), indicator: "orange" }, 5);
+				return;
+			}
+
+			const filterLabel = $(page.body).find(".jrl-filter-btn-label").text() || __("All");
+			const generatedOn = frappe.datetime.str_to_user(frappe.datetime.now_datetime());
+
+			const rows = requests.map(_jrl_pdf_row_html).join("");
+			const html = `
+				<html>
+					<head>
+						<title>${__("Journey Request Report")}</title>
+						<style>${_jrl_print_styles()}</style>
+					</head>
+					<body>
+						<div class="jrl-print-header">
+							<div>
+								<h2>${__("Journey Request Report")}</h2>
+								<p class="jrl-print-meta">
+									${__("Status")}: ${frappe.utils.escape_html(filterLabel)}
+									&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+									&nbsp;•&nbsp; ${__("{0} request(s)", [requests.length])}
+								</p>
+							</div>
+							{{TNT_LOGO}}
+						</div>
+						<table class="jrl-print-table">
+							<thead>
+								<tr>
+									<th>${__("Status")}</th>
+									<th>${__("Client Name")}</th>
+									<th>${__("Vehicle")}</th>
+									<th>${__("Entry Number")}</th>
+									<th>${__("Seal Serial Number(s)")}</th>
+									<th>${__("Origin")}</th>
+									<th>${__("Destination")}</th>
+								</tr>
+							</thead>
+							<tbody>${rows}</tbody>
+						</table>
+					</body>
+				</html>
+			`;
+
+			open_url_post("/api/method/tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.export_pdf", {
+				html: html,
+				filename: `Journey Request Report - ${frappe.datetime.get_today()}`,
+			});
+		},
+		error() {
+			frappe.show_alert({ message: __("Failed to prepare the report"), indicator: "red" }, 5);
+		},
+	});
+}
+
+function _jrl_pdf_row_html(request) {
+	const esc = frappe.utils.escape_html;
+	const dash = "—";
+
+	return `
+		<tr>
+			<td><span class="jrl-print-badge jrl-print-badge--${_jrl_status_class(request.journey_request_status)}">${esc(request.journey_request_status || dash)}</span></td>
+			<td>${esc(request.client_name || dash)}</td>
+			<td>${esc(request.vehicle || dash)}</td>
+			<td>${esc(request.entry_number || dash)}</td>
+			<td>${esc(request.seal_serial_numbers || dash)}</td>
+			<td>${esc(request.origin || dash)}</td>
+			<td>${esc(request.destination || dash)}</td>
+		</tr>
+	`;
+}
+
+function _jrl_print_styles() {
+	return `
+		body { font-family: sans-serif; padding: 24px; color: #0c4a6e; }
+		h2 { margin-bottom: 2px; color: #075985; }
+		.jrl-print-header {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 20px;
+			margin-bottom: 16px;
+			padding-bottom: 14px;
+			border-bottom: 3px solid #0284c7;
+		}
+		.jrl-print-meta { color: #0369a1; margin-top: 4px; margin-bottom: 0; font-size: 12px; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.jrl-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+		.jrl-print-table th, .jrl-print-table td {
+			border-bottom: 1px solid #e0f2fe;
+			padding: 7px 8px;
+			text-align: left;
+		}
+		.jrl-print-table th {
+			background: #0284c7;
+			color: #fff;
+			font-weight: 700;
+			text-transform: uppercase;
+			font-size: 10px;
+			letter-spacing: .04em;
+		}
+		.jrl-print-table tbody tr:nth-child(even) { background: #f0f9ff; }
+		.jrl-print-badge {
+			display: inline-block;
+			border-radius: 999px;
+			padding: 3px 9px;
+			font-size: 10px;
+			font-weight: 700;
+			white-space: nowrap;
+		}
+		.jrl-print-badge--approved { background: #dcfce7; color: #166534; }
+		.jrl-print-badge--rejected { background: #fee2e2; color: #b91c1c; }
+		.jrl-print-badge--pending { background: #fef3c7; color: #92400e; }
+		.jrl-print-badge--tagging { background: #e0f2fe; color: #0369a1; }
+		.jrl-print-badge--untagging { background: #fff7ed; color: #c2410c; }
+		.jrl-print-badge--draft { background: #e5e7eb; color: #4b5563; }
+	`;
 }
 
 function _jrl_render_stats(page, summary) {
@@ -598,17 +734,6 @@ function _jrl_inject_styles() {
 		}
 		.jrl-clear-btn:hover { background: #f8fafc; border-color: #94a3b8; }
 
-		.jrl-new-request-btn {
-			background: #111827 !important;
-			border-color: #111827 !important;
-			color: #ffffff !important;
-		}
-		.jrl-new-request-btn:hover,
-		.jrl-new-request-btn:focus {
-			background: #000000 !important;
-			border-color: #000000 !important;
-			color: #ffffff !important;
-		}
 		.jrl-filter-grid {
 			display: grid;
 			grid-template-columns: minmax(300px, 1.6fr) 170px 170px auto;

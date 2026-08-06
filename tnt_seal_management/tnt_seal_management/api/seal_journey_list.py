@@ -11,13 +11,11 @@ _FIELDS = [
 	"assigned_seal", "creation", "days_taken"
 ]
 
+_DOCTYPE = "Seal Journey"
 _TERMINAL_STATUSES = ("Completed", "Cancelled")
 
-@frappe.whitelist()
-def get_seal_journey_list_data(status="All", search=None, page=1, page_length=30):
-	page = max(1, int(page or 1))
-	page_length = max(1, min(int(page_length or 30), 100))
 
+def _build_seal_journey_filters(status="All", search=None):
 	filters = []
 	if status == "Active":
 		filters.append(["journey_status", "not in", _TERMINAL_STATUSES + ("Draft",)])
@@ -39,10 +37,20 @@ def get_seal_journey_list_data(status="All", search=None, page=1, page_length=30
 			["assigned_seal", "like", like],
 		]
 
-	total = frappe.db.count("Seal Journey", filters=filters)
+	return filters, or_filters
+
+
+@frappe.whitelist()
+def get_seal_journey_list_data(status="All", search=None, page=1, page_length=30):
+	page = max(1, int(page or 1))
+	page_length = max(1, min(int(page_length or 30), 100))
+
+	filters, or_filters = _build_seal_journey_filters(status, search)
+
+	total = frappe.db.count(_DOCTYPE, filters=filters)
 
 	journeys = frappe.db.get_all(
-		"Seal Journey",
+		_DOCTYPE,
 		filters=filters,
 		or_filters=or_filters or None,
 		fields=_FIELDS,
@@ -60,9 +68,79 @@ def get_seal_journey_list_data(status="All", search=None, page=1, page_length=30
 		"summary": _summary(),
 	}
 
+@frappe.whitelist()
+def get_all_seal_journeys_for_export(status="All", search=None):
+	"""Same filters as get_seal_journey_list_data but unpaginated, for the PDF export."""
+	filters, or_filters = _build_seal_journey_filters(status, search)
+
+	journeys = frappe.db.get_all(
+		_DOCTYPE,
+		filters=filters,
+		or_filters=or_filters or None,
+		fields=_FIELDS,
+		order_by="modified desc",
+		distinct=1,
+	)
+	return [dict(j) for j in journeys]
+
+
+_EXPORT_ROLES = {
+	"System Manager",
+	"Account Manager",
+	"Managing Director",
+	"Finance PCB",
+	"Operations Control Room",
+}
+
+
+@frappe.whitelist()
+def export_pdf(html, filename):
+	"""Render the Seal Journey list's currently filtered table (built
+	client-side, same approach as the Seal Device Dashboard's export) to a PDF."""
+	from frappe.utils.pdf import get_pdf
+
+	if not set(frappe.get_roles(frappe.session.user)) & _EXPORT_ROLES:
+		frappe.throw(
+			_("You do not have permission to export seal journeys."),
+			frappe.PermissionError,
+		)
+
+	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
+
+	options = {
+		"page-size": "A4",
+		"orientation": "Landscape",
+		"margin-top": "15mm",
+		"margin-right": "15mm",
+		"margin-bottom": "15mm",
+		"margin-left": "15mm",
+	}
+
+	frappe.local.response.filename = f"{filename}.pdf"
+	frappe.local.response.filecontent = get_pdf(html, options=options)
+	frappe.local.response.type = "pdf"
+
+
+def _get_tnt_logo_img_tag():
+	"""Track and Trace logo, inlined as a base64 data URI so the (unpatched,
+	pre-Qt-WebKit) wkhtmltopdf on this box renders it without an HTTP round
+	trip back to the site."""
+	import base64
+	import os
+
+	path = frappe.get_app_path("tnt_seal_management", "public", "images", "trackntrace.png")
+	if not os.path.exists(path):
+		return ""
+
+	with open(path, "rb") as f:
+		encoded = base64.b64encode(f.read()).decode("ascii")
+
+	return f'<img src="data:image/png;base64,{encoded}" class="tnt-pdf-logo" alt="Track and Trace">'
+
+
 def _summary():
 	def count(extra=None):
-		return frappe.db.count("Seal Journey", filters=extra or {})
+		return frappe.db.count(_DOCTYPE, filters=extra or {})
 
 	all_count = count()
 	completed = count([["journey_status", "=", "Completed"]])

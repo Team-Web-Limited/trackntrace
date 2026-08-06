@@ -715,19 +715,7 @@ def _ensure_seal_return_journey_request(assignment):
 	sync_seal_journey_mirror(assignment.seal_journey)
 
 
-@frappe.whitelist()
-def get_assignment_list(
-	search=None,
-	status=None,
-	field_technician=None,
-	from_date=None,
-	to_date=None,
-	page=1,
-	page_length=25,
-):
-	page = max(cint(page), 1)
-	page_length = min(max(cint(page_length), 1), 100)
-
+def _build_assignment_filters(search=None, status=None, field_technician=None, from_date=None, to_date=None):
 	if from_date and to_date and getdate(from_date) > getdate(to_date):
 		frappe.throw(_("From Date cannot be after To Date."))
 
@@ -755,6 +743,26 @@ def get_assignment_list(
 	filters = list(base_filters)
 	if status and status != "All":
 		filters.append(["assignment_status", "=", status])
+
+	return base_filters, or_filters, filters
+
+
+@frappe.whitelist()
+def get_assignment_list(
+	search=None,
+	status=None,
+	field_technician=None,
+	from_date=None,
+	to_date=None,
+	page=1,
+	page_length=25,
+):
+	page = max(cint(page), 1)
+	page_length = min(max(cint(page_length), 1), 100)
+
+	base_filters, or_filters, filters = _build_assignment_filters(
+		search, status, field_technician, from_date, to_date
+	)
 
 	assignments = frappe.get_list(
 		"PCB Assignment",
@@ -820,3 +828,85 @@ def get_assignment_list(
 		"page_length": page_length,
 		"summary": summary,
 	}
+
+
+@frappe.whitelist()
+def get_all_assignments_for_export(search=None, status=None, field_technician=None, from_date=None, to_date=None):
+	"""Same filters as get_assignment_list but unpaginated, for the PDF export."""
+	_, or_filters, filters = _build_assignment_filters(search, status, field_technician, from_date, to_date)
+
+	return frappe.get_list(
+		"PCB Assignment",
+		fields=[
+			"name",
+			"request_type",
+			"pcb_job_order",
+			"seal_journey",
+			"client_name",
+			"location",
+			"scheduled_date_time",
+			"contact_person_name",
+			"contact_person_phone",
+			"assigned_field_technician",
+			"assignment_status",
+		],
+		filters=filters,
+		or_filters=or_filters,
+		order_by="scheduled_date_time desc, creation desc",
+		limit_page_length=0,
+	)
+
+
+_EXPORT_ROLES = {
+	"System Manager",
+	"PCB Team Leader",
+	"Management",
+	"Field Technician",
+	"Managing Director",
+	"Finance PCB",
+}
+
+
+@frappe.whitelist()
+def export_pdf(html, filename):
+	"""Render the Assignment list's currently filtered table (built
+	client-side, same approach as the Seal Device Dashboard's export) to a PDF."""
+	from frappe.utils.pdf import get_pdf
+
+	if not set(frappe.get_roles(frappe.session.user)) & _EXPORT_ROLES:
+		frappe.throw(
+			_("You do not have permission to export assignments."),
+			frappe.PermissionError,
+		)
+
+	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
+
+	options = {
+		"page-size": "A4",
+		"orientation": "Landscape",
+		"margin-top": "15mm",
+		"margin-right": "15mm",
+		"margin-bottom": "15mm",
+		"margin-left": "15mm",
+	}
+
+	frappe.local.response.filename = f"{filename}.pdf"
+	frappe.local.response.filecontent = get_pdf(html, options=options)
+	frappe.local.response.type = "pdf"
+
+
+def _get_tnt_logo_img_tag():
+	"""Track and Trace logo, inlined as a base64 data URI so the (unpatched,
+	pre-Qt-WebKit) wkhtmltopdf on this box renders it without an HTTP round
+	trip back to the site."""
+	import base64
+	import os
+
+	path = frappe.get_app_path("tnt_seal_management", "public", "images", "trackntrace.png")
+	if not os.path.exists(path):
+		return ""
+
+	with open(path, "rb") as f:
+		encoded = base64.b64encode(f.read()).decode("ascii")
+
+	return f'<img src="data:image/png;base64,{encoded}" class="tnt-pdf-logo" alt="Track and Trace">'

@@ -1157,18 +1157,7 @@ def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
 	)
 
 
-@frappe.whitelist()
-def get_journey_request_list(
-	search=None,
-	status=None,
-	from_date=None,
-	to_date=None,
-	page=1,
-	page_length=25,
-):
-	page = max(cint(page), 1)
-	page_length = min(max(cint(page_length), 1), 100)
-
+def _build_journey_request_filters(search=None, status=None, from_date=None, to_date=None):
 	if from_date and to_date and getdate(from_date) > getdate(to_date):
 		frappe.throw(_("From Date cannot be after To Date."))
 
@@ -1192,6 +1181,23 @@ def get_journey_request_list(
 	filters = list(base_filters)
 	if status and status != "All":
 		filters.append(["journey_request_status", "=", status])
+
+	return base_filters, or_filters, filters
+
+
+@frappe.whitelist()
+def get_journey_request_list(
+	search=None,
+	status=None,
+	from_date=None,
+	to_date=None,
+	page=1,
+	page_length=25,
+):
+	page = max(cint(page), 1)
+	page_length = min(max(cint(page_length), 1), 100)
+
+	base_filters, or_filters, filters = _build_journey_request_filters(search, status, from_date, to_date)
 
 	requests = frappe.get_list(
 		"Journey Request",
@@ -1246,6 +1252,85 @@ def get_journey_request_list(
 		"page_length": page_length,
 		"summary": summary,
 	}
+
+
+@frappe.whitelist()
+def get_all_journey_requests_for_export(search=None, status=None, from_date=None, to_date=None):
+	"""Same filters as get_journey_request_list but unpaginated, for the PDF export."""
+	_, or_filters, filters = _build_journey_request_filters(search, status, from_date, to_date)
+
+	requests = frappe.get_list(
+		"Journey Request",
+		fields=[
+			"name",
+			"client_name",
+			"vehicle",
+			"entry_number",
+			"origin",
+			"destination",
+			"journey_request_status",
+		],
+		filters=filters,
+		or_filters=or_filters,
+		order_by="modified desc",
+		limit_page_length=0,
+	)
+	_attach_seal_serial_numbers(requests)
+	return requests
+
+
+_EXPORT_ROLES = {
+	"System Manager",
+	"Management",
+	"Operations Control Room",
+	"Field Technician",
+	"Managing Director",
+}
+
+
+@frappe.whitelist()
+def export_pdf(html, filename):
+	"""Render the Journey Request list's currently filtered table (built
+	client-side, same approach as the Seal Device Dashboard's export) to a PDF."""
+	from frappe.utils.pdf import get_pdf
+
+	if not set(frappe.get_roles(frappe.session.user)) & _EXPORT_ROLES:
+		frappe.throw(
+			_("You do not have permission to export journey requests."),
+			frappe.PermissionError,
+		)
+
+	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
+
+	options = {
+		"page-size": "A4",
+		"orientation": "Landscape",
+		"margin-top": "15mm",
+		"margin-right": "15mm",
+		"margin-bottom": "15mm",
+		"margin-left": "15mm",
+	}
+
+	frappe.local.response.filename = f"{filename}.pdf"
+	frappe.local.response.filecontent = get_pdf(html, options=options)
+	frappe.local.response.type = "pdf"
+
+
+def _get_tnt_logo_img_tag():
+	"""Track and Trace logo, inlined as a base64 data URI so the (unpatched,
+	pre-Qt-WebKit) wkhtmltopdf on this box renders it without an HTTP round
+	trip back to the site."""
+	import base64
+	import os
+
+	path = frappe.get_app_path("tnt_seal_management", "public", "images", "trackntrace.png")
+	if not os.path.exists(path):
+		return ""
+
+	with open(path, "rb") as f:
+		encoded = base64.b64encode(f.read()).decode("ascii")
+
+	return f'<img src="data:image/png;base64,{encoded}" class="tnt-pdf-logo" alt="Track and Trace">'
 
 
 def _attach_seal_serial_numbers(requests):
