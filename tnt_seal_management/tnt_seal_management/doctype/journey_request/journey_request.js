@@ -80,10 +80,6 @@ frappe.ui.form.on("Seal Trip Photo", {
 	seal_return_entry_document_add(frm, cdt, cdn) {
 		_journey_request_set_photo_type(cdt, cdn, "Seal Return");
 	},
-
-	seal_return_photos_add(frm, cdt, cdn) {
-		_journey_request_set_photo_type(cdt, cdn, "Seal Return");
-	},
 });
 
 const JR_METHOD = (name) =>
@@ -104,7 +100,6 @@ const JR_PHOTO_TABLE_TYPES = {
 	tagging_photos: "Tagging",
 	untagging_entry_document: "Untagging",
 	seal_return_entry_document: "Seal Return",
-	seal_return_photos: "Seal Return",
 };
 
 function _journey_request_configure_photo_tables(frm) {
@@ -125,6 +120,7 @@ function _journey_request_add_buttons(frm) {
 	const isAdmin = frappe.user.has_role("System Manager");
 	const isTech = frappe.user.has_role("Field Technician") || isAdmin;
 	const isControlRoom = frappe.user.has_role("Operations Control Room") || isAdmin;
+	const isTeamLead = frappe.user.has_role("PCB Team Leader") || isAdmin;
 
 	// "Submit to Control Room" lives on the Seals grid toolbar instead — see
 	// _journey_request_add_seals_grid_button.
@@ -168,12 +164,47 @@ function _journey_request_add_buttons(frm) {
 	}
 
 	// "Awaiting Seal Return" is the seal-return work window. The assigned FT
-	// captures evidence and confirms the return directly.
+	// captures evidence and confirms the return, which sends it to the PCB Team
+	// Leader for approval.
 	if (status === "Awaiting Seal Return" && isTech) {
 		frm.add_custom_button(__("Confirm Seal Return"), () => _jr_prompt_confirm_seal_return(frm)).addClass(
 			"btn-primary"
 		);
 	}
+
+	if (status === "Pending Seal Return Approval" && isTeamLead) {
+		frm.add_custom_button(__("Approve Seal Return"), () => _jr_prompt_approve_seal_return(frm)).addClass(
+			"btn-primary"
+		);
+		frm.add_custom_button(__("Reject Seal Return"), () => _jr_prompt_reject_seal_return(frm));
+	}
+}
+
+function _jr_prompt_approve_seal_return(frm) {
+	frappe.warn(
+		__("Approve Seal Return"),
+		__(
+			"Approve this seal return? The journey will be completed and the seal(s) returned to the warehouse pool. This cannot be undone."
+		),
+		() => {
+			frappe.prompt(
+				[{ fieldname: "remarks", fieldtype: "Small Text", label: __("Remarks (Optional)") }],
+				(values) => _jr_call(frm, "approve_seal_return", { remarks: values.remarks || "" }),
+				__("Approve Seal Return"),
+				__("Approve")
+			);
+		},
+		__("Continue")
+	);
+}
+
+function _jr_prompt_reject_seal_return(frm) {
+	frappe.prompt(
+		[{ fieldname: "remarks", fieldtype: "Small Text", label: __("Reason for Rejection"), reqd: 1 }],
+		(values) => _jr_call(frm, "reject_seal_return", { remarks: values.remarks }),
+		__("Reject Seal Return"),
+		__("Reject")
+	);
 }
 
 function _jr_call(frm, method, extraArgs = {}) {
@@ -186,25 +217,6 @@ function _jr_call(frm, method, extraArgs = {}) {
 }
 
 function _jr_prompt_confirm_untagging(frm) {
-	if (!frm.doc.untagging_confirmed_by_technician) {
-		frappe.msgprint({
-			message: __("Tick Confirmed by Technician to confirm the seal has been physically removed."),
-			title: __("Confirmation Required"),
-			indicator: "orange",
-		});
-		return;
-	}
-	if (!(frm.doc.untagging_entry_document || []).length) {
-		frappe.msgprint({
-			message: __(
-				"Attach at least one Entry Picture under Untagging Documents & Photos before confirming."
-			),
-			title: __("Evidence Required"),
-			indicator: "orange",
-		});
-		return;
-	}
-
 	frappe.prompt(
 		[
 			{
@@ -263,20 +275,6 @@ function _jr_prompt_confirm_seal_return(frm) {
 		});
 		return;
 	}
-	if (
-		!(frm.doc.seal_return_entry_document || []).length ||
-		!(frm.doc.seal_return_photos || []).length
-	) {
-		frappe.msgprint({
-			message: __(
-				"Attach at least one Entry Picture and one Seal Return Picture under Seal Return Documents & Photos before confirming."
-			),
-			title: __("Evidence Required"),
-			indicator: "orange",
-		});
-		return;
-	}
-
 	frappe.prompt(
 		[
 			{
@@ -320,7 +318,13 @@ function _jr_confirm_seal_return(frm, manualLocation = null, remarks = "") {
 				return;
 			}
 
-			frappe.show_alert({ message: __("Seal return confirmed"), indicator: "green" }, 6);
+			frappe.show_alert(
+				{
+					message: __("Seal return confirmed — sent to the PCB Team Leader for approval"),
+					indicator: "green",
+				},
+				6
+			);
 			frm.reload_doc();
 		},
 	});
@@ -470,7 +474,6 @@ const JR_UNTAGGING_FIELDS = [
 ];
 const JR_SEAL_RETURN_FIELDS = [
 	"seal_return_entry_document",
-	"seal_return_photos",
 	"seal_return_confirmed_by_technician",
 	"seal_return_condition",
 ];

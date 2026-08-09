@@ -70,8 +70,6 @@
   "untagging_completed",
   "jr_seal_return_section",
   "seal_return_entry_document",
-  "jr_seal_return_column",
-  "seal_return_photos",
   "seal_return_confirmed_by_technician",
   "seal_return_condition",
   "retrieval_card_number",
@@ -82,6 +80,11 @@
   "seal_return_location",
   "jr_seal_return_row3_section",
   "seal_returned",
+  "jr_seal_return_approval_section",
+  "seal_return_approver",
+  "seal_return_approval_date_time",
+  "jr_seal_return_approval_column",
+  "seal_return_approval_remarks",
   "jr_row_12_section",
   "remarks_log"
  ],
@@ -97,7 +100,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Control Room Approval\nTagging\nJourney Ready\nUntagging\nAwaiting Seal Return\nSeal Returned\nRejected\nCancelled",
+   "options": "Draft\nPending Control Room Approval\nTagging\nJourney Ready\nUntagging\nAwaiting Seal Return\nPending Seal Return Approval\nSeal Returned\nRejected\nCancelled",
    "read_only": 1
   },
   {
@@ -400,7 +403,7 @@
    "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "fieldname": "jr_untagging_section",
    "fieldtype": "Section Break",
-   "label": "Untagging Documents & Photos"
+   "label": "Untagging Documents"
   },
   {
    "fieldname": "untagging_entry_document",
@@ -413,8 +416,7 @@
    "fieldname": "untagging_confirmed_by_technician",
    "fieldtype": "Check",
    "label": "Confirmed by Technician",
-   "mandatory_depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
-   "description": "Tick to confirm the seal has been physically removed. Required before confirming untagging."
+   "description": "Tick to confirm the seal has been physically removed."
   },
   {
    "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
@@ -453,7 +455,7 @@
    "description": "Set automatically when the Field Technician confirms untagging."
   },
   {
-   "depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "fieldname": "jr_seal_return_section",
    "fieldtype": "Section Break",
    "label": "Seal Return Documents & Photos"
@@ -465,21 +467,11 @@
    "options": "Seal Trip Photo"
   },
   {
-   "fieldname": "jr_seal_return_column",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "seal_return_photos",
-   "fieldtype": "Table",
-   "label": "Seal Return Pictures",
-   "options": "Seal Trip Photo"
-  },
-  {
    "default": "0",
    "fieldname": "seal_return_confirmed_by_technician",
    "fieldtype": "Check",
    "label": "Confirmed by Technician",
-   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "description": "Tick to confirm the seal has been physically returned in good condition. Required before confirming the seal return."
   },
   {
@@ -487,7 +479,7 @@
    "fieldname": "seal_return_condition",
    "fieldtype": "Select",
    "label": "Seal Condition",
-   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "options": "Good\nDamaged\nLost",
    "description": "Condition of the seal as returned by the Field Technician."
   },
@@ -495,10 +487,10 @@
    "fieldname": "retrieval_card_number",
    "fieldtype": "Data",
    "label": "Retrieval Card Number",
-   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)"
+   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)"
   },
   {
-   "depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "fieldname": "jr_seal_return_row2_section",
    "fieldtype": "Section Break"
   },
@@ -514,7 +506,7 @@
    "fieldtype": "Link",
    "options": "Warehouse",
    "label": "Warehouse",
-   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "description": "Warehouse the seal is returned to. Logged with the captured GPS location, in brackets, for audit."
   },
   {
@@ -529,7 +521,7 @@
    "description": "Pulled automatically from seal GPS when the Field Technician confirms the return; manual entry is requested if GPS is unavailable."
   },
   {
-   "depends_on": "eval:[\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
    "fieldname": "jr_seal_return_row3_section",
    "fieldtype": "Section Break"
   },
@@ -540,6 +532,36 @@
    "label": "Seal Returned",
    "read_only": 1,
    "description": "Set automatically when the Field Technician confirms the seal return."
+  },
+  {
+   "depends_on": "eval:[\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "fieldname": "jr_seal_return_approval_section",
+   "fieldtype": "Section Break",
+   "label": "Seal Return Approval"
+  },
+  {
+   "fieldname": "seal_return_approver",
+   "fieldtype": "Link",
+   "label": "Seal Return Approver",
+   "options": "User",
+   "read_only": 1,
+   "description": "PCB Team Leader who approved the seal return."
+  },
+  {
+   "fieldname": "seal_return_approval_date_time",
+   "fieldtype": "Datetime",
+   "label": "Seal Return Approval Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "jr_seal_return_approval_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "seal_return_approval_remarks",
+   "fieldtype": "Small Text",
+   "label": "Seal Return Approval Remarks",
+   "read_only": 1
   },
   {
    "fieldname": "jr_row_12_section",
@@ -608,6 +630,16 @@
    "report": 1,
    "role": "Management",
    "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "PCB Team Leader",
+   "share": 1,
+   "write": 1
   },
   {
    "create": 1,

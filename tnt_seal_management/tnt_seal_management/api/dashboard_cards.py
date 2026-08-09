@@ -52,7 +52,7 @@ CARD_COUNT_RULES = {
 				},
 			},
 			{
-				"roles": ["System Manager", "Management", "Managing Director"],
+				"roles": ["System Manager", "Management", "Managing Director", "PCB Team Leader"],
 				"label": "Tagging requests",
 				"filters": {
 					"journey_request_status": [
@@ -76,7 +76,7 @@ CARD_COUNT_RULES = {
 				"filters": {"journey_request_status": "Untagging"},
 			},
 			{
-				"roles": ["System Manager", "Management", "Managing Director"],
+				"roles": ["System Manager", "Management", "Managing Director", "PCB Team Leader"],
 				"label": "Untagging requests",
 				"filters": {
 					"journey_request_status": [
@@ -103,12 +103,15 @@ CARD_COUNT_RULES = {
 				},
 			},
 			{
-				"roles": ["System Manager", "Management", "Managing Director"],
+				# The PCB Team Leader's own queue: returns the FT has confirmed and
+				# that are waiting on their approval (see approve_seal_return), plus
+				# the returns still out in the field.
+				"roles": ["System Manager", "Management", "Managing Director", "PCB Team Leader"],
 				"label": "Seal return requests",
 				"filters": {
 					"journey_request_status": [
 						"in",
-						["Awaiting Seal Return"],
+						["Awaiting Seal Return", "Pending Seal Return Approval"],
 					]
 				},
 			},

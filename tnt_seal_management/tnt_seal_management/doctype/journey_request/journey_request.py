@@ -26,6 +26,7 @@ JOURNEY_REQUEST_STATUSES = (
 	"Journey Ready",
 	"Untagging",
 	"Awaiting Seal Return",
+	"Pending Seal Return Approval",
 	"Seal Returned",
 	"Rejected",
 	"Cancelled",
@@ -55,7 +56,7 @@ TAGGING_FIELDS = (
 	"tagging_remarks",
 )
 # Untagging reuses the same Seal Trip Photo child shape as EVIDENCE_FIELDS — the
-# Untagging Documents & Photos section on the Journey Request only appears once
+# Untagging Documents section on the Journey Request only appears once
 # the journey reaches the untagging phase (see jr_untagging_section's depends_on).
 UNTAGGING_FIELDS = ("untagging_entry_document",)
 # Technician confirmation stamps the authoritative untagging completion fields
@@ -64,9 +65,10 @@ UNTAGGING_CONFIRMATION_FIELDS = ("untagging_confirmed_by_technician",)
 # Seal return reuses the same Seal Trip Photo child shape, mirroring untagging —
 # the FT who performed the untagging is now the seal's custodian, and captures the
 # return evidence on the same Journey Request once it reaches "Awaiting Seal Return"
-# (see the Seal Return section's depends_on). Completion is Control-Room-driven via
-# direct technician confirmation; the tick is required before completion.
-SEAL_RETURN_FIELDS = ("seal_return_entry_document", "seal_return_photos")
+# (see the Seal Return section's depends_on). The technician confirms the return
+# (the tick is required), which parks the request at "Pending Seal Return Approval"
+# until the PCB Team Leader approves it — only then does the return take effect.
+SEAL_RETURN_FIELDS = ("seal_return_entry_document",)
 SEAL_RETURN_CONFIRMATION_FIELDS = (
 	"seal_return_confirmed_by_technician",
 	"seal_return_condition",
@@ -78,7 +80,6 @@ PHOTO_TABLE_TYPES = {
 	"tagging_photos": "Tagging",
 	"untagging_entry_document": "Untagging",
 	"seal_return_entry_document": "Seal Return",
-	"seal_return_photos": "Seal Return",
 }
 
 _FIELD_LABELS = {
@@ -103,7 +104,6 @@ _FIELD_LABELS = {
 	"untagging_entry_document": "Entry Pictures (Untagging)",
 	"untagging_confirmed_by_technician": "Confirmed by Technician",
 	"seal_return_entry_document": "Entry Pictures (Seal Return)",
-	"seal_return_photos": "Seal Return Pictures",
 	"seal_return_confirmed_by_technician": "Confirmed by Technician",
 	"seal_return_condition": "Seal Condition",
 	"retrieval_card_number": "Retrieval Card Number",
@@ -343,8 +343,8 @@ def _locked_fields_for(roles, status):
 			)
 		return all_managed
 
-	# The Operations Control Room acts through guarded actions, never by
-	# free-form editing of journey content.
+	# The Operations Control Room and the PCB Team Leader act through guarded
+	# actions, never by free-form editing of journey content.
 	return all_managed
 
 
@@ -356,7 +356,9 @@ def get_permission_query_conditions(user=None):
 		user = frappe.session.user
 
 	roles = set(frappe.get_roles(user))
-	if roles & {"System Manager", "Management", "Operations Control Room"}:
+	# The PCB Team Leader is in this set because they sign off seal returns —
+	# see approve_seal_return.
+	if roles & {"System Manager", "Management", "Operations Control Room", PCB_TEAM_LEAD_ROLE}:
 		return ""
 
 	if "Field Technician" in roles:
@@ -370,7 +372,7 @@ def has_permission(doc, user=None, permission_type=None):
 		user = frappe.session.user
 
 	roles = set(frappe.get_roles(user))
-	if roles & {"System Manager", "Management", "Operations Control Room"}:
+	if roles & {"System Manager", "Management", "Operations Control Room", PCB_TEAM_LEAD_ROLE}:
 		return True
 
 	if "Field Technician" in roles:
@@ -393,6 +395,10 @@ def _get_journey_request(docname):
 # Roles that own the Control Room approval queue — mirrors the recipient set
 # used for critical seal alerts (see api.seal_sync._ALERT_NOTIFY_ROLES).
 CONTROL_ROOM_NOTIFY_ROLES = ("Operations Control Room",)
+
+# The seal return is signed off by the PCB Team Leader, not the Control Room —
+# they own the physical seal stock the return puts back into the pool.
+PCB_TEAM_LEAD_ROLE = "PCB Team Leader"
 
 
 def _notify_control_room_approval_pending(doc):
@@ -423,6 +429,81 @@ def _notify_control_room_approval_pending(doc):
 
 	notify_users(
 		recipients,
+		subject,
+		message,
+		document_type="Journey Request",
+		document_name=doc.name,
+		link=f"/app/journey-request/{doc.name}",
+	)
+
+
+def _seal_return_approvers(doc):
+	"""Recipients for the seal-return approval queue: the Seal Journey's own
+	assigned team lead when there is one, otherwise every PCB Team Leader."""
+	from tnt_seal_management.tnt_seal_management.api.notifications import get_users_with_role
+
+	team_lead = None
+	if doc.journey_reference:
+		team_lead = frappe.db.get_value("Seal Journey", doc.journey_reference, "assigned_team_lead")
+
+	if team_lead and frappe.db.get_value("User", team_lead, "enabled"):
+		email = frappe.db.get_value("User", team_lead, "email")
+		return [(team_lead, email or team_lead)]
+
+	return get_users_with_role(PCB_TEAM_LEAD_ROLE)
+
+
+def _notify_seal_return_approval_pending(doc):
+	"""Notify the PCB Team Leader that a Field Technician has confirmed a seal
+	return and it is waiting on their approval, via desk notification and email."""
+	from tnt_seal_management.tnt_seal_management.api.notifications import notify_users
+
+	subject = _("Seal Return Awaiting Approval: {0}").format(doc.name)
+	lines = [
+		_("{0} confirmed the seal return and it is awaiting your approval.").format(
+			doc.assigned_technician or frappe.session.user
+		),
+		_("Client: {0}").format(doc.client_name or "-"),
+		_("Seal Condition: {0}").format(doc.seal_return_condition or "-"),
+		_("Retrieval Card Number: {0}").format(doc.retrieval_card_number or "-"),
+		_("Return Warehouse: {0}").format(doc.return_warehouse or "-"),
+		_("Return Location: {0}").format(doc.seal_return_location or "-"),
+	]
+	message = "<br>".join(str(line) for line in lines)
+
+	notify_users(
+		_seal_return_approvers(doc),
+		subject,
+		message,
+		document_type="Journey Request",
+		document_name=doc.name,
+		link=f"/app/journey-request/{doc.name}",
+	)
+
+
+def _notify_technician_seal_return_decision(doc, approved, remarks=None):
+	"""Tell the Field Technician how the PCB Team Leader ruled on their return."""
+	from tnt_seal_management.tnt_seal_management.api.notifications import notify_users
+
+	if not doc.assigned_technician:
+		return
+
+	email = frappe.db.get_value("User", doc.assigned_technician, "email")
+	if approved:
+		subject = _("Seal Return Approved: {0}").format(doc.name)
+		lines = [_("The PCB Team Leader approved the seal return for {0}.").format(doc.name)]
+	else:
+		subject = _("Seal Return Rejected: {0}").format(doc.name)
+		lines = [
+			_("The PCB Team Leader rejected the seal return for {0}.").format(doc.name),
+			_("Correct the return details and confirm the seal return again."),
+		]
+	if cstr(remarks).strip():
+		lines.append(_("Remarks: {0}").format(cstr(remarks).strip()))
+	message = "<br>".join(str(line) for line in lines)
+
+	notify_users(
+		[(doc.assigned_technician, email or doc.assigned_technician)],
 		subject,
 		message,
 		document_type="Journey Request",
@@ -784,17 +865,6 @@ def confirm_untagging(docname, manual_location=None, remarks=None):
 			_("Only journey requests in the Untagging stage can be confirmed."),
 			title=_("Invalid Status"),
 		)
-	if not cint(doc.untagging_confirmed_by_technician):
-		frappe.throw(
-			_("Tick Confirmed by Technician to confirm the seal has been physically removed."),
-			title=_("Confirmation Required"),
-		)
-	if not doc.untagging_entry_document:
-		frappe.throw(
-			_("Attach at least one untagging entry picture before confirming."),
-			title=_("Evidence Required"),
-		)
-
 	location = _pull_untagging_location(doc)
 	manual_location = cstr(manual_location).strip()
 	if not location and not manual_location:
@@ -887,16 +957,6 @@ def confirm_seal_return(docname, manual_location=None, remarks=None):
 			_("Tick Confirmed by Technician to confirm the seal has been physically returned."),
 			title=_("Confirmation Required"),
 		)
-	if not doc.seal_return_entry_document:
-		frappe.throw(
-			_("Attach at least one seal return entry picture before confirming."),
-			title=_("Evidence Required"),
-		)
-	if not doc.seal_return_photos:
-		frappe.throw(
-			_("Attach at least one seal return evidence photo before confirming."),
-			title=_("Evidence Required"),
-		)
 	if doc.seal_return_condition not in ("Good", "Damaged", "Lost"):
 		frappe.throw(
 			_("Select the seal condition before confirming."),
@@ -920,12 +980,101 @@ def confirm_seal_return(docname, manual_location=None, remarks=None):
 
 	doc.actual_seal_return_date_time = doc.actual_seal_return_date_time or now_datetime()
 	doc.seal_return_location = location or manual_location[:140]
-	doc.seal_returned = 1
-	doc.journey_request_status = "Seal Returned"
+	# The physical return is done, but the seal only goes back into the pool once
+	# the PCB Team Leader approves it — see approve_seal_return.
+	doc.journey_request_status = "Pending Seal Return Approval"
 	_append_approval_log(doc, "Seal Return Confirmed", cstr(remarks).strip() or None)
+	_append_approval_log(doc, "Seal Return Submitted for Approval")
 	doc.flags.ignore_field_locks = True
 	doc.save()
 
+	_notify_seal_return_approval_pending(doc)
+	sync_seal_journey_mirror(doc.journey_reference)
+	frappe.db.commit()
+	return {
+		"requires_manual_location": False,
+		"location": doc.seal_return_location,
+		"pending_approval": True,
+	}
+
+
+@frappe.whitelist()
+def approve_seal_return(docname, remarks=None):
+	"""PCB Team Leader approval of a seal return the Field Technician confirmed.
+
+	This is the point at which the return actually takes effect: the journey is
+	completed, the seals go back into the pool (or stay out if returned Damaged
+	or Lost) and custody moves to the return warehouse."""
+	_ensure_role(
+		PCB_TEAM_LEAD_ROLE,
+		_("Only the PCB Team Leader can approve a seal return."),
+	)
+	doc = _get_journey_request(docname)
+	if doc.journey_request_status != "Pending Seal Return Approval":
+		frappe.throw(
+			_("Only journey requests pending seal return approval can be approved."),
+			title=_("Invalid Status"),
+		)
+
+	remarks = cstr(remarks).strip()
+	doc.seal_return_approver = frappe.session.user
+	doc.seal_return_approval_date_time = now_datetime()
+	doc.seal_return_approval_remarks = remarks or None
+	doc.seal_returned = 1
+	doc.journey_request_status = "Seal Returned"
+	_append_approval_log(doc, "Seal Return Approved", remarks or None)
+	doc.flags.ignore_field_locks = True
+	doc.save()
+
+	_finalise_seal_return(doc, remarks)
+	_notify_technician_seal_return_decision(doc, approved=True, remarks=remarks)
+	sync_seal_journey_mirror(doc.journey_reference)
+	frappe.db.commit()
+	return {"journey_request_status": doc.journey_request_status}
+
+
+@frappe.whitelist()
+def reject_seal_return(docname, remarks=None):
+	"""PCB Team Leader rejection — hands the request back to the Field Technician
+	so the return evidence can be corrected and re-confirmed."""
+	_ensure_role(
+		PCB_TEAM_LEAD_ROLE,
+		_("Only the PCB Team Leader can reject a seal return."),
+	)
+	doc = _get_journey_request(docname)
+	if doc.journey_request_status != "Pending Seal Return Approval":
+		frappe.throw(
+			_("Only journey requests pending seal return approval can be rejected."),
+			title=_("Invalid Status"),
+		)
+
+	remarks = cstr(remarks).strip()
+	if not remarks:
+		frappe.throw(
+			_("Enter the reason for rejecting the seal return."),
+			title=_("Remarks Required"),
+		)
+
+	doc.seal_return_approver = frappe.session.user
+	doc.seal_return_approval_date_time = now_datetime()
+	doc.seal_return_approval_remarks = remarks
+	# Back to the seal-return work window, with the technician's confirmation
+	# cleared so the return has to be deliberately re-confirmed.
+	doc.seal_return_confirmed_by_technician = 0
+	doc.journey_request_status = "Awaiting Seal Return"
+	_append_approval_log(doc, "Seal Return Rejected", remarks)
+	doc.flags.ignore_field_locks = True
+	doc.save()
+
+	_notify_technician_seal_return_decision(doc, approved=False, remarks=remarks)
+	sync_seal_journey_mirror(doc.journey_reference)
+	frappe.db.commit()
+	return {"journey_request_status": doc.journey_request_status}
+
+
+def _finalise_seal_return(doc, remarks=None):
+	"""Apply the effects of an approved seal return: complete the journey, put the
+	seals back in the pool and move custody to the return warehouse."""
 	set_journey_status(
 		doc.journey_reference,
 		"Completed",
@@ -978,15 +1127,12 @@ def confirm_seal_return(docname, manual_location=None, remarks=None):
 				doc.journey_reference,
 				"return_warehouse",
 				warehouse_label,
-				# Whatever the technician typed when confirming the return, if
+				# Whatever the approver typed when approving the return, if
 				# anything — the warehouse itself is already in the column.
 				remarks=cstr(remarks).strip() or None,
 			)
 
 	_copy_seal_return_evidence_to_journey(doc)
-	sync_seal_journey_mirror(doc.journey_reference)
-	frappe.db.commit()
-	return {"requires_manual_location": False, "location": doc.seal_return_location}
 
 
 def _copy_seal_return_evidence_to_journey(doc):
@@ -999,7 +1145,6 @@ def _copy_seal_return_evidence_to_journey(doc):
 	journey = frappe.get_doc("Seal Journey", doc.journey_reference)
 	for target_field, source_rows in (
 		("seal_return_entry_document", doc.seal_return_entry_document),
-		("seal_return_photos", doc.seal_return_photos),
 	):
 		journey.set(target_field, [])
 		for row in source_rows:

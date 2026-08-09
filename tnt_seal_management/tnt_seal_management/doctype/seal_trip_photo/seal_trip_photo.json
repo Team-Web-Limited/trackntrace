@@ -27,8 +27,7 @@
    "fieldname": "photo_attachment",
    "fieldtype": "Attach Image",
    "in_list_view": 1,
-   "label": "Photo Attachment",
-   "reqd": 1
+   "label": "Photo Attachment"
   },
   {
    "default": "Administrator",

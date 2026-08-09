@@ -42,6 +42,7 @@ const TNT_DASHBOARD_CARDS = [
 			"Managing Director",
 			"Operations Control Room",
 			"Field Technician",
+			"PCB Team Leader",
 		],
 	},
 	{

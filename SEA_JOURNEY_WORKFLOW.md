@@ -70,9 +70,14 @@ central record that every other doctype mirrors its status onto.
 ### 10. Seal Return
 - Field Technician runs `confirm_seal_return` on the Journey Request (seal condition,
   retrieval card number, return warehouse, evidence photos) →
+  Journey Request `Pending Seal Return Approval`. The PCB Team Leader (the journey's
+  assigned team lead, else every PCB Team Leader) gets a desk notification + email.
+- PCB Team Leader runs `approve_seal_return` on the Journey Request →
   Journey Request `Seal Returned`; Seal Journey → `Completed`;
   Seal Device → back to `Available` automatically (or `Damaged` / `Lost` if that
   was the return condition), custody → **Warehouse**.
+- `reject_seal_return` (remarks required) sends it back to `Awaiting Seal Return`
+  with the technician's confirmation tick cleared, and notifies the technician.
 
 ### 11. Billing
 - Billing is recomputed on every Seal Journey save via **Seal Billing Rate**
@@ -105,7 +110,8 @@ Draft
 **Journey Request (`journey_request_status`)**:
 ```
 Draft → Pending Control Room Approval → Tagging
-→ Journey Ready → Untagging → Awaiting Seal Return → Seal Returned
+→ Journey Ready → Untagging → Awaiting Seal Return
+→ Pending Seal Return Approval → Seal Returned
 (Rejected / Cancelled at approval gates)
 ```
 
