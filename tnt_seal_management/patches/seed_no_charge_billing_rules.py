@@ -1,5 +1,7 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
+
 # Some customers are billed entirely through the recurring Lease/Ownership
 # Service Fee (Scenario 4/5, seal_lease_billing.py) rather than per journey —
 # there's no journey-level rate to charge them at all. These two rules exist
@@ -29,6 +31,10 @@ NO_CHARGE_RULES = (
 
 
 def execute():
+	# Seed data — never runs on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	for data in NO_CHARGE_RULES:
 		if frappe.db.exists("Seal Billing Rate", {"billing_rule_name": data["billing_rule_name"]}):
 			continue

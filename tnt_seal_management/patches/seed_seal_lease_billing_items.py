@@ -1,5 +1,7 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
+
 # Items backing the recurring, seal-count-based Subscription billing (PCB Journey
 # Billing Patterns doc, Scenarios 4-6) — a fee per line item on the generated Sales
 # Invoice via ERPNext's Subscription/Subscription Plan machinery. Both are seeded now:
@@ -18,6 +20,10 @@ LEASE_ITEMS = (
 
 
 def execute():
+	# Seed data — never runs on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	item_group = (
 		"Subscription Services"
 		if frappe.db.exists("Item Group", "Subscription Services")

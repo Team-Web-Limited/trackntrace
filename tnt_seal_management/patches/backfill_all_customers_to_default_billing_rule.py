@@ -1,9 +1,15 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
+
 DEFAULT_BILLING_RULE = "sqf2gijhij"
 
 
 def execute():
+	# Seed data — never runs on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	if not frappe.db.exists("Seal Billing Rate", DEFAULT_BILLING_RULE):
 		return
 

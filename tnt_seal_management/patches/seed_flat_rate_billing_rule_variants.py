@@ -1,5 +1,7 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
+
 # "Flat Rate" (seed_flat_rate_billing_rule.py) covered only one cadence
 # (Days / 1-day). A flat, no-per-day-proration charge (extra_day_rate = 0) can
 # just as well be agreed at any billing cadence — Daily, Weekly, Bi-Weekly,
@@ -44,6 +46,10 @@ FLAT_RATE_VARIANTS = (
 
 
 def execute():
+	# Seed data — never runs on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	# The original single "Flat Rate" rule (Days / 1-day) is superseded by the
 	# explicit "Flat Rate — Daily" variant below — rename it in place rather
 	# than leaving two overlapping "1-day flat" rules in the dropdown.

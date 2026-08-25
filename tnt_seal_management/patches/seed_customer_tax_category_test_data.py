@@ -1,5 +1,6 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
 from tnt_seal_management.tnt_seal_management.api.current_customers import (
 	_get_default_customer_group,
 	_get_default_territory,
@@ -14,6 +15,10 @@ _TEST_TAX_CATEGORIES = {
 
 
 def execute():
+	# Seed data — never runs on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	customer_group = _get_default_customer_group()
 	territory = _get_default_territory()
 

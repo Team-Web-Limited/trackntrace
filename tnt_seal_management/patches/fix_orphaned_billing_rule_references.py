@@ -1,5 +1,7 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
+
 # Corrects a typo in reassign_deprecated_billing_rules_to_default.py: it
 # targeted "sqf2gijhym" (a transcription error) instead of the actual dangling
 # rule id "sqf2gijhij", so its ~11.8k Customer Billing Assignment rows were
@@ -14,6 +16,11 @@ DEFAULT_RULE_ID = "nvi5neb62g"
 
 
 def execute():
+	# Operates on document ids hardcoded from the dev database — never runs
+	# on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	if not frappe.db.exists("Seal Billing Rate", DEFAULT_RULE_ID):
 		frappe.throw(f"Expected global default rule {DEFAULT_RULE_ID} not found — aborting reassignment.")
 

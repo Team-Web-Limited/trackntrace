@@ -1,5 +1,7 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
+
 # A generic, pickable "Flat Rate" option for the Set Billing modal's Billing
 # Rule dropdown — the same flat-charge-regardless-of-duration formula as PCB
 # Scenario 3 (extra_day_rate = 0, so any days beyond first_period_days add
@@ -9,6 +11,10 @@ import frappe
 
 
 def execute():
+	# Seed data — never runs on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	billing_rule_name = "Flat Rate"
 	if frappe.db.exists("Seal Billing Rate", {"billing_rule_name": billing_rule_name}):
 		return

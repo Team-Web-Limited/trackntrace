@@ -1,5 +1,7 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
+
 # Companion to reassign_deprecated_billing_rules_to_default.py (must run
 # after it): 18 Seal Journey records still carry billing_rule = one of the
 # three PCB Scenario rules directly (Apex Transit, BlueRoute, CargoSpan East
@@ -36,6 +38,11 @@ STALE_RULE_IDS = ("e20pkdsi1f", "e22mv28124", "e22pmnvnck")
 
 
 def execute():
+	# Operates on document ids hardcoded from the dev database — never runs
+	# on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	names = frappe.get_all(
 		"Seal Journey",
 		filters={"billing_rule": ["in", STALE_RULE_IDS]},

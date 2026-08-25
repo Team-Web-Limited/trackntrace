@@ -15,7 +15,7 @@ def execute():
 					"fieldtype": "Select",
 					"options": "Normal Tax (16% VAT)\nTax Exempt\nZero Rated",
 					"default": TAX_CATEGORY_NORMAL,
-					"insert_after": "custom_billing_type",
+					"insert_after": "tax_category",
 					"description": "Drives VAT on Completed Journeys billing. Distinct from the standard Tax Category field, which is ERPNext's separate Sales Taxes/Tax Rule mechanism.",
 				}
 			]

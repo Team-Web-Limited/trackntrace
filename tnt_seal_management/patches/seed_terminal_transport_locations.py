@@ -1,5 +1,7 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
+
 # The old Journey Request Origin/Destination Select field had this fixed list
 # of options. Journey Request.origin/destination are now Links to Transport
 # Location, so existing documents need a matching Transport Location record
@@ -29,6 +31,10 @@ LEGACY_TERMINALS = [
 
 
 def execute():
+	# Seed data — never runs on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	for location_name, country, location_type in LEGACY_TERMINALS:
 		if frappe.db.exists("Transport Location", location_name):
 			continue

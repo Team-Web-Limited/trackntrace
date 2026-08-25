@@ -1,5 +1,7 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
+
 # Deletes six unused/superseded Seal Billing Rate rules. Must run after
 # reassign_deprecated_billing_rules_to_default.py and
 # recompute_journeys_on_deprecated_rules.py so no Customer Billing Assignment
@@ -25,6 +27,11 @@ DEPRECATED_RULE_IDS = (
 
 
 def execute():
+	# Operates on document ids hardcoded from the dev database — never runs
+	# on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	for rule_id in DEPRECATED_RULE_IDS:
 		if not frappe.db.exists("Seal Billing Rate", rule_id):
 			continue

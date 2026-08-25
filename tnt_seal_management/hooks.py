@@ -5,6 +5,36 @@ app_description = "tnt-seal"
 app_email = "teamweb@gmail.com"
 app_license = "mit"
 
+# Fixtures
+# ------------------
+# The Custom Fields this app owns. They used to be created only by patches
+# (patches/add_customer_tax_category_field.py,
+# patches/add_sales_order_customer_response_fields.py),
+# which meant a *fresh* install never got them: `bench install-app` marks every
+# entry in patches.txt as already-executed without running it, so the columns
+# silently never existed and every read of them raised
+# OperationalError (1054, "Unknown column ..."). Shipping them as fixtures makes
+# them part of install and of every subsequent migrate. The patches are kept
+# (idempotent) so already-installed sites still converge.
+fixtures = [
+	{
+		"doctype": "Custom Field",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					"Customer-custom_tax_category",
+					"Sales Order-custom_customer_response",
+					"Sales Order-custom_customer_response_by",
+					"Sales Order-custom_customer_response_date",
+					"Sales Order-custom_customer_response_remarks",
+				],
+			]
+		],
+	}
+]
+
 # Apps
 # ------------------
 

@@ -1,5 +1,7 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
+
 # Seeded default rules — one per billing period. Amounts are placeholders meant
 # to be reviewed/edited; the day counts follow the standard period lengths. The
 # monthly rule is the system-wide fallback (is_global_default). Each rule still
@@ -46,6 +48,10 @@ DEFAULT_RULES = (
 
 
 def execute():
+	# Seed data — never runs on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	for data in DEFAULT_RULES:
 		if frappe.db.exists("Seal Billing Rate", {"billing_rule_name": data["billing_rule_name"]}):
 			continue

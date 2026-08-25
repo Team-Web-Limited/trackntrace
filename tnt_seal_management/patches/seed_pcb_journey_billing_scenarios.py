@@ -1,5 +1,7 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
+
 # Rate cards from the PCB Journey Current Billing Patterns document — Scenarios
 # 1-3. These are transactional, per-journey (now per-seal) rates: a fixed
 # number of days at a flat first-period amount, then a per-day rate beyond
@@ -47,6 +49,10 @@ SCENARIO_RULES = (
 
 
 def execute():
+	# Seed data — never runs on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	for data in SCENARIO_RULES:
 		if frappe.db.exists("Seal Billing Rate", {"billing_rule_name": data["billing_rule_name"]}):
 			continue

@@ -1,5 +1,7 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
+
 # Reverts seed_flat_rate_billing_rule_variants.py — a "period" (Daily/Weekly/
 # Bi-Weekly/Monthly/Quarterly/Semi-Annual/Annual) turned out to be meaningless
 # for a flat rate: PCB Scenario 3 is a fixed KES 1,000 charge per journey/seal
@@ -23,6 +25,10 @@ CANONICAL_NAME = "Flat Rate"
 
 
 def execute():
+	# Seed data — never runs on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	if not frappe.db.table_exists("Seal Billing Rate"):
 		return
 

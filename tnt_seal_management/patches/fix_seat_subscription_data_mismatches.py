@@ -1,5 +1,7 @@
 import frappe
 
+from tnt_seal_management.seed_guard import seeding_allowed
+
 # Corrects two data mismatches found while verifying the Set Billing modal
 # against real customer data (see bench console investigation):
 #
@@ -28,6 +30,11 @@ STRAY_OWNERSHIP_CUSTOMERS = ("Lakeside Cargo Partners Ltd", "Northgate Transit S
 
 
 def execute():
+	# Operates on document ids hardcoded from the dev database — never runs
+	# on production. See tnt_seal_management.seed_guard.
+	if not seeding_allowed():
+		return
+
 	for customer in OUTRIGHT_FIX_CUSTOMERS:
 		sub_name = frappe.db.get_value("Subscription", {"party": customer, "status": ["!=", "Cancelled"]}, "name")
 		if not sub_name:
