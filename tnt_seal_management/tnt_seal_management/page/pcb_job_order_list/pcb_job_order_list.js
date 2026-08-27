@@ -18,7 +18,8 @@ frappe.pages["pcb-job-order-list"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
-	page.add_inner_button(__("Download Report"), () => _pjo_export_pdf(page));
+	page.add_inner_button(__("Excel"), () => _pjo_export_excel(page), __("Download Report"));
+	page.add_inner_button(__("PDF"), () => _pjo_export_pdf(page), __("Download Report"));
 	page.add_inner_button(__("Refresh"), () => _pjo_load(page));
 
 	const $statsBar = $('<div class="pjo-header-stats"></div>');
@@ -212,17 +213,19 @@ function _pjo_export_pdf(page) {
 						<style>${_pjo_print_styles()}</style>
 					</head>
 					<body>
-						<div class="pjo-print-header">
-							<div>
-								<h2>${__("PCB Job Order Report")}</h2>
-								<p class="pjo-print-meta">
-									${__("Status")}: ${frappe.utils.escape_html(filterLabel)}
-									&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
-									&nbsp;•&nbsp; ${__("{0} job order(s)", [jobOrders.length])}
-								</p>
-							</div>
-							{{TNT_LOGO}}
-						</div>
+						<table class="pjo-print-header">
+							<tr>
+								<td class="pjo-print-header-title">
+									<h2>${__("PCB Job Order Report")}</h2>
+									<p class="pjo-print-meta">
+										${__("Status")}: ${frappe.utils.escape_html(filterLabel)}
+										&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+										&nbsp;•&nbsp; ${__("{0} job order(s)", [jobOrders.length])}
+									</p>
+								</td>
+								<td class="pjo-print-header-logo">{{TNT_LOGO}}</td>
+							</tr>
+						</table>
 						<table class="pjo-print-table">
 							<thead>
 								<tr>
@@ -254,6 +257,30 @@ function _pjo_export_pdf(page) {
 	});
 }
 
+// ---------------------------------------------------------------------------
+// Excel export — the same filtered set as the PDF, but built server-side into
+// an .xlsx workbook so the rows stay sortable/filterable in a spreadsheet.
+// ---------------------------------------------------------------------------
+
+function _pjo_export_excel(page) {
+	// The server throws on an empty result, which would replace this page with
+	// an error page (open_url_post posts the current window), so guard here
+	// using the count the last load reported for these same filters.
+	if (!page.pjo_state.total) {
+		frappe.show_alert({ message: __("No PCB Job Orders match the current filters."), indicator: "orange" }, 5);
+		return;
+	}
+
+	open_url_post("/api/method/tnt_seal_management.tnt_seal_management.doctype.pcb_job_order.pcb_job_order.export_excel", {
+		search: page.pjo_state.search,
+		status: page.pjo_state.status,
+		team_leader: page.pjo_state.team_leader,
+		from_date: page.pjo_state.from_date,
+		to_date: page.pjo_state.to_date,
+		filename: `PCB Job Order Report - ${frappe.datetime.get_today()}`,
+	});
+}
+
 function _pjo_pdf_row_html(order) {
 	const esc = frappe.utils.escape_html;
 	const dash = "—";
@@ -281,18 +308,22 @@ function _pjo_pdf_row_html(order) {
 function _pjo_print_styles() {
 	return `
 		body { font-family: sans-serif; padding: 24px; color: #0c4a6e; }
-		h2 { margin-bottom: 2px; color: #075985; }
+		h2 { margin-top: 0; margin-bottom: 2px; color: #075985; }
+		/* Table, not flexbox: the wkhtmltopdf on this box predates the patched
+		   Qt WebKit and ignores flex, which drops the logo below the title. */
 		.pjo-print-header {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: 20px;
+			width: 100%;
+			border-collapse: collapse;
 			margin-bottom: 16px;
-			padding-bottom: 14px;
+		}
+		.pjo-print-header td {
+			padding: 0 0 14px 0;
+			vertical-align: middle;
 			border-bottom: 3px solid #0284c7;
 		}
+		.pjo-print-header-logo { width: 240px; text-align: right; }
 		.pjo-print-meta { color: #0369a1; margin-top: 4px; margin-bottom: 0; font-size: 12px; }
-		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; }
 		.pjo-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 		.pjo-print-table th, .pjo-print-table td {
 			border-bottom: 1px solid #e0f2fe;

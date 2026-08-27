@@ -212,7 +212,16 @@ function _control_room_render(page) {
 						</label>
 						<div class="cr-actions">
 							<button class="cr-alert-clear-btn">${__("Clear filters")}</button>
-							<button class="cr-alert-download-btn">${__("Download Report")}</button>
+							<div class="cr-alert-download-dropdown">
+								<button class="cr-alert-download-btn">
+									${__("Download Report")}
+									<span class="cr-alert-download-arrow">&#9662;</span>
+								</button>
+								<div class="cr-alert-download-menu">
+									<div class="cr-alert-download-item" data-format="excel">${__("Excel")}</div>
+									<div class="cr-alert-download-item" data-format="pdf">${__("PDF")}</div>
+								</div>
+							</div>
 							<button class="cr-alert-refresh-btn">${__("Refresh")}</button>
 						</div>
 					</div>
@@ -337,7 +346,34 @@ function _control_room_render(page) {
 
 	$(page.body)
 		.off("click", ".cr-alert-download-btn")
-		.on("click", ".cr-alert-download-btn", () => _control_room_export_alerts_pdf(page));
+		.on("click", ".cr-alert-download-btn", function (e) {
+			e.stopPropagation();
+			const $menu = $(page.body).find(".cr-alert-download-menu");
+			const isOpen = $menu.hasClass("open");
+			if (!isOpen) {
+				const rect = this.getBoundingClientRect();
+				$menu.css({ top: rect.bottom + 6, left: rect.left });
+			}
+			$menu.toggleClass("open");
+		});
+
+	$(page.body)
+		.off("click", ".cr-alert-download-item")
+		.on("click", ".cr-alert-download-item", function () {
+			$(page.body).find(".cr-alert-download-menu").removeClass("open");
+			const format = $(this).data("format");
+			if (format === "excel") {
+				_control_room_export_alerts_excel(page);
+			} else {
+				_control_room_export_alerts_pdf(page);
+			}
+		});
+
+	$(document)
+		.off("click.cr-alert-download-dropdown")
+		.on("click.cr-alert-download-dropdown", () => {
+			$(page.body).find(".cr-alert-download-menu").removeClass("open");
+		});
 
 	$(page.body)
 		.off("click", ".cr-alert-page-btn")
@@ -1057,17 +1093,19 @@ function _control_room_export_alerts_pdf(page) {
 						<style>${_control_room_alert_print_styles()}</style>
 					</head>
 					<body>
-						<div class="cr-print-header">
-							<div>
-								<h2>${__("Seal Alert Report")}</h2>
-								<p class="cr-print-meta">
-									${__("Status")}: ${frappe.utils.escape_html(statusLabel)}
-									&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
-									&nbsp;•&nbsp; ${__("{0} alert(s)", [alerts.length])}
-								</p>
-							</div>
-							{{TNT_LOGO}}
-						</div>
+						<table class="cr-print-header">
+							<tr>
+								<td class="cr-print-header-title">
+									<h2>${__("Seal Alert Report")}</h2>
+									<p class="cr-print-meta">
+										${__("Status")}: ${frappe.utils.escape_html(statusLabel)}
+										&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+										&nbsp;•&nbsp; ${__("{0} alert(s)", [alerts.length])}
+									</p>
+								</td>
+								<td class="cr-print-header-logo">{{TNT_LOGO}}</td>
+							</tr>
+						</table>
 						<table class="cr-print-table">
 							<thead>
 								<tr>
@@ -1097,6 +1135,31 @@ function _control_room_export_alerts_pdf(page) {
 	});
 }
 
+// ---------------------------------------------------------------------------
+// Excel export — the same filtered set as the PDF, but built server-side into
+// an .xlsx workbook so the rows stay sortable/filterable in a spreadsheet.
+// ---------------------------------------------------------------------------
+
+function _control_room_export_alerts_excel(page) {
+	const state = page.control_room_state;
+
+	// The server throws on an empty result, which would replace this page with
+	// an error page (open_url_post posts the current window), so guard here
+	// using the count the last load reported for these same filters.
+	if (!state.alertTotal) {
+		frappe.show_alert({ message: __("No alerts match the current filters."), indicator: "orange" }, 5);
+		return;
+	}
+
+	open_url_post("/api/method/tnt_seal_management.tnt_seal_management.doctype.seal_alert_log.seal_alert_log.export_excel", {
+		search: state.alertSearch || "",
+		level: state.alertLevel || "all",
+		alert_type: state.alertType || "all",
+		status: state.alertStatus || "open",
+		filename: `Seal Alert Report - ${frappe.datetime.get_today()}`,
+	});
+}
+
 function _control_room_alert_pdf_row_html(a) {
 	const esc = frappe.utils.escape_html;
 	const dash = "—";
@@ -1120,18 +1183,22 @@ function _control_room_alert_pdf_row_html(a) {
 function _control_room_alert_print_styles() {
 	return `
 		body { font-family: sans-serif; padding: 24px; color: #0c4a6e; }
-		h2 { margin-bottom: 2px; color: #075985; }
+		h2 { margin-top: 0; margin-bottom: 2px; color: #075985; }
+		/* Table, not flexbox: the wkhtmltopdf on this box predates the patched
+		   Qt WebKit and ignores flex, which drops the logo below the title. */
 		.cr-print-header {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: 20px;
+			width: 100%;
+			border-collapse: collapse;
 			margin-bottom: 16px;
-			padding-bottom: 14px;
+		}
+		.cr-print-header td {
+			padding: 0 0 14px 0;
+			vertical-align: middle;
 			border-bottom: 3px solid #0284c7;
 		}
+		.cr-print-header-logo { width: 240px; text-align: right; }
 		.cr-print-meta { color: #0369a1; margin-top: 4px; margin-bottom: 0; font-size: 12px; }
-		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; }
 		.cr-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 		.cr-print-table th, .cr-print-table td {
 			border-bottom: 1px solid #e0f2fe;
@@ -1842,6 +1909,34 @@ function _control_room_inject_styles() {
 			box-shadow: 0 2px 6px rgba(14, 165, 233, .08);
 		}
 		.cr-alert-refresh-btn:hover { background: #bae6fd; border-color: #38bdf8; color: #0c4a6e; }
+		.cr-alert-download-dropdown { position: relative; }
+		.cr-alert-download-dropdown .cr-alert-download-btn {
+			display: inline-flex;
+			align-items: center;
+			gap: 6px;
+		}
+		.cr-alert-download-arrow { color: #94a3b8; font-size: 11px; }
+		.cr-alert-download-menu {
+			display: none;
+			position: fixed;
+			min-width: 160px;
+			border: 1px solid #cbd5e1;
+			border-radius: 10px;
+			background: var(--card-bg, #fff);
+			box-shadow: 0 8px 24px rgba(14, 165, 233, .12);
+			z-index: 1000;
+			overflow: hidden;
+		}
+		.cr-alert-download-menu.open { display: block; }
+		.cr-alert-download-item {
+			padding: 10px 16px;
+			font-size: 13px;
+			font-weight: 600;
+			color: #334155;
+			cursor: pointer;
+			transition: background .12s;
+		}
+		.cr-alert-download-item:hover { background: #f0f9ff; }
 		.cr-page-refresh-btn {
 			border-radius: 999px !important;
 			border-color: #bae6fd !important;
@@ -2203,6 +2298,12 @@ function _control_room_inject_styles() {
 			border-color: #334155;
 			color: #cbd5e1;
 		}
+		[data-theme="dark"] .cr-alert-download-menu {
+			background: #1e293b;
+			border-color: #334155;
+		}
+		[data-theme="dark"] .cr-alert-download-item { color: #cbd5e1; }
+		[data-theme="dark"] .cr-alert-download-item:hover { background: #0f172a; }
 		[data-theme="dark"] .cr-field > span { color: #7dd3fc; }
 		[data-theme="dark"] .cr-toolbar { background: #0f172a; border-color: #334155; color: #7dd3fc; }
 		[data-theme="dark"] .cr-tabs { background: #0f172a; border-color: #334155; }
@@ -2267,6 +2368,7 @@ function _control_room_inject_styles() {
 			.cr-field select,
 			.cr-clear-btn,
 			.cr-alert-clear-btn,
+			.cr-alert-download-dropdown,
 			.cr-alert-download-btn,
 			.cr-alert-refresh-btn { width: 100%; }
 			.cr-meta { grid-template-columns: 1fr; }

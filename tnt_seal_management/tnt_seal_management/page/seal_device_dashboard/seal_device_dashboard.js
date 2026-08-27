@@ -15,7 +15,8 @@ frappe.pages["seal-device-dashboard"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
-	page.add_inner_button(__("Download Report"), () => _export_seal_devices_pdf(page));
+	page.add_inner_button(__("Excel"), () => _export_seal_devices_excel(page), __("Download Report"));
+	page.add_inner_button(__("PDF"), () => _export_seal_devices_pdf(page), __("Download Report"));
 	page.add_inner_button(__("Refresh"), () => _load_seal_devices(page));
 
 	const $statsBar = $('<div class="sd-header-stats"></div>');
@@ -477,18 +478,20 @@ function _export_seal_devices_pdf(page) {
 				<style>${_seal_device_print_styles()}</style>
 			</head>
 			<body>
-				<div class="sd-print-header">
-					<div>
-						<h2>${__("Seal Device Report")}</h2>
-						<p class="sd-print-meta">
-							${__("Filter")}: ${frappe.utils.escape_html(filterLabel)}
-							&nbsp;•&nbsp; ${__("Branch")}: ${frappe.utils.escape_html(branch)}
-							&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
-							&nbsp;•&nbsp; ${__("{0} seal(s)", [devices.length])}
-						</p>
-					</div>
-					{{TNT_LOGO}}
-				</div>
+				<table class="sd-print-header">
+					<tr>
+						<td class="sd-print-header-title">
+							<h2>${__("Seal Device Report")}</h2>
+							<p class="sd-print-meta">
+								${__("Filter")}: ${frappe.utils.escape_html(filterLabel)}
+								&nbsp;•&nbsp; ${__("Branch")}: ${frappe.utils.escape_html(branch)}
+								&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+								&nbsp;•&nbsp; ${__("{0} seal(s)", [devices.length])}
+							</p>
+						</td>
+						<td class="sd-print-header-logo">{{TNT_LOGO}}</td>
+					</tr>
+				</table>
 				<table class="sd-print-table">
 					<thead>
 						<tr>
@@ -499,7 +502,6 @@ function _export_seal_devices_pdf(page) {
 							<th>${__("Vehicle")}</th>
 							<th>${__("Location")}</th>
 							<th>${__("Battery")}</th>
-							<th>${__("Last Sync")}</th>
 						</tr>
 					</thead>
 					<tbody>${rows}</tbody>
@@ -514,37 +516,107 @@ function _export_seal_devices_pdf(page) {
 	});
 }
 
+// ---------------------------------------------------------------------------
+// Excel export — same filtered/formatted rows as the PDF (this dashboard
+// filters entirely client-side, so there's no server-side filter to replay),
+// sent as JSON and turned into an .xlsx workbook server-side.
+// ---------------------------------------------------------------------------
+
+function _export_seal_devices_excel(page) {
+	const devices = _get_filtered_seal_devices(page);
+	if (!devices.length) {
+		frappe.show_alert({ message: __("No seal devices match the current filters."), indicator: "orange" }, 5);
+		return;
+	}
+
+	const rows = devices.map(_seal_device_export_row);
+
+	open_url_post("/api/method/tnt_seal_management.tnt_seal_management.api.seal_sync.export_excel", {
+		rows: JSON.stringify(rows),
+		filename: `Seal Device Report - ${frappe.datetime.get_today()}`,
+	});
+}
+
+function _seal_device_export_row(d) {
+	const dash = "—";
+	return {
+		name: d.name,
+		status: d.current_status || __("Unknown"),
+		warehouse: d.api_branch || dash,
+		journey: d.current_journey || dash,
+		vehicle: d.journey_vehicle || d.current_vehicle || dash,
+		location: d.current_location || d.last_known_api_location || dash,
+		battery: d.battery_level ? `${d.battery_level}%` : dash,
+		last_sync: d.last_successful_sync_time
+			? frappe.datetime.str_to_user(d.last_successful_sync_time)
+			: __("Never"),
+	};
+}
+
 function _seal_device_pdf_row_html(d) {
 	const esc = frappe.utils.escape_html;
-	const dash = "—";
-	const lastSync = d.last_successful_sync_time
-		? frappe.datetime.str_to_user(d.last_successful_sync_time)
-		: __("Never");
+	const row = _seal_device_export_row(d);
+	const statusClass = _seal_device_status_class(d.current_status || "");
 
 	return `
 		<tr>
-			<td>${esc(d.name)}</td>
-			<td>${esc(d.current_status || __("Unknown"))}</td>
-			<td>${d.api_branch ? esc(d.api_branch) : dash}</td>
-			<td>${d.current_journey ? esc(d.current_journey) : dash}</td>
-			<td>${esc(d.journey_vehicle || d.current_vehicle || dash)}</td>
-			<td>${esc((d.current_location || d.last_known_api_location || dash))}</td>
-			<td>${d.battery_level ? esc(String(d.battery_level)) + "%" : dash}</td>
-			<td>${esc(lastSync)}</td>
+			<td>${esc(row.name)}</td>
+			<td><span class="sd-print-badge sd-print-badge--${statusClass}">${esc(row.status)}</span></td>
+			<td>${esc(row.warehouse)}</td>
+			<td>${esc(row.journey)}</td>
+			<td>${esc(row.vehicle)}</td>
+			<td>${esc(row.location)}</td>
+			<td>${esc(row.battery)}</td>
 		</tr>
 	`;
 }
 
 function _seal_device_print_styles() {
 	return `
-		body { font-family: sans-serif; padding: 24px; color: #1e293b; }
-		h2 { margin-bottom: 2px; }
-		.sd-print-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 12px; }
-		.sd-print-meta { color: #64748b; margin-top: 0; margin-bottom: 0; font-size: 12px; }
-		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		body { font-family: sans-serif; padding: 24px; color: #0c4a6e; }
+		h2 { margin-top: 0; margin-bottom: 2px; color: #075985; }
+		/* Table, not flexbox: the wkhtmltopdf on this box predates the patched
+		   Qt WebKit and ignores flex, which drops the logo below the title. */
+		.sd-print-header {
+			width: 100%;
+			border-collapse: collapse;
+			margin-bottom: 16px;
+		}
+		.sd-print-header td {
+			padding: 0 0 14px 0;
+			vertical-align: middle;
+			border-bottom: 3px solid #0284c7;
+		}
+		.sd-print-header-logo { width: 240px; text-align: right; }
+		.sd-print-meta { color: #0369a1; margin-top: 4px; margin-bottom: 0; font-size: 12px; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; }
 		.sd-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-		.sd-print-table th, .sd-print-table td { border-bottom: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; }
-		.sd-print-table th { background: #f8fafc; }
+		.sd-print-table th, .sd-print-table td {
+			border-bottom: 1px solid #e0f2fe;
+			padding: 7px 8px;
+			text-align: left;
+		}
+		.sd-print-table th {
+			background: #0284c7;
+			color: #fff;
+			font-weight: 700;
+			text-transform: uppercase;
+			font-size: 10px;
+			letter-spacing: .04em;
+		}
+		.sd-print-table tbody tr:nth-child(even) { background: #f0f9ff; }
+		.sd-print-badge {
+			display: inline-block;
+			border-radius: 999px;
+			padding: 3px 9px;
+			font-size: 10px;
+			font-weight: 700;
+			white-space: nowrap;
+		}
+		.sd-print-badge--available { background: #dcfce7; color: #166534; }
+		.sd-print-badge--assigned { background: #e0f2fe; color: #0369a1; }
+		.sd-print-badge--issue { background: #fee2e2; color: #b91c1c; }
+		.sd-print-badge--neutral { background: #e5e7eb; color: #4b5563; }
 	`;
 }
 

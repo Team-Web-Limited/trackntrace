@@ -17,7 +17,8 @@ frappe.pages["journey-request-list"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
-	page.add_inner_button(__("Download Report"), () => _jrl_export_pdf(page));
+	page.add_inner_button(__("Excel"), () => _jrl_export_excel(page), __("Download Report"));
+	page.add_inner_button(__("PDF"), () => _jrl_export_pdf(page), __("Download Report"));
 	page.add_inner_button(__("Refresh"), () => _jrl_load(page));
 
 	const $statsBar = $('<div class="jrl-header-stats"></div>');
@@ -207,17 +208,19 @@ function _jrl_export_pdf(page) {
 						<style>${_jrl_print_styles()}</style>
 					</head>
 					<body>
-						<div class="jrl-print-header">
-							<div>
-								<h2>${__("Journey Request Report")}</h2>
-								<p class="jrl-print-meta">
-									${__("Status")}: ${frappe.utils.escape_html(filterLabel)}
-									&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
-									&nbsp;•&nbsp; ${__("{0} request(s)", [requests.length])}
-								</p>
-							</div>
-							{{TNT_LOGO}}
-						</div>
+						<table class="jrl-print-header">
+							<tr>
+								<td class="jrl-print-header-title">
+									<h2>${__("Journey Request Report")}</h2>
+									<p class="jrl-print-meta">
+										${__("Status")}: ${frappe.utils.escape_html(filterLabel)}
+										&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+										&nbsp;•&nbsp; ${__("{0} request(s)", [requests.length])}
+									</p>
+								</td>
+								<td class="jrl-print-header-logo">{{TNT_LOGO}}</td>
+							</tr>
+						</table>
 						<table class="jrl-print-table">
 							<thead>
 								<tr>
@@ -247,6 +250,29 @@ function _jrl_export_pdf(page) {
 	});
 }
 
+// ---------------------------------------------------------------------------
+// Excel export — the same filtered set as the PDF, but built server-side into
+// an .xlsx workbook so the rows stay sortable/filterable in a spreadsheet.
+// ---------------------------------------------------------------------------
+
+function _jrl_export_excel(page) {
+	// The server throws on an empty result, which would replace this page with
+	// an error page (open_url_post posts the current window), so guard here
+	// using the count the last load reported for these same filters.
+	if (!page.jrl_state.total) {
+		frappe.show_alert({ message: __("No Journey Requests match the current filters."), indicator: "orange" }, 5);
+		return;
+	}
+
+	open_url_post("/api/method/tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.export_excel", {
+		search: page.jrl_state.search,
+		status: page.jrl_state.status,
+		from_date: page.jrl_state.from_date,
+		to_date: page.jrl_state.to_date,
+		filename: `Journey Request Report - ${frappe.datetime.get_today()}`,
+	});
+}
+
 function _jrl_pdf_row_html(request) {
 	const esc = frappe.utils.escape_html;
 	const dash = "—";
@@ -267,18 +293,22 @@ function _jrl_pdf_row_html(request) {
 function _jrl_print_styles() {
 	return `
 		body { font-family: sans-serif; padding: 24px; color: #0c4a6e; }
-		h2 { margin-bottom: 2px; color: #075985; }
+		h2 { margin-top: 0; margin-bottom: 2px; color: #075985; }
+		/* Table, not flexbox: the wkhtmltopdf on this box predates the patched
+		   Qt WebKit and ignores flex, which drops the logo below the title. */
 		.jrl-print-header {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: 20px;
+			width: 100%;
+			border-collapse: collapse;
 			margin-bottom: 16px;
-			padding-bottom: 14px;
+		}
+		.jrl-print-header td {
+			padding: 0 0 14px 0;
+			vertical-align: middle;
 			border-bottom: 3px solid #0284c7;
 		}
+		.jrl-print-header-logo { width: 240px; text-align: right; }
 		.jrl-print-meta { color: #0369a1; margin-top: 4px; margin-bottom: 0; font-size: 12px; }
-		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; }
 		.jrl-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 		.jrl-print-table th, .jrl-print-table td {
 			border-bottom: 1px solid #e0f2fe;

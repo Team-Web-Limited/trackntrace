@@ -15,7 +15,8 @@ frappe.pages["seal-journey-list"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Back"), () => frappe.set_route("tnt-seal-management"));
-	page.add_inner_button(__("Download Report"), () => _sjl_export_pdf(page));
+	page.add_inner_button(__("Excel"), () => _sjl_export_excel(page), __("Download Report"));
+	page.add_inner_button(__("PDF"), () => _sjl_export_pdf(page), __("Download Report"));
 	page.add_inner_button(__("Refresh"), () => _sjl_load(page));
 
 	const $statsBar = $('<div class="sjl-header-stats"></div>');
@@ -178,17 +179,19 @@ function _sjl_export_pdf(page) {
 						<style>${_sjl_print_styles()}</style>
 					</head>
 					<body>
-						<div class="sjl-print-header">
-							<div>
-								<h2>${__("Seal Journey Report")}</h2>
-								<p class="sjl-print-meta">
-									${__("Status")}: ${frappe.utils.escape_html(filterLabel)}
-									&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
-									&nbsp;•&nbsp; ${__("{0} journey(s)", [journeys.length])}
-								</p>
-							</div>
-							{{TNT_LOGO}}
-						</div>
+						<table class="sjl-print-header">
+							<tr>
+								<td class="sjl-print-header-title">
+									<h2>${__("Seal Journey Report")}</h2>
+									<p class="sjl-print-meta">
+										${__("Status")}: ${frappe.utils.escape_html(filterLabel)}
+										&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+										&nbsp;•&nbsp; ${__("{0} journey(s)", [journeys.length])}
+									</p>
+								</td>
+								<td class="sjl-print-header-logo">{{TNT_LOGO}}</td>
+							</tr>
+						</table>
 						<table class="sjl-print-table">
 							<thead>
 								<tr>
@@ -217,6 +220,27 @@ function _sjl_export_pdf(page) {
 	});
 }
 
+// ---------------------------------------------------------------------------
+// Excel export — the same filtered set as the PDF, but built server-side into
+// an .xlsx workbook so the rows stay sortable/filterable in a spreadsheet.
+// ---------------------------------------------------------------------------
+
+function _sjl_export_excel(page) {
+	// The server throws on an empty result, which would replace this page with
+	// an error page (open_url_post posts the current window), so guard here
+	// using the count the last load reported for these same filters.
+	if (!page.sjl_state.total) {
+		frappe.show_alert({ message: __("No journeys match the current filters."), indicator: "orange" }, 5);
+		return;
+	}
+
+	open_url_post("/api/method/tnt_seal_management.tnt_seal_management.api.seal_journey_list.export_excel", {
+		search: page.sjl_state.search,
+		status: page.sjl_state.status,
+		filename: `Seal Journey Report - ${frappe.datetime.get_today()}`,
+	});
+}
+
 function _sjl_pdf_row_html(j) {
 	const esc = frappe.utils.escape_html;
 	const dash = "—";
@@ -238,18 +262,22 @@ function _sjl_pdf_row_html(j) {
 function _sjl_print_styles() {
 	return `
 		body { font-family: sans-serif; padding: 24px; color: #0c4a6e; }
-		h2 { margin-bottom: 2px; color: #075985; }
+		h2 { margin-top: 0; margin-bottom: 2px; color: #075985; }
+		/* Table, not flexbox: the wkhtmltopdf on this box predates the patched
+		   Qt WebKit and ignores flex, which drops the logo below the title. */
 		.sjl-print-header {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: 20px;
+			width: 100%;
+			border-collapse: collapse;
 			margin-bottom: 16px;
-			padding-bottom: 14px;
+		}
+		.sjl-print-header td {
+			padding: 0 0 14px 0;
+			vertical-align: middle;
 			border-bottom: 3px solid #0284c7;
 		}
+		.sjl-print-header-logo { width: 240px; text-align: right; }
 		.sjl-print-meta { color: #0369a1; margin-top: 4px; margin-bottom: 0; font-size: 12px; }
-		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; }
 		.sjl-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 		.sjl-print-table th, .sjl-print-table td {
 			border-bottom: 1px solid #e0f2fe;

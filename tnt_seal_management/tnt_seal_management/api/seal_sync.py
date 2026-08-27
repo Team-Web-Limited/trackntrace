@@ -10,7 +10,7 @@ import re
 
 import frappe
 from frappe import _
-from frappe.utils import get_datetime, now_datetime
+from frappe.utils import cstr, get_datetime, now_datetime
 
 from tnt_seal_management.tnt_seal_management.api.seal_api_client import (
 	_save_sync_log,
@@ -1117,6 +1117,50 @@ def export_pdf(html, filename):
 	frappe.local.response.filename = f"{filename}.pdf"
 	frappe.local.response.filecontent = get_pdf(html, options=options)
 	frappe.local.response.type = "pdf"
+
+
+# (label, key, column width) — same columns the PDF report shows. The Seal
+# Device Dashboard filters entirely client-side (one unfiltered fetch, then JS
+# narrows it down), so unlike the other list pages there's no server-side
+# filter to replay here: the client sends the already-filtered, already-
+# formatted rows as JSON, the same way export_pdf receives already-built HTML.
+_DEVICE_EXPORT_COLUMNS = (
+	("Seal", "name", 20),
+	("Status", "status", 20),
+	("Warehouse", "warehouse", 24),
+	("Journey", "journey", 20),
+	("Vehicle", "vehicle", 18),
+	("Location", "location", 30),
+	("Battery", "battery", 12),
+	("Last Sync", "last_sync", 20),
+)
+
+
+@frappe.whitelist()
+def export_excel(rows, filename):
+	"""Render the Seal Device Dashboard's currently filtered rows (built
+	client-side, same rows as export_pdf) to an .xlsx workbook."""
+	from frappe.utils.xlsxutils import make_xlsx
+
+	_require_dashboard_permission()
+
+	rows = frappe.parse_json(rows)
+	if not rows:
+		frappe.throw(_("No seal devices match the current filters."))
+
+	data = [[_(label) for label, key, width in _DEVICE_EXPORT_COLUMNS]]
+	for row in rows:
+		data.append([cstr(row.get(key)) for label, key, width in _DEVICE_EXPORT_COLUMNS])
+
+	xlsx_file = make_xlsx(
+		data,
+		"Seal Devices",
+		column_widths=[width for label, key, width in _DEVICE_EXPORT_COLUMNS],
+	)
+
+	frappe.local.response.filename = f"{filename}.xlsx"
+	frappe.local.response.filecontent = xlsx_file.getvalue()
+	frappe.local.response.type = "binary"
 
 
 # Matches the seal-tracking-dashboard Page's own role list — distinct from

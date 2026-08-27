@@ -17,7 +17,8 @@ frappe.pages["journey-monitoring"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
-	page.add_inner_button(__("Download Report"), () => _export_journey_monitoring_pdf(page));
+	page.add_inner_button(__("Excel"), () => _export_journey_monitoring_excel(page), __("Download Report"));
+	page.add_inner_button(__("PDF"), () => _export_journey_monitoring_pdf(page), __("Download Report"));
 	page.add_inner_button(__("Refresh"), () => _load_data(page));
 
 	// Inject compact stats bar into the Frappe page header
@@ -461,17 +462,19 @@ function _export_journey_monitoring_pdf(page) {
 						<style>${_jm_print_styles()}</style>
 					</head>
 					<body>
-						<div class="jm-print-header">
-							<div>
-								<h2>${__("Journey Monitoring Report")}</h2>
-								<p class="jm-print-meta">
-									${__("Filter")}: ${frappe.utils.escape_html(filterLabel)}
-									&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
-									&nbsp;•&nbsp; ${__("{0} journey(s)", [journeys.length])}
-								</p>
-							</div>
-							{{TNT_LOGO}}
-						</div>
+						<table class="jm-print-header">
+							<tr>
+								<td class="jm-print-header-title">
+									<h2>${__("Journey Monitoring Report")}</h2>
+									<p class="jm-print-meta">
+										${__("Filter")}: ${frappe.utils.escape_html(filterLabel)}
+										&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+										&nbsp;•&nbsp; ${__("{0} journey(s)", [journeys.length])}
+									</p>
+								</td>
+								<td class="jm-print-header-logo">{{TNT_LOGO}}</td>
+							</tr>
+						</table>
 						<table class="jm-print-table">
 							<thead>
 								<tr>
@@ -504,6 +507,32 @@ function _export_journey_monitoring_pdf(page) {
 		error() {
 			frappe.show_alert({ message: __("Failed to prepare the report"), indicator: "red" }, 5);
 		},
+	});
+}
+
+// ---------------------------------------------------------------------------
+// Excel export — the same filtered set as the PDF, but built server-side into
+// an .xlsx workbook (one row per seal, same as the PDF report) so the rows
+// stay sortable/filterable in a spreadsheet.
+// ---------------------------------------------------------------------------
+
+function _export_journey_monitoring_excel(page) {
+	const s = page.jm_state;
+
+	// The server throws on an empty result, which would replace this page with
+	// an error page (open_url_post posts the current window), so guard here
+	// using the count the last load reported for these same filters.
+	if (!s.total) {
+		frappe.show_alert({ message: __("No journeys match the current filters."), indicator: "orange" }, 5);
+		return;
+	}
+
+	open_url_post("/api/method/tnt_seal_management.tnt_seal_management.api.journey_monitoring.export_excel", {
+		view: s.view,
+		search: s.search,
+		from_date: s.from_date || null,
+		to_date: s.to_date || null,
+		filename: `Journey Monitoring Report - ${frappe.datetime.get_today()}`,
 	});
 }
 
@@ -552,18 +581,22 @@ function _journey_pdf_row_html(j, seal) {
 function _jm_print_styles() {
 	return `
 		body { font-family: sans-serif; padding: 24px; color: #0c4a6e; }
-		h2 { margin-bottom: 2px; color: #075985; }
+		h2 { margin-top: 0; margin-bottom: 2px; color: #075985; }
+		/* Table, not flexbox: the wkhtmltopdf on this box predates the patched
+		   Qt WebKit and ignores flex, which drops the logo below the title. */
 		.jm-print-header {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: 20px;
+			width: 100%;
+			border-collapse: collapse;
 			margin-bottom: 16px;
-			padding-bottom: 14px;
+		}
+		.jm-print-header td {
+			padding: 0 0 14px 0;
+			vertical-align: middle;
 			border-bottom: 3px solid #0284c7;
 		}
+		.jm-print-header-logo { width: 240px; text-align: right; }
 		.jm-print-meta { color: #0369a1; margin-top: 4px; margin-bottom: 0; font-size: 12px; }
-		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; }
 		.jm-print-table { width: 100%; border-collapse: collapse; font-size: 10px; }
 		.jm-print-table th, .jm-print-table td {
 			border-bottom: 1px solid #e0f2fe;

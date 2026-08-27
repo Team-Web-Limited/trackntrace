@@ -18,7 +18,8 @@ frappe.pages["tagging-booking-list"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
-	page.add_inner_button(__("Download Report"), () => _export_tagging_bookings_pdf(page));
+	page.add_inner_button(__("Excel"), () => _export_tagging_bookings_excel(page), __("Download Report"));
+	page.add_inner_button(__("PDF"), () => _export_tagging_bookings_pdf(page), __("Download Report"));
 	page.add_inner_button(__("Refresh"), () => _load_tagging_bookings(page));
 	page.set_primary_action(__("New Booking"), () => frappe.new_doc("Tagging Booking"));
 
@@ -241,18 +242,20 @@ function _export_tagging_bookings_pdf(page) {
 						<style>${_tagging_booking_print_styles()}</style>
 					</head>
 					<body>
-						<div class="tb-print-header">
-							<div>
-								<h2>${__("Tagging Booking Report")}</h2>
-								<p class="tb-print-meta">
-									${__("Status")}: ${frappe.utils.escape_html(filterLabel)}
-									&nbsp;•&nbsp; ${__("Client")}: ${frappe.utils.escape_html(customer)}
-									&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
-									&nbsp;•&nbsp; ${__("{0} booking(s)", [bookings.length])}
-								</p>
-							</div>
-							{{TNT_LOGO}}
-						</div>
+						<table class="tb-print-header">
+							<tr>
+								<td class="tb-print-header-title">
+									<h2>${__("Tagging Booking Report")}</h2>
+									<p class="tb-print-meta">
+										${__("Status")}: ${frappe.utils.escape_html(filterLabel)}
+										&nbsp;•&nbsp; ${__("Client")}: ${frappe.utils.escape_html(customer)}
+										&nbsp;•&nbsp; ${__("Generated")}: ${generatedOn}
+										&nbsp;•&nbsp; ${__("{0} booking(s)", [bookings.length])}
+									</p>
+								</td>
+								<td class="tb-print-header-logo">{{TNT_LOGO}}</td>
+							</tr>
+						</table>
 						<table class="tb-print-table">
 							<thead>
 								<tr>
@@ -282,6 +285,30 @@ function _export_tagging_bookings_pdf(page) {
 	});
 }
 
+// ---------------------------------------------------------------------------
+// Excel export — the same filtered set as the PDF, but built server-side into
+// an .xlsx workbook so the rows stay sortable/filterable in a spreadsheet.
+// ---------------------------------------------------------------------------
+
+function _export_tagging_bookings_excel(page) {
+	// The server throws on an empty result, which would replace this page with
+	// an error page (open_url_post posts the current window), so guard here
+	// using the count the last load reported for these same filters.
+	if (!page.tb_state.total) {
+		frappe.show_alert({ message: __("No bookings match the current filters."), indicator: "orange" }, 5);
+		return;
+	}
+
+	open_url_post("/api/method/tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.export_excel", {
+		search: page.tb_state.search,
+		status: page.tb_state.status,
+		customer: page.tb_state.customer,
+		from_date: page.tb_state.from_date,
+		to_date: page.tb_state.to_date,
+		filename: `Tagging Booking Report - ${frappe.datetime.get_today()}`,
+	});
+}
+
 function _tagging_booking_pdf_row_html(booking) {
 	const esc = frappe.utils.escape_html;
 	const dash = "—";
@@ -305,10 +332,14 @@ function _tagging_booking_pdf_row_html(booking) {
 function _tagging_booking_print_styles() {
 	return `
 		body { font-family: sans-serif; padding: 24px; color: #1e293b; }
-		h2 { margin-bottom: 2px; }
-		.tb-print-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 12px; }
+		h2 { margin-top: 0; margin-bottom: 2px; }
+		/* Table, not flexbox: the wkhtmltopdf on this box predates the patched
+		   Qt WebKit and ignores flex, which drops the logo below the title. */
+		.tb-print-header { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+		.tb-print-header td { padding: 0; vertical-align: top; }
+		.tb-print-header-logo { width: 240px; text-align: right; }
 		.tb-print-meta { color: #64748b; margin-top: 0; margin-bottom: 0; font-size: 12px; }
-		.tnt-pdf-logo { max-height: 60px; max-width: 220px; object-fit: contain; }
+		.tnt-pdf-logo { max-height: 60px; max-width: 220px; }
 		.tb-print-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 		.tb-print-table th, .tb-print-table td { border-bottom: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; }
 		.tb-print-table th { background: #f8fafc; }

@@ -3,6 +3,7 @@
 
 import frappe
 from frappe import _
+from frappe.utils import cstr, today
 
 _FIELDS = [
 	"name", "customer", "vehicle_plate_number", "container_number",
@@ -99,11 +100,7 @@ def export_pdf(html, filename):
 	client-side, same approach as the Seal Device Dashboard's export) to a PDF."""
 	from frappe.utils.pdf import get_pdf
 
-	if not set(frappe.get_roles(frappe.session.user)) & _EXPORT_ROLES:
-		frappe.throw(
-			_("You do not have permission to export seal journeys."),
-			frappe.PermissionError,
-		)
+	_check_export_permission()
 
 	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
 
@@ -119,6 +116,62 @@ def export_pdf(html, filename):
 	frappe.local.response.filename = f"{filename}.pdf"
 	frappe.local.response.filecontent = get_pdf(html, options=options)
 	frappe.local.response.type = "pdf"
+
+
+# (label, fieldname, column width). Route and Duration are computed at export
+# time (same as the PDF row rendering) rather than stored fields.
+_EXPORT_COLUMNS = (
+	("Journey ID", "name", 20),
+	("Customer", "customer", 28),
+	("Vehicle", "vehicle_plate_number", 18),
+	("Container", "container_number", 18),
+	("Origin", "origin", 22),
+	("Destination", "destination", 22),
+	("Duration (days)", "days_taken", 16),
+	("Status", "journey_status", 20),
+)
+
+
+@frappe.whitelist()
+def export_excel(status="All", search=None, filename=None):
+	"""Render the Seal Journey list's currently filtered rows to an .xlsx
+	workbook — the spreadsheet counterpart of export_pdf."""
+	from frappe.utils.xlsxutils import make_xlsx
+
+	_check_export_permission()
+
+	journeys = get_all_seal_journeys_for_export(status, search)
+	if not journeys:
+		frappe.throw(_("No journeys match the current filters."))
+
+	data = [[_(label) for label, fieldname, width in _EXPORT_COLUMNS]]
+	for journey in journeys:
+		row = []
+		for label, fieldname, width in _EXPORT_COLUMNS:
+			value = journey.get(fieldname)
+			if fieldname == "days_taken" and value:
+				value = round(float(value), 1)
+			row.append(cstr(value) if value not in (None, "") else "")
+		data.append(row)
+
+	xlsx_file = make_xlsx(
+		data,
+		"Seal Journeys",
+		column_widths=[width for label, fieldname, width in _EXPORT_COLUMNS],
+	)
+
+	filename = filename or f"Seal Journey Report - {today()}"
+	frappe.local.response.filename = f"{filename}.xlsx"
+	frappe.local.response.filecontent = xlsx_file.getvalue()
+	frappe.local.response.type = "binary"
+
+
+def _check_export_permission():
+	if not set(frappe.get_roles(frappe.session.user)) & _EXPORT_ROLES:
+		frappe.throw(
+			_("You do not have permission to export seal journeys."),
+			frappe.PermissionError,
+		)
 
 
 def _get_tnt_logo_img_tag():

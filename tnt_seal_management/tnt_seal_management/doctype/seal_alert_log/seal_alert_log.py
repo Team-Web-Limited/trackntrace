@@ -6,7 +6,7 @@ import re
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cint, cstr, format_datetime, now_datetime
+from frappe.utils import cint, cstr, format_datetime, now_datetime, today
 
 from tnt_seal_management.tnt_seal_management.api.seal_sync import _get_tnt_logo_img_tag
 
@@ -359,11 +359,7 @@ def export_pdf(html, filename):
 	client-side, same approach as the Seal Device Dashboard's export) to a PDF."""
 	from frappe.utils.pdf import get_pdf
 
-	if not set(frappe.get_roles(frappe.session.user)) & _EXPORT_ROLES:
-		frappe.throw(
-			_("You do not have permission to export seal alerts."),
-			frappe.PermissionError,
-		)
+	_check_export_permission()
 
 	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
 
@@ -379,6 +375,63 @@ def export_pdf(html, filename):
 	frappe.local.response.filename = f"{filename}.pdf"
 	frappe.local.response.filecontent = get_pdf(html, options=options)
 	frappe.local.response.type = "pdf"
+
+
+# (label, fieldname, column width) — same columns the PDF report shows.
+_EXPORT_COLUMNS = (
+	("Level", "level", 14),
+	("Type", "alert_type", 22),
+	("Message", "message", 40),
+	("Seal", "seal_device", 20),
+	("Location", "seal_location", 26),
+	("Occurred At", "occurred_at", 20),
+	("Resolution", "_resolution", 16),
+)
+
+
+@frappe.whitelist()
+def export_excel(search=None, level=None, alert_type=None, status="open", from_date=None, to_date=None, filename=None):
+	"""Render the Control Room Alert tab's currently filtered rows to an .xlsx
+	workbook — the spreadsheet counterpart of export_pdf."""
+	from frappe.utils.xlsxutils import make_xlsx
+
+	_check_export_permission()
+
+	alerts = get_all_alerts_for_export(search, level, alert_type, status, from_date, to_date)
+	if not alerts:
+		frappe.throw(_("No alerts match the current filters."))
+
+	data = [[_(label) for label, fieldname, width in _EXPORT_COLUMNS]]
+	for alert in alerts:
+		resolution = "Resolved" if alert.get("is_resolved") else (
+			"Escalated" if alert.get("resolution_status") == "Escalated" else "Open"
+		)
+		row = []
+		for label, fieldname, width in _EXPORT_COLUMNS:
+			value = resolution if fieldname == "_resolution" else alert.get(fieldname)
+			if fieldname == "occurred_at" and value:
+				value = frappe.utils.get_datetime(value).strftime("%Y-%m-%d %H:%M:%S")
+			row.append(cstr(value) if value not in (None, "") else "")
+		data.append(row)
+
+	xlsx_file = make_xlsx(
+		data,
+		"Seal Alerts",
+		column_widths=[width for label, fieldname, width in _EXPORT_COLUMNS],
+	)
+
+	filename = filename or f"Seal Alert Report - {today()}"
+	frappe.local.response.filename = f"{filename}.xlsx"
+	frappe.local.response.filecontent = xlsx_file.getvalue()
+	frappe.local.response.type = "binary"
+
+
+def _check_export_permission():
+	if not set(frappe.get_roles(frappe.session.user)) & _EXPORT_ROLES:
+		frappe.throw(
+			_("You do not have permission to export seal alerts."),
+			frappe.PermissionError,
+		)
 
 
 # Alert messages carry a per-device detail — "Low battery (5%)", "No update for

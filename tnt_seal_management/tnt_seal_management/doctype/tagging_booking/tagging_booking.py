@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cint, getdate, now_datetime
+from frappe.utils import cint, cstr, getdate, now_datetime, today
 
 from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey import (
 	set_journey_status,
@@ -266,11 +266,7 @@ def export_pdf(html, filename):
 	client-side, same approach as the Seal Device Dashboard's export) to a PDF."""
 	from frappe.utils.pdf import get_pdf
 
-	if not set(frappe.get_roles(frappe.session.user)) & _EXPORT_ROLES:
-		frappe.throw(
-			_("You do not have permission to export tagging bookings."),
-			frappe.PermissionError,
-		)
+	_check_export_permission()
 
 	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
 
@@ -286,6 +282,60 @@ def export_pdf(html, filename):
 	frappe.local.response.filename = f"{filename}.pdf"
 	frappe.local.response.filecontent = get_pdf(html, options=options)
 	frappe.local.response.type = "pdf"
+
+
+# (label, fieldname, column width) — same columns the PDF report shows.
+_EXPORT_COLUMNS = (
+	("Booking", "name", 20),
+	("Client", "client_name", 28),
+	("Location", "location", 24),
+	("Date and Time", "booking_date_time", 20),
+	("Contact Person", "contact_person_name", 24),
+	("Phone", "contact_person_phone", 18),
+	("Booking Status", "booking_status", 26),
+)
+
+
+@frappe.whitelist()
+def export_excel(search=None, status=None, customer=None, from_date=None, to_date=None, filename=None):
+	"""Render the Tagging Bookings list's currently filtered rows to an .xlsx
+	workbook — the spreadsheet counterpart of export_pdf."""
+	from frappe.utils.xlsxutils import make_xlsx
+
+	_check_export_permission()
+
+	bookings = get_all_bookings_for_export(search, status, customer, from_date, to_date)
+	if not bookings:
+		frappe.throw(_("No bookings match the current filters."))
+
+	data = [[_(label) for label, fieldname, width in _EXPORT_COLUMNS]]
+	for booking in bookings:
+		row = []
+		for label, fieldname, width in _EXPORT_COLUMNS:
+			value = booking.get(fieldname)
+			if fieldname == "booking_date_time" and value:
+				value = frappe.utils.get_datetime(value).strftime("%Y-%m-%d %H:%M:%S")
+			row.append(cstr(value) if value not in (None, "") else "")
+		data.append(row)
+
+	xlsx_file = make_xlsx(
+		data,
+		"Tagging Bookings",
+		column_widths=[width for label, fieldname, width in _EXPORT_COLUMNS],
+	)
+
+	filename = filename or f"Tagging Booking Report - {today()}"
+	frappe.local.response.filename = f"{filename}.xlsx"
+	frappe.local.response.filecontent = xlsx_file.getvalue()
+	frappe.local.response.type = "binary"
+
+
+def _check_export_permission():
+	if not set(frappe.get_roles(frappe.session.user)) & _EXPORT_ROLES:
+		frappe.throw(
+			_("You do not have permission to export tagging bookings."),
+			frappe.PermissionError,
+		)
 
 
 def _get_tnt_logo_img_tag():

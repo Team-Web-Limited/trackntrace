@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cint, cstr, getdate, now_datetime
+from frappe.utils import cint, cstr, getdate, now_datetime, today
 
 from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey import (
 	set_journey_status,
@@ -873,11 +873,7 @@ def export_pdf(html, filename):
 	client-side, same approach as the Seal Device Dashboard's export) to a PDF."""
 	from frappe.utils.pdf import get_pdf
 
-	if not set(frappe.get_roles(frappe.session.user)) & _EXPORT_ROLES:
-		frappe.throw(
-			_("You do not have permission to export assignments."),
-			frappe.PermissionError,
-		)
+	_check_export_permission()
 
 	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
 
@@ -893,6 +889,69 @@ def export_pdf(html, filename):
 	frappe.local.response.filename = f"{filename}.pdf"
 	frappe.local.response.filecontent = get_pdf(html, options=options)
 	frappe.local.response.type = "pdf"
+
+
+# (label, fieldname, column width). "Job Order/Journey" is computed at export
+# time (same as the PDF row rendering) rather than a single stored field.
+_EXPORT_COLUMNS = (
+	("Status", "assignment_status", 26),
+	("Type", "request_type", 16),
+	("Tag Operator", "assigned_field_technician", 24),
+	("Client", "client_name", 28),
+	("Location", "location", 24),
+	("Scheduled", "scheduled_date_time", 20),
+	("Contact Person", "contact_person_name", 24),
+	("Phone", "contact_person_phone", 18),
+	("Job Order/Journey", "_source", 20),
+)
+
+
+@frappe.whitelist()
+def export_excel(search=None, status=None, field_technician=None, from_date=None, to_date=None, filename=None):
+	"""Render the Assignment list's currently filtered rows to an .xlsx
+	workbook — the spreadsheet counterpart of export_pdf."""
+	from frappe.utils.xlsxutils import make_xlsx
+
+	_check_export_permission()
+
+	assignments = get_all_assignments_for_export(search, status, field_technician, from_date, to_date)
+	if not assignments:
+		frappe.throw(_("No assignments match the current filters."))
+
+	data = [[_(label) for label, fieldname, width in _EXPORT_COLUMNS]]
+	data.extend(_assignment_export_row(assignment) for assignment in assignments)
+
+	xlsx_file = make_xlsx(
+		data,
+		"Assignments",
+		column_widths=[width for label, fieldname, width in _EXPORT_COLUMNS],
+	)
+
+	filename = filename or f"Assignment Report - {today()}"
+	frappe.local.response.filename = f"{filename}.xlsx"
+	frappe.local.response.filecontent = xlsx_file.getvalue()
+	frappe.local.response.type = "binary"
+
+
+def _assignment_export_row(assignment):
+	is_journey_sourced = assignment.get("request_type") in ("Untagging", "Seal Return")
+	source = assignment.get("seal_journey") if is_journey_sourced else assignment.get("pcb_job_order")
+
+	row = []
+	for label, fieldname, width in _EXPORT_COLUMNS:
+		value = source if fieldname == "_source" else assignment.get(fieldname)
+		if fieldname == "scheduled_date_time" and value:
+			value = frappe.utils.get_datetime(value).strftime("%Y-%m-%d %H:%M:%S")
+		row.append(cstr(value) if value not in (None, "") else "")
+	return row
+
+
+def _check_export_permission():
+	if not set(frappe.get_roles(frappe.session.user)) & _EXPORT_ROLES:
+		frappe.throw(
+			_("You do not have permission to export assignments."),
+			frappe.PermissionError,
+		)
 
 
 def _get_tnt_logo_img_tag():

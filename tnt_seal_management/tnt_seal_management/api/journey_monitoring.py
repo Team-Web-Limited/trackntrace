@@ -11,7 +11,7 @@ fields already synced onto each Seal Journey (no extra tracking endpoint).
 
 import frappe
 from frappe import _
-from frappe.utils import flt, get_datetime, now_datetime
+from frappe.utils import cstr, flt, get_datetime, now_datetime, today
 
 from tnt_seal_management.tnt_seal_management.billing import get_applicable_billing_rule
 from tnt_seal_management.tnt_seal_management.api.seal_sync import (
@@ -195,6 +195,96 @@ def export_pdf(html, filename):
 	frappe.local.response.filename = f"{filename}.pdf"
 	frappe.local.response.filecontent = get_pdf(html, options=options)
 	frappe.local.response.type = "pdf"
+
+
+# Short role tag per custodian_type — mirrors JM_CUSTODY_BADGE in journey_monitoring.js.
+_CUSTODY_TAGS = {
+	"Warehouse": "Warehouse",
+	"Team Lead": "Team Lead",
+	"Field Technician": "Field Tech",
+	"Customer": "Customer",
+}
+
+# (label, fieldname, column width). Warehouse/Seal/Lock/Battery/Location/Alerts
+# are computed per seal at export time — one row per seal, same as the PDF
+# report's per-seal row expansion (_journey_pdf_rows_html on the client).
+_EXPORT_COLUMNS = (
+	("Journey", "name", 20),
+	("Client", "customer", 26),
+	("Vehicle", "vehicle_plate_number", 16),
+	("Container", "container_number", 18),
+	("Origin", "origin", 22),
+	("Destination", "destination", 22),
+	("Status", "journey_status", 24),
+	("Warehouse", "_warehouse", 26),
+	("Seal", "_seal_number", 16),
+	("Lock", "_lock", 12),
+	("Battery", "_battery", 10),
+	("Location", "_location", 22),
+	("Alerts", "_alerts", 34),
+)
+
+
+@frappe.whitelist()
+def export_excel(view="all", search=None, from_date=None, to_date=None, filename=None):
+	"""Render the Journey Monitoring list's currently filtered rows to an .xlsx
+	workbook — the spreadsheet counterpart of export_pdf. One row per seal,
+	matching the PDF report's per-seal row expansion."""
+	from frappe.utils.xlsxutils import make_xlsx
+
+	_require_dashboard_permission()
+
+	journeys = get_all_journeys_for_export(view, search, from_date, to_date)
+	if not journeys:
+		frappe.throw(_("No journeys match the current filters."))
+
+	data = [[_(label) for label, fieldname, width in _EXPORT_COLUMNS]]
+	for journey in journeys:
+		data.extend(_journey_export_rows(journey))
+
+	xlsx_file = make_xlsx(
+		data,
+		"Journey Monitoring",
+		column_widths=[width for label, fieldname, width in _EXPORT_COLUMNS],
+	)
+
+	filename = filename or f"Journey Monitoring Report - {today()}"
+	frappe.local.response.filename = f"{filename}.xlsx"
+	frappe.local.response.filecontent = xlsx_file.getvalue()
+	frappe.local.response.type = "binary"
+
+
+def _journey_export_rows(journey):
+	warehouse_holder = journey.get("current_warehouse")
+	if warehouse_holder:
+		tag = _CUSTODY_TAGS.get(journey.get("custodian_type"))
+		warehouse = f"{tag} - {warehouse_holder}" if tag else warehouse_holder
+	else:
+		warehouse = ""
+
+	seals = journey.get("seals") or [{}]
+	rows = []
+	for seal in seals:
+		battery = seal.get("battery_level")
+		alerts = "; ".join(a.get("message", "") for a in (seal.get("alerts") or []))
+
+		values = {
+			"name": journey.get("name"),
+			"customer": journey.get("customer"),
+			"vehicle_plate_number": journey.get("vehicle_plate_number"),
+			"container_number": journey.get("container_number"),
+			"origin": journey.get("origin"),
+			"destination": journey.get("destination"),
+			"journey_status": journey.get("journey_status"),
+			"_warehouse": warehouse,
+			"_seal_number": seal.get("seal_number"),
+			"_lock": seal.get("lock_status"),
+			"_battery": f"{battery}%" if battery or battery == 0 else "",
+			"_location": seal.get("api_location"),
+			"_alerts": alerts,
+		}
+		rows.append([cstr(values.get(fieldname)) for label, fieldname, width in _EXPORT_COLUMNS])
+	return rows
 
 
 # ---------------------------------------------------------------------------
