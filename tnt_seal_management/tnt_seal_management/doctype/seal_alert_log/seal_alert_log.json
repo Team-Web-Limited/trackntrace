@@ -255,6 +255,12 @@
    "role": "Management"
   },
   {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Account Manager"
+  },
+  {
    "create": 1,
    "delete": 1,
    "email": 1,

@@ -357,8 +357,10 @@ def get_permission_query_conditions(user=None):
 
 	roles = set(frappe.get_roles(user))
 	# The PCB Team Leader is in this set because they sign off seal returns —
-	# see approve_seal_return.
-	if roles & {"System Manager", "Management", "Operations Control Room", PCB_TEAM_LEAD_ROLE}:
+	# see approve_seal_return. Finance PCB and Account Manager are dashboard
+	# viewers with no assignment of their own, so they see the full list too
+	# (mirrors the unconditional True in has_permission below).
+	if roles & {"System Manager", "Management", "Operations Control Room", PCB_TEAM_LEAD_ROLE, "Finance PCB", "Account Manager"}:
 		return ""
 
 	if "Field Technician" in roles:
@@ -372,7 +374,7 @@ def has_permission(doc, user=None, permission_type=None):
 		user = frappe.session.user
 
 	roles = set(frappe.get_roles(user))
-	if roles & {"System Manager", "Management", "Operations Control Room", PCB_TEAM_LEAD_ROLE}:
+	if roles & {"System Manager", "Management", "Operations Control Room", PCB_TEAM_LEAD_ROLE, "Finance PCB", "Account Manager"}:
 		return True
 
 	if "Field Technician" in roles:

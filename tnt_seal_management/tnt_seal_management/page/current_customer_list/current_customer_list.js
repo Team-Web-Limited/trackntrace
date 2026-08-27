@@ -412,6 +412,45 @@ function _customer_show_billing_dialog(page, data) {
 	const currentLeasingTerms = cur.billing_type === "Leasing" ? cur.rule || {} : {};
 	const currentSubscriptionTerms = cur.billing_type === "Subscription" ? cur.rule || {} : {};
 
+	// --- Per-journey-type rates -------------------------------------------
+	// Rates differ by the kind of seal journey being billed. Import and Export
+	// are priced identically, so the three Journey Type options collapse onto
+	// two stored rate sets ("buckets") — switching Import <-> Export therefore
+	// keeps the same rates, while switching to/from Local swaps them.
+	// Mirrors JOURNEY_TYPE_BUCKET in api/current_customers.py.
+	const JT_LOCAL = "Local";
+	const JT_IMPORT_EXPORT = "Import/Export";
+	const JT_BUCKET = { Local: JT_LOCAL, Import: JT_IMPORT_EXPORT, Export: JT_IMPORT_EXPORT };
+	// Only the rate *amounts* vary per journey type. Currency and Frequency are
+	// contract-level and deliberately carry across a switch untouched.
+	const JT_RATE_FIELDS = [
+		"first_period_days",
+		"first_period_amount",
+		"extra_day_rate",
+		"owned_rate_per_seal",
+		"lease_rate_per_seal",
+	];
+
+	const rulesByBucket = data.rules_by_journey_type || {};
+	const snapshotRule = (rule) => {
+		if (!rule) return null;
+		const snap = {};
+		JT_RATE_FIELDS.forEach((f) => {
+			snap[f] = rule[f] ?? null;
+		});
+		return snap;
+	};
+	// Seeded from the server, then kept up to date as the user edits — so
+	// switching away and back within one dialog session restores what was typed
+	// rather than re-reading stale server values. A null entry means "no rate
+	// set stored yet", which is what makes the fields blank out so a new one
+	// can be entered.
+	const journeyRateCache = {
+		[JT_LOCAL]: snapshotRule(rulesByBucket[JT_LOCAL]),
+		[JT_IMPORT_EXPORT]: snapshotRule(rulesByBucket[JT_IMPORT_EXPORT]),
+	};
+	let activeJourneyBucket = JT_LOCAL;
+
 	// Tax treatment for this customer — drives VAT on Completed Journeys and
 	// elsewhere. Rendered as radio buttons (Set Billing modal spec), not a
 	// Select, since there are only three mutually-exclusive options.
@@ -502,6 +541,18 @@ function _customer_show_billing_dialog(page, data) {
 				fieldname: "computation_html",
 				label: __("Computation"),
 				depends_on: 'eval:doc.billing_type=="Subscription" && doc.billing_rule_label=="Non-Flat Rate"',
+			},
+			{ fieldtype: "Column Break" },
+			{
+				// Not tied to billing_type — shown regardless of Subscription vs
+				// Leasing. Introduced here as a placeholder for future billing
+				// logic; not yet read anywhere (no depends_on, not part of any
+				// primary_action save payload).
+				fieldtype: "Select",
+				fieldname: "journey_type",
+				label: __("Journey Type"),
+				options: ["Local", "Import", "Export"],
+				default: "Local",
 			},
 
 			// Only relevant for Subscription customers — a customer who owns
@@ -595,7 +646,7 @@ function _customer_show_billing_dialog(page, data) {
 				fieldtype: "Autocomplete",
 				fieldname: "billing_period_type",
 				label: __("Frequency"),
-				options: "\nWeekly\nBi-Weekly\nMonthly\nQuarterly\nSemi-Annually\nAnnually",
+				options: "\nWeekly\nBi-Weekly\nMonthly\nQuarterly\nSemi-Annually\nAnnually\nDays",
 				default: currentSubscriptionTerms.billing_period_type || "Monthly",
 				depends_on: 'eval:doc.billing_type=="Subscription"',
 			},
@@ -759,7 +810,23 @@ function _customer_show_billing_dialog(page, data) {
 			if (ownershipArgs === false) return; // validation failed, message already shown
 			const extraArgs = _customer_collect_extra_billing_args(dialog);
 			if (extraArgs === false) return; // validation failed, message already shown
-			const recurringArgs = { leaseArgs, ownershipArgs, extraArgs };
+
+			// Which rate set this save targets. Saving the Import/Export set is
+			// rates-only: the recurring Lease/Ownership Subscriptions and the
+			// Extra Billing agreement are contract-level (billed on a cycle, not
+			// per journey), so pushing this tab's per-seal rate into them would
+			// silently rewrite the customer's recurring fee. The backend skips
+			// the assignment/tax/disabled writes for the same reason.
+			const journeyBucket = JT_BUCKET[dialog.get_value("journey_type")] || JT_LOCAL;
+			const isPrimaryJourneyType = journeyBucket === JT_LOCAL;
+			const recurringArgs = isPrimaryJourneyType
+				? { leaseArgs, ownershipArgs, extraArgs }
+				: {};
+			const journeyRateArgs = {
+				journey_type: journeyBucket,
+				owned_rate_per_seal: dialog.get_value("owned_rate_per_seal") || 0,
+				lease_rate_per_seal: dialog.get_value("lease_rate_per_seal") || 0,
+			};
 
 			const outrightPurchase = dialog.get_value("outright_purchase") ? 1 : 0;
 			const ownedSealCount = dialog.get_value("owned_seal_count");
@@ -809,6 +876,7 @@ function _customer_show_billing_dialog(page, data) {
 						tax_category: taxCategory,
 						outright_purchase: outrightPurchase,
 						owned_seal_count: outrightPurchase ? ownedSealCount : 0,
+						...journeyRateArgs,
 					},
 					dialog,
 					recurringArgs
@@ -860,6 +928,7 @@ function _customer_show_billing_dialog(page, data) {
 					tax_category: taxCategory,
 					outright_purchase: outrightPurchase,
 					owned_seal_count: outrightPurchase ? ownedSealCount : 0,
+					...journeyRateArgs,
 				},
 				dialog,
 				recurringArgs
@@ -1061,6 +1130,46 @@ function _customer_show_billing_dialog(page, data) {
 		refreshExtraCurrency();
 	};
 
+	// Snapshot whatever rate amounts are currently on the form, so they can be
+	// restored if the user switches journey type and comes back.
+	const captureJourneyRates = () => {
+		const snap = {};
+		JT_RATE_FIELDS.forEach((f) => {
+			const v = dialog.get_value(f);
+			snap[f] = v === "" || v === undefined ? null : v;
+		});
+		return snap;
+	};
+
+	// Swaps the rate amounts when Journey Type changes. Import <-> Export is a
+	// no-op (same stored bucket, same rates). Local <-> Import/Export stashes
+	// the outgoing set and loads the incoming one — blanking the fields when
+	// that journey type has no rates yet, which is how a new set is entered.
+	const applyJourneyTypeRates = () => {
+		const bucket = JT_BUCKET[dialog.get_value("journey_type")] || JT_LOCAL;
+		if (bucket === activeJourneyBucket) return;
+
+		journeyRateCache[activeJourneyBucket] = captureJourneyRates();
+		activeJourneyBucket = bucket;
+
+		const incoming = journeyRateCache[bucket];
+		JT_RATE_FIELDS.forEach((f) => {
+			dialog.set_value(f, incoming ? incoming[f] ?? "" : "");
+		});
+		// The seat-based override derives Rate from count x rate-per-seal, so it
+		// has to re-run against the newly loaded (or blanked) per-seal rates.
+		applySeatBasedRateOverride();
+	};
+	// Read by _customer_load_seat_data so the live Subscription rates (which are
+	// the Local set) never overwrite the Import/Export fields on late arrival.
+	dialog.ccl_active_journey_bucket = () => activeJourneyBucket;
+	dialog.ccl_local_bucket = JT_LOCAL;
+	dialog.ccl_cache_local_seat_rate = (fieldname, value) => {
+		journeyRateCache[JT_LOCAL] = journeyRateCache[JT_LOCAL] || {};
+		journeyRateCache[JT_LOCAL][fieldname] = value;
+	};
+
+	dialog.fields_dict.journey_type.df.onchange = applyJourneyTypeRates;
 	dialog.fields_dict.billing_type.df.onchange = applyFieldModeForType;
 	dialog.fields_dict.billing_rule_label.df.onchange = applyFieldModeForType;
 	dialog.fields_dict.outright_purchase.df.onchange = applyBillingTypeOptionsForOwnership;
@@ -1263,8 +1372,11 @@ function _customer_load_seat_data(dialog, customer, onComplete) {
 		args: { customer },
 		callback(r) {
 			const info = r.message || {};
+			// Seal counts are contract-level (the customer leases N seals however
+			// the journey is classified), so this one applies regardless of the
+			// journey type on screen.
 			dialog.set_value("lease_seal_count", info.seal_count || null);
-			dialog.set_value("lease_rate_per_seal", info.rate_per_seal || null);
+			_customer_apply_local_seat_rate(dialog, "lease_rate_per_seal", info.rate_per_seal || null);
 			settle();
 		},
 		error() {
@@ -1278,7 +1390,7 @@ function _customer_load_seat_data(dialog, customer, onComplete) {
 		args: { customer },
 		callback(r) {
 			const info = r.message || {};
-			dialog.set_value("owned_rate_per_seal", info.rate_per_seal || null);
+			_customer_apply_local_seat_rate(dialog, "owned_rate_per_seal", info.rate_per_seal || null);
 			settle();
 		},
 		error() {
@@ -1286,6 +1398,20 @@ function _customer_load_seat_data(dialog, customer, onComplete) {
 			settle();
 		},
 	});
+}
+
+// The live Subscriptions hold the *Local* per-seal rates (only Local feeds the
+// recurring fee — see set_customer_billing). These loads are async, so by the
+// time they land the user may already have switched the modal to Import/Export;
+// writing straight to the field would then silently overwrite that set's blank
+// (or freshly typed) rate. So the value always goes into the Local cache, and
+// only reaches the visible field while Local is the journey type on screen.
+function _customer_apply_local_seat_rate(dialog, fieldname, value) {
+	if (dialog.ccl_cache_local_seat_rate) dialog.ccl_cache_local_seat_rate(fieldname, value);
+	const activeBucket = dialog.ccl_active_journey_bucket && dialog.ccl_active_journey_bucket();
+	if (!activeBucket || activeBucket === dialog.ccl_local_bucket) {
+		dialog.set_value(fieldname, value);
+	}
 }
 
 // Loads the customer's Extra Billing agreement and reveals + fills the Extra
@@ -1567,6 +1693,9 @@ function _customer_submit_leasing_billing(page, customer, terms, dialog, recurri
 			tax_category: terms.tax_category,
 			outright_purchase: terms.outright_purchase,
 			owned_seal_count: terms.owned_seal_count,
+			journey_type: terms.journey_type,
+			owned_rate_per_seal: terms.owned_rate_per_seal,
+			lease_rate_per_seal: terms.lease_rate_per_seal,
 		},
 		freeze: true,
 		freeze_message: __("Saving billing…"),
@@ -1610,6 +1739,9 @@ function _customer_submit_billing(page, customer, terms, dialog, recurringArgs) 
 			tax_category: terms.tax_category,
 			outright_purchase: terms.outright_purchase,
 			owned_seal_count: terms.owned_seal_count,
+			journey_type: terms.journey_type,
+			owned_rate_per_seal: terms.owned_rate_per_seal,
+			lease_rate_per_seal: terms.lease_rate_per_seal,
 		},
 		freeze: true,
 		freeze_message: __("Saving billing…"),

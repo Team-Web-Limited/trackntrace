@@ -4,7 +4,7 @@
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2026-08-01 08:10:58.964778",
+ "modified": "2026-08-27 09:04:08.980708",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "seal-device-dashboard",
@@ -25,6 +25,9 @@
   },
   {
    "role": "PCB Team Leader"
+  },
+  {
+   "role": "Account Manager"
   }
  ],
  "script": null,

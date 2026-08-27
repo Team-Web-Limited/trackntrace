@@ -21,6 +21,7 @@ PERIOD_TYPE_DAYS = {
 # re-approved before it can be used again. See validate_approval_status().
 APPROVAL_WATCHED_FIELDS = (
 	"billing_type",
+	"journey_type",
 	"active",
 	"currency",
 	"billing_period_type",
@@ -30,6 +31,10 @@ APPROVAL_WATCHED_FIELDS = (
 	"first_period_days",
 	"first_period_amount",
 	"extra_day_rate",
+	# Per-seal rates are prices like any other term here, so re-pricing them on
+	# an already-approved rule sends it back for approval too.
+	"owned_rate_per_seal",
+	"lease_rate_per_seal",
 )
 
 
@@ -149,6 +154,12 @@ def approve_seal_billing_rate(name):
 	_ensure_managing_director_role()
 	doc = frappe.get_doc("Seal Billing Rate", name)
 	if doc.approval_status == "Approved":
+		# Nothing to transition, but still reconcile: a customer can end up
+		# assigned to an already-Approved rule (e.g. current_customers.py's
+		# _gate_customer_on_rule_approval running against stale data) without
+		# ever living through a Pending -> Approved transition here, so make
+		# sure they aren't left disabled on a rule that's fine.
+		_reenable_customers_pending_on_rule(doc.name)
 		return doc.as_dict()
 
 	doc.flags.approval_action = True
@@ -177,12 +188,29 @@ def _reenable_customers_pending_on_rule(rule_name):
 	re-enable every customer whose assignment points at it — unless that
 	customer has another active assignment (primary or extra-billing) still
 	sitting on a not-yet-approved rule, in which case they stay disabled."""
-	customers = frappe.get_all(
-		"Customer Billing Assignment",
-		filters={"assignment_type": "Customer", "billing_rule": rule_name, "active": 1},
-		pluck="customer",
+	customers = set(
+		frappe.get_all(
+			"Customer Billing Assignment",
+			filters={"assignment_type": "Customer", "billing_rule": rule_name, "active": 1},
+			pluck="customer",
+		)
 	)
-	for customer in set(customers):
+
+	# The Import/Export rate set has no assignment of its own (see
+	# current_customers._upsert_customer_*_rule — only Local gets one), so
+	# approving THAT rule would otherwise never reach the customer it
+	# belongs to via the lookup above. Reverse its private
+	# "<Customer Name> BR" name (current_customers._customer_rule_name) back
+	# to the customer directly.
+	rule = frappe.db.get_value(
+		"Seal Billing Rate", rule_name, ["billing_rule_name", "journey_type"], as_dict=True
+	)
+	if rule and rule.journey_type == "Import/Export" and (rule.billing_rule_name or "").endswith(" BR"):
+		owner = frappe.db.get_value("Customer", {"customer_name": rule.billing_rule_name[: -len(" BR")]}, "name")
+		if owner:
+			customers.add(owner)
+
+	for customer in customers:
 		if _customer_billing_fully_approved(customer):
 			frappe.db.set_value("Customer", customer, "disabled", 0)
 
@@ -194,6 +222,31 @@ def _customer_billing_fully_approved(customer):
 		pluck="billing_rule",
 	)
 	rule_names = {r for r in rule_names if r}
+
+	# The Import/Export rate set is a private sibling rule with no assignment
+	# of its own (see current_customers._upsert_customer_*_rule — only Local
+	# gets a Customer Billing Assignment), so it's invisible to the lookup
+	# above. Include it here too, by the same (name, journey_type) it's
+	# findable by, or a customer with a pending Import/Export rate would be
+	# wrongly treated as fully approved.
+	from tnt_seal_management.tnt_seal_management.api.current_customers import (
+		JOURNEY_TYPE_IMPORT_EXPORT,
+		_customer_rule_name,
+	)
+
+	customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
+	alt_rule = frappe.db.get_value(
+		"Seal Billing Rate",
+		{
+			"billing_rule_name": _customer_rule_name(customer_name),
+			"journey_type": JOURNEY_TYPE_IMPORT_EXPORT,
+			"active": 1,
+		},
+		"name",
+	)
+	if alt_rule:
+		rule_names.add(alt_rule)
+
 	if not rule_names:
 		return True
 

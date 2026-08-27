@@ -509,14 +509,51 @@ RULE_DISPLAY_FIELDS = [
 	"name",
 	"billing_rule_name",
 	"billing_type",
+	"journey_type",
 	"rate_type",
 	"computation_method",
 	"billing_period_type",
 	"first_period_days",
 	"first_period_amount",
 	"extra_day_rate",
+	"owned_rate_per_seal",
+	"lease_rate_per_seal",
 	"currency",
 ]
+
+# Rates differ by the kind of seal journey being billed. Import and Export are
+# priced identically, so they share a single stored rate set ("Import/Export")
+# rather than getting one rule each — the Journey Request's own journey_type
+# (Local/Import/Export) maps onto these two buckets via JOURNEY_TYPE_BUCKET.
+JOURNEY_TYPE_LOCAL = "Local"
+JOURNEY_TYPE_IMPORT_EXPORT = "Import/Export"
+JOURNEY_TYPE_BUCKETS = (JOURNEY_TYPE_LOCAL, JOURNEY_TYPE_IMPORT_EXPORT)
+JOURNEY_TYPE_BUCKET = {
+	"Local": JOURNEY_TYPE_LOCAL,
+	"Import": JOURNEY_TYPE_IMPORT_EXPORT,
+	"Export": JOURNEY_TYPE_IMPORT_EXPORT,
+	JOURNEY_TYPE_IMPORT_EXPORT: JOURNEY_TYPE_IMPORT_EXPORT,
+}
+
+
+def _resolve_journey_type(journey_type):
+	"""Normalise a caller-supplied journey type onto one of the two stored
+	buckets. Defaults to Local, which is the customer's primary rule and the
+	only one that existed before per-journey-type rates."""
+	if not journey_type:
+		return JOURNEY_TYPE_LOCAL
+	bucket = JOURNEY_TYPE_BUCKET.get(journey_type)
+	if not bucket:
+		frappe.throw(_("Invalid Journey Type {0}.").format(journey_type))
+	return bucket
+
+
+def _customer_rule_name(customer_name):
+	"""Auto-name for a customer's private rule. Both journey-type rate sets
+	share the one name — they're the same customer's contract, told apart by
+	``journey_type`` (surfaced as its own column on the Billing Rates page so
+	the approver can still distinguish them)."""
+	return f"{customer_name} BR"
 
 
 @frappe.whitelist()
@@ -590,10 +627,29 @@ def get_customer_billing(customer):
 				}
 			)
 
+	# Both journey-type rate sets, so the modal can swap between them without a
+	# round trip. Local mirrors current["rule"] (the assignment-resolved rule,
+	# overrides applied); Import/Export is looked up by name since it has no
+	# assignment of its own. A missing set comes back as None — the modal shows
+	# blank rate fields, which is how a new Import/Export set gets entered.
+	customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
+	rules_by_journey_type = {JOURNEY_TYPE_LOCAL: current["rule"]}
+	alt_rule = frappe.db.get_value(
+		"Seal Billing Rate",
+		{
+			"billing_rule_name": _customer_rule_name(customer_name),
+			"journey_type": JOURNEY_TYPE_IMPORT_EXPORT,
+		},
+		RULE_DISPLAY_FIELDS,
+		as_dict=True,
+	)
+	rules_by_journey_type[JOURNEY_TYPE_IMPORT_EXPORT] = alt_rule or None
+
 	return {
 		"customer": customer,
-		"customer_name": frappe.db.get_value("Customer", customer, "customer_name") or customer,
+		"customer_name": customer_name,
 		"current": current,
+		"rules_by_journey_type": rules_by_journey_type,
 		"tax_category": frappe.db.get_value("Customer", customer, "custom_tax_category") or TAX_CATEGORY_NORMAL,
 	}
 
@@ -615,6 +671,9 @@ def set_customer_billing(
 	tax_category=None,
 	outright_purchase=None,
 	owned_seal_count=None,
+	journey_type=None,
+	owned_rate_per_seal=None,
+	lease_rate_per_seal=None,
 ):
 	"""Assign billing to the customer.
 
@@ -636,13 +695,30 @@ def set_customer_billing(
 	window. ``outright_purchase``/``owned_seal_count`` (Set Billing modal's
 	Seal Ownership section) record whether this customer owns their seals
 	outright — independent of ``billing_type``, so captured the same way for
-	both Subscription and Leasing."""
+	both Subscription and Leasing.
+
+	``journey_type`` selects which of the customer's two rate sets this save
+	targets — ``Local`` (the primary rule, and the only one carrying the
+	contract-level settings) or ``Import/Export`` (a sibling rule holding only
+	its own rates). Saving the Import/Export set deliberately touches nothing
+	but that rule: the assignment, tax category, seal-ownership flags and the
+	recurring Subscription all belong to the customer as a whole, not to one
+	journey type, and rewriting them from the alternate tab would clobber the
+	Local contract. ``owned_rate_per_seal``/``lease_rate_per_seal`` are stored
+	per journey type; only the Local values feed the live Subscription (see
+	seal_lease_billing.py), so an Import/Export rate never double-bills the
+	customer's recurring fee."""
 	if not frappe.has_permission("Customer", "write"):
 		frappe.throw(_("Not permitted to update customers."), frappe.PermissionError)
 	if not customer or not frappe.db.exists("Customer", customer):
 		frappe.throw(_("Customer not found."))
 
-	if tax_category:
+	journey_type = _resolve_journey_type(journey_type)
+	# Only the Local save owns the customer-wide contract (assignment, tax
+	# category, disabled flag). The Import/Export save is rates-only.
+	is_primary_journey_type = journey_type == JOURNEY_TYPE_LOCAL
+
+	if tax_category and is_primary_journey_type:
 		if tax_category not in TAX_CATEGORY_OPTIONS:
 			frappe.throw(_("Invalid tax category."))
 		frappe.db.set_value("Customer", customer, "custom_tax_category", tax_category)
@@ -675,22 +751,32 @@ def set_customer_billing(
 			first_period_amount,
 			extra_day_rate,
 			currency,
+			journey_type=journey_type,
+			owned_rate_per_seal=owned_rate_per_seal,
+			lease_rate_per_seal=lease_rate_per_seal,
 		)
-		_upsert_customer_assignment(
-			customer,
-			rule_name,
-			effective_from=period_from_date or None,
-			effective_to=period_to_date or None,
-			# Leasing already bills off the customer's own fully private rate —
-			# clear out any override left over from a prior Subscription
-			# assignment so it can never silently apply here.
-			override_first_period_amount=None,
-			override_currency=None,
-			outright_purchase=outright_purchase,
-			owned_seal_count=owned_seal_count,
-		)
+		if is_primary_journey_type:
+			_upsert_customer_assignment(
+				customer,
+				rule_name,
+				effective_from=period_from_date or None,
+				effective_to=period_to_date or None,
+				# Leasing already bills off the customer's own fully private rate —
+				# clear out any override left over from a prior Subscription
+				# assignment so it can never silently apply here.
+				override_first_period_amount=None,
+				override_currency=None,
+				outright_purchase=outright_purchase,
+				owned_seal_count=owned_seal_count,
+			)
 
-		frappe.db.set_value("Customer", customer, "disabled", 1)
+		# Runs for both journey types: the Import/Export rate set has no
+		# assignment of its own, but it's still one of the customer's active
+		# rules — see _customer_billing_fully_approved, which now checks for
+		# it by name — so saving a new/edited one can just as well leave the
+		# customer newly pending, or clear a pending state that's now resolved.
+		_gate_customer_on_rule_approval(customer)
+
 		frappe.db.commit()
 		rule = frappe.db.get_value(
 			"Seal Billing Rate", rule_name, ["name", "billing_rule_name", "billing_type"], as_dict=True
@@ -726,21 +812,28 @@ def set_customer_billing(
 		first_period_amount,
 		extra_day_rate if rate_type == "Non-Flat Rate" else 0,
 		currency,
+		journey_type=journey_type,
+		owned_rate_per_seal=owned_rate_per_seal,
+		lease_rate_per_seal=lease_rate_per_seal,
 	)
-	_upsert_customer_assignment(
-		customer,
-		rule_name,
-		effective_from=period_from_date or None,
-		effective_to=period_to_date or None,
-		# Subscription now bills off the customer's own fully private rate too
-		# (same as Leasing) — no shared rule left to override on top of.
-		override_first_period_amount=None,
-		override_currency=None,
-		outright_purchase=outright_purchase,
-		owned_seal_count=owned_seal_count,
-	)
+	if is_primary_journey_type:
+		_upsert_customer_assignment(
+			customer,
+			rule_name,
+			effective_from=period_from_date or None,
+			effective_to=period_to_date or None,
+			# Subscription now bills off the customer's own fully private rate too
+			# (same as Leasing) — no shared rule left to override on top of.
+			override_first_period_amount=None,
+			override_currency=None,
+			outright_purchase=outright_purchase,
+			owned_seal_count=owned_seal_count,
+		)
 
-	frappe.db.set_value("Customer", customer, "disabled", 1)
+	# Runs for both journey types — see the mirroring comment in the Leasing
+	# branch above.
+	_gate_customer_on_rule_approval(customer)
+
 	frappe.db.commit()
 	rule = frappe.db.get_value(
 		"Seal Billing Rate", rule_name, ["name", "billing_rule_name", "billing_type"], as_dict=True
@@ -753,6 +846,54 @@ def set_customer_billing(
 	}
 
 
+def _gate_customer_on_rule_approval(customer):
+	"""Customer.disabled doubles as a "billing pending approval" gate: a
+	customer stays disabled from the moment billing is (re)assigned until the
+	Managing Director approves every one of their active rules — see
+	seal_billing_rate._reenable_customers_pending_on_rule /
+	_customer_billing_fully_approved, which flip it back on a *fresh* Pending
+	-> Approved transition.
+
+	That only fires on a transition, so unconditionally disabling here on
+	every save is wrong: re-saving a rule that's already Approved (nothing
+	actually pending) leaves the customer disabled with no future approval
+	event left to ever re-enable them. So gate on the customer's actual
+	current standing — same check _reenable_customers_pending_on_rule uses —
+	instead of blindly setting disabled=1. Checked across every active
+	assignment (primary + Extra Billing), not just the one just saved, so
+	saving one doesn't wrongly re-enable a customer still pending on the
+	other."""
+	from tnt_seal_management.tnt_seal_management.doctype.seal_billing_rate.seal_billing_rate import (
+		_customer_billing_fully_approved,
+	)
+
+	frappe.db.set_value(
+		"Customer", customer, "disabled", 0 if _customer_billing_fully_approved(customer) else 1
+	)
+
+
+def _find_customer_rule(expected_name, billing_type, journey_type):
+	"""Locate one of a customer's private rules.
+
+	The Local rule is reachable through the customer's active assignment, but
+	the Import/Export sibling deliberately has no assignment of its own (it
+	only carries a rate set). Since both share ``billing_rule_name``, the pair
+	is told apart by ``journey_type``. Scoped to billing_type too, so a rule
+	that has since switched type is rebuilt rather than silently reused with
+	the wrong shape."""
+	row = frappe.db.get_value(
+		"Seal Billing Rate",
+		{
+			"billing_rule_name": expected_name,
+			"billing_type": billing_type,
+			"journey_type": journey_type,
+		},
+		["name"],
+		as_dict=True,
+	)
+	return row.name if row else None
+
+
 def _upsert_customer_leasing_rule(
 	customer,
 	customer_name,
@@ -760,6 +901,9 @@ def _upsert_customer_leasing_rule(
 	first_period_amount,
 	extra_day_rate,
 	currency=None,
+	journey_type=None,
+	owned_rate_per_seal=None,
+	lease_rate_per_seal=None,
 ):
 	"""Create or update the customer's private Leasing rate, auto-named
 	"<Customer Name> BR". There is exactly one per customer — found via the
@@ -772,21 +916,33 @@ def _upsert_customer_leasing_rule(
 	escape hatch Frappe's own Data Import tooling uses for values outside the
 	current option list — while every other validation on the doctype (pricing,
 	single-global-default, etc.) still runs normally."""
+	journey_type = _resolve_journey_type(journey_type)
+	expected_name = _customer_rule_name(customer_name)
 	existing_rule = None
-	current_rule_name = frappe.db.get_value(
-		"Customer Billing Assignment",
-		{"assignment_type": "Customer", "customer": customer, "active": 1},
-		"billing_rule",
-		order_by="priority desc, modified desc",
-	)
-	if current_rule_name:
-		row = frappe.db.get_value("Seal Billing Rate", current_rule_name, ["name", "billing_type"], as_dict=True)
-		if row and row.billing_type == "Leasing":
-			existing_rule = row.name
+
+	if journey_type == JOURNEY_TYPE_LOCAL:
+		current_rule_name = frappe.db.get_value(
+			"Customer Billing Assignment",
+			{"assignment_type": "Customer", "customer": customer, "active": 1},
+			"billing_rule",
+			order_by="priority desc, modified desc",
+		)
+		if current_rule_name:
+			row = frappe.db.get_value(
+				"Seal Billing Rate", current_rule_name, ["name", "billing_type", "journey_type"], as_dict=True
+			)
+			# Guard on journey_type as well: the two sets share a name, so the
+			# assignment must never be followed into the Import/Export sibling.
+			if row and row.billing_type == "Leasing" and (row.journey_type or JOURNEY_TYPE_LOCAL) == JOURNEY_TYPE_LOCAL:
+				existing_rule = row.name
+	else:
+		# No assignment points at the Import/Export sibling — find it directly.
+		existing_rule = _find_customer_rule(expected_name, "Leasing", journey_type)
 
 	values = {
-		"billing_rule_name": f"{customer_name} BR",
+		"billing_rule_name": expected_name,
 		"billing_type": "Leasing",
+		"journey_type": journey_type,
 		"active": 1,
 		"is_global_default": 0,
 		# Leasing rules now require Managing Director approval
@@ -795,6 +951,8 @@ def _upsert_customer_leasing_rule(
 		"first_period_days": cint(first_period_days),
 		"first_period_amount": flt(first_period_amount),
 		"extra_day_rate": flt(extra_day_rate),
+		"owned_rate_per_seal": flt(owned_rate_per_seal),
+		"lease_rate_per_seal": flt(lease_rate_per_seal),
 	}
 
 	frappe.flags.in_import = True
@@ -822,6 +980,9 @@ def _upsert_customer_subscription_rule(
 	first_period_amount,
 	extra_day_rate,
 	currency=None,
+	journey_type=None,
+	owned_rate_per_seal=None,
+	lease_rate_per_seal=None,
 ):
 	"""Create or update the customer's private Subscription rate, auto-named
 	"<Customer Name> BR" — same mechanism as ``_upsert_customer_leasing_rule``,
@@ -843,24 +1004,41 @@ def _upsert_customer_subscription_rule(
 	charge is zeroed and instead batched across every journey billed together
 	at Sales Order generation time — see completed_journeys.generate_sales_order
 	/ _billing_summary's compound_charges)."""
-	expected_name = f"{customer_name} BR"
+	journey_type = _resolve_journey_type(journey_type)
+	expected_name = _customer_rule_name(customer_name)
 	existing_rule = None
-	current_rule_name = frappe.db.get_value(
-		"Customer Billing Assignment",
-		{"assignment_type": "Customer", "customer": customer, "active": 1},
-		"billing_rule",
-		order_by="priority desc, modified desc",
-	)
-	if current_rule_name:
-		row = frappe.db.get_value(
-			"Seal Billing Rate", current_rule_name, ["name", "billing_type", "billing_rule_name"], as_dict=True
+
+	if journey_type == JOURNEY_TYPE_LOCAL:
+		current_rule_name = frappe.db.get_value(
+			"Customer Billing Assignment",
+			{"assignment_type": "Customer", "customer": customer, "active": 1},
+			"billing_rule",
+			order_by="priority desc, modified desc",
 		)
-		if row and row.billing_type == "Subscription" and row.billing_rule_name == expected_name:
-			existing_rule = row.name
+		if current_rule_name:
+			row = frappe.db.get_value(
+				"Seal Billing Rate",
+				current_rule_name,
+				["name", "billing_type", "billing_rule_name", "journey_type"],
+				as_dict=True,
+			)
+			# Guard on journey_type as well: the two sets share a name, so the
+			# assignment must never be followed into the Import/Export sibling.
+			if (
+				row
+				and row.billing_type == "Subscription"
+				and row.billing_rule_name == expected_name
+				and (row.journey_type or JOURNEY_TYPE_LOCAL) == JOURNEY_TYPE_LOCAL
+			):
+				existing_rule = row.name
+	else:
+		# No assignment points at the Import/Export sibling — find it directly.
+		existing_rule = _find_customer_rule(expected_name, "Subscription", journey_type)
 
 	values = {
 		"billing_rule_name": expected_name,
 		"billing_type": "Subscription",
+		"journey_type": journey_type,
 		"rate_type": rate_type,
 		"computation_method": computation_method,
 		"active": 1,
@@ -870,6 +1048,8 @@ def _upsert_customer_subscription_rule(
 		"first_period_days": cint(first_period_days),
 		"first_period_amount": flt(first_period_amount),
 		"extra_day_rate": flt(extra_day_rate),
+		"owned_rate_per_seal": flt(owned_rate_per_seal),
+		"lease_rate_per_seal": flt(lease_rate_per_seal),
 	}
 
 	# frappe.flags.in_import bypasses the Select options check on
@@ -1103,7 +1283,7 @@ def set_customer_extra_billing(
 		effective_to=period_to_date or None,
 	)
 
-	frappe.db.set_value("Customer", customer, "disabled", 1)
+	_gate_customer_on_rule_approval(customer)
 	frappe.db.commit()
 	return {
 		"customer": customer,

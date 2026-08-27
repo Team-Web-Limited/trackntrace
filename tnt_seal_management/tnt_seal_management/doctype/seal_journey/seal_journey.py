@@ -433,11 +433,18 @@ def set_journey_status(seal_journey, status, extra=None):
 # ----------------------------------------------------------------------
 # Arrival / Untagging workflow actions (Operations Control Room)
 # ----------------------------------------------------------------------
-def _ensure_control_room_role():
+def _ensure_control_room_role(include_read_only=False):
+	"""Gate Control Room actions to Operations Control Room (System Manager
+	always passes). ``include_read_only`` also admits Account Manager, who
+	may only view queues (e.g. get_arrival_queue) — never call this with
+	include_read_only=True from a function that mutates a journey."""
 	roles = set(frappe.get_roles())
 	if "System Manager" in roles or frappe.session.user == "Administrator":
 		return
-	if "Operations Control Room" not in roles:
+	allowed_roles = {"Operations Control Room"}
+	if include_read_only:
+		allowed_roles.add("Account Manager")
+	if not roles & allowed_roles:
 		frappe.throw(
 			_("Only the Operations Control Room can perform this action."),
 			title=_("Insufficient Permission"),
@@ -573,7 +580,7 @@ def _confirm_remote_unlock(doc):
 def get_arrival_queue():
 	"""Seal Journeys currently In Transit, awaiting the Control Room's arrival /
 	seal-unlock confirmation — for the Approve tab's Arrivals section."""
-	_ensure_control_room_role()
+	_ensure_control_room_role(include_read_only=True)
 	journeys = frappe.get_list(
 		"Seal Journey",
 		filters={"journey_status": "In Transit"},

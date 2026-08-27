@@ -128,7 +128,7 @@ _RECURRING_ITEM_LABELS = {
 }
 
 _ALLOWED_ROLES = frozenset({
-	"System Manager", "Finance PCB", "Accounts Manager", "Accounts User",
+	"System Manager", "Finance PCB", "Accounts Manager", "Accounts User", "Account Manager",
 })
 
 _FIELDS = [

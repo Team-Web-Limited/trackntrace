@@ -242,7 +242,7 @@ def get_permission_query_conditions(user=None):
 		user = frappe.session.user
 
 	roles = set(frappe.get_roles(user))
-	if roles & {"System Manager", "Management", "Finance PCB"}:
+	if roles & {"System Manager", "Management", "Finance PCB", "Account Manager"}:
 		return ""
 
 	if "PCB Team Leader" in roles:
@@ -256,7 +256,7 @@ def has_permission(doc, user=None, permission_type=None):
 		user = frappe.session.user
 
 	roles = set(frappe.get_roles(user))
-	if roles & {"System Manager", "Management", "Finance PCB"}:
+	if roles & {"System Manager", "Management", "Finance PCB", "Account Manager"}:
 		return True
 
 	if "PCB Team Leader" in roles and doc.pcb_team_leader == user:

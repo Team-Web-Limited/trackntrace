@@ -4,7 +4,7 @@
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2026-08-05 20:31:47.615246",
+ "modified": "2026-08-27 09:04:08.675852",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "pcb-job-order-list",
@@ -25,6 +25,9 @@
   },
   {
    "role": "PCB Team Leader"
+  },
+  {
+   "role": "Account Manager"
   }
  ],
  "script": null,

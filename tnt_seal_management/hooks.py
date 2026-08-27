@@ -32,7 +32,27 @@ fixtures = [
 				],
 			]
 		],
-	}
+	},
+	{
+		# Grants the Account Manager role read/write access to the core
+		# Warehouse doctype, which the "Warehouses" dashboard card on the
+		# TNT Seal Management workspace links to. Shipping it as a fixture
+		# keeps the grant part of install/migrate rather than a DB-only
+		# change made through the Role Permission Manager.
+		"doctype": "Custom DocPerm",
+		"filters": [
+			[
+				"parent",
+				"=",
+				"Warehouse",
+			],
+			[
+				"role",
+				"=",
+				"Account Manager",
+			],
+		],
+	},
 ]
 
 # Apps

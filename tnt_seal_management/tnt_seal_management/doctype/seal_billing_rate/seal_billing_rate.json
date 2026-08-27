@@ -10,6 +10,7 @@
   "rule_details_section",
   "billing_rule_name",
   "billing_type",
+  "journey_type",
   "rate_type",
   "computation_method",
   "active",
@@ -24,6 +25,8 @@
   "first_period_amount",
   "pricing_column_break",
   "extra_day_rate",
+  "owned_rate_per_seal",
+  "lease_rate_per_seal",
   "approval_section",
   "approval_status",
   "approved_by",
@@ -54,6 +57,15 @@
    "in_list_view": 1,
    "label": "Billing Type",
    "options": "Subscription"
+  },
+  {
+   "default": "Local",
+   "description": "Which kind of seal journey this rate applies to. Rates differ by journey type: Local has its own set, while Import and Export share one. A customer's two rate sets share a single Billing Rule Name and are told apart by this field — Local is the customer's primary rule (the one their billing assignment points at), the Import/Export rule is a sibling carrying only its own rates. Each is approved separately. Set from Current Customer List → Set Billing.",
+   "fieldname": "journey_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Journey Type",
+   "options": "Local\nImport/Export"
   },
   {
    "depends_on": "eval:doc.billing_type=='Subscription'",
@@ -150,6 +162,20 @@
    "fieldname": "extra_day_rate",
    "fieldtype": "Currency",
    "label": "Extra Day Rate"
+  },
+  {
+   "description": "Per-seal service fee for seals the customer owns outright, for this journey type. Only the Local rule's value drives the customer's live recurring Subscription — see seal_lease_billing.py.",
+   "fieldname": "owned_rate_per_seal",
+   "fieldtype": "Currency",
+   "label": "Rate per Seal (Owned)",
+   "options": "currency"
+  },
+  {
+   "description": "Per-seal lease fee, for this journey type. Only the Local rule's value drives the customer's live recurring Subscription — see seal_lease_billing.py.",
+   "fieldname": "lease_rate_per_seal",
+   "fieldtype": "Currency",
+   "label": "Rate per Seal (Leased)",
+   "options": "currency"
   },
   {
    "fieldname": "approval_section",

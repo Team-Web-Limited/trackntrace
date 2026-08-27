@@ -4,7 +4,7 @@
  "docstatus": 0,
  "doctype": "Page",
  "idx": 0,
- "modified": "2026-07-24 13:27:08.255549",
+ "modified": "2026-08-27 09:04:08.781650",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "assignment-list",
@@ -28,6 +28,9 @@
   },
   {
    "role": "Finance PCB"
+  },
+  {
+   "role": "Account Manager"
   }
  ],
  "script": null,

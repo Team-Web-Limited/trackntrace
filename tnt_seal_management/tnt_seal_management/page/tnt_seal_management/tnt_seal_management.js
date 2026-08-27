@@ -30,10 +30,10 @@ const TNT_DASHBOARD_CARDS = [
 		icon: "🚚",
 		route: "seal-journey-list",
 		primary: true,
-		roles: ["System Manager", "Finance PCB", "Operations Control Room", "Managing Director"],
+		roles: ["System Manager", "Finance PCB", "Operations Control Room", "Managing Director", "Account Manager"],
 	},
 	{
-		title: "Journey Requests",
+		title: "Journey Start Request",
 		icon: "🧾",
 		route: "journey-request-list",
 		roles: [
@@ -43,6 +43,8 @@ const TNT_DASHBOARD_CARDS = [
 			"Operations Control Room",
 			"Field Technician",
 			"PCB Team Leader",
+			"Finance PCB",
+			"Account Manager",
 		],
 	},
 	{
@@ -56,14 +58,14 @@ const TNT_DASHBOARD_CARDS = [
 		title: "PCB Job Orders",
 		icon: "📋",
 		route: "pcb-job-order-list",
-		roles: ["System Manager", "Finance PCB", "Management", "Managing Director", "PCB Team Leader"],
+		roles: ["System Manager", "Finance PCB", "Management", "Managing Director", "PCB Team Leader", "Account Manager"],
 	},
 	{
 		title: "Assignments",
 		icon: "👷",
 		route: "assignment-list",
 		primary: true,
-		roles: ["System Manager", "PCB Team Leader", "Finance PCB", "Management", "Managing Director"],
+		roles: ["System Manager", "PCB Team Leader", "Finance PCB", "Management", "Managing Director", "Account Manager"],
 	},
 	{
 		title: "Current Customers",
@@ -82,7 +84,7 @@ const TNT_DASHBOARD_CARDS = [
 		title: "Vehicles",
 		icon: "🚘",
 		route: "vehicle-list",
-		roles: ["System Manager", "Management", "Managing Director", "Field Technician"],
+		roles: ["System Manager", "Management", "Managing Director", "Field Technician", "Account Manager"],
 	},
 	{
 		title: "Warehouses",
@@ -95,6 +97,7 @@ const TNT_DASHBOARD_CARDS = [
 			"Managing Director",
 			"PCB Team Leader",
 			"Field Technician",
+			"Account Manager",
 		],
 	},
 	{
@@ -107,6 +110,7 @@ const TNT_DASHBOARD_CARDS = [
 			"Management",
 			"Managing Director",
 			"PCB Team Leader",
+			"Account Manager",
 		],
 	},
 	{
@@ -126,6 +130,7 @@ const TNT_DASHBOARD_CARDS = [
 			"Managing Director",
 			"Accounts Manager",
 			"Accounts User",
+			"Account Manager",
 		],
 	},
 	{
@@ -138,6 +143,7 @@ const TNT_DASHBOARD_CARDS = [
 			"Operations Control Room",
 			"Management",
 			"Managing Director",
+			"Account Manager",
 		],
 	},
 	{
@@ -150,6 +156,7 @@ const TNT_DASHBOARD_CARDS = [
 			"Operations Control Room",
 			"Management",
 			"Managing Director",
+			"Account Manager",
 		],
 	},
 	{
@@ -162,6 +169,7 @@ const TNT_DASHBOARD_CARDS = [
 			"Operations Control Room",
 			"Management",
 			"Managing Director",
+			"Account Manager",
 		],
 	},
 	{
