@@ -162,7 +162,13 @@ class SealJourney(Document):
 			self._clear_billing(status="Not Billed")
 			return
 
-		resolved = resolve_customer_billing(self.customer, self.billing_start_date)
+		# journey_type (mirrored from the Journey Request) picks which of the
+		# customer's rate sets applies — Local, or the shared Import/Export set.
+		# Journeys with no Journey Request have no type and bill as Local, which
+		# is what they did before rates were split by journey type.
+		resolved = resolve_customer_billing(
+			self.customer, self.billing_start_date, self.journey_type
+		)
 		rule_name = resolved["billing_rule"]
 		if not rule_name:
 			self._clear_billing(status="Not Billed")

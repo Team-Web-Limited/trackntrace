@@ -48,13 +48,61 @@ ITEM_LEASING_EXTRA_DAYS = "PCB-LEASING-EXTRADAYS"
 ITEM_SUBSCRIPTION = "PCB SUBSCRIPTIONS"
 
 
-def _get_customer_billing_type(customer):
-	"""billing_type ("Leasing"/"Subscription") of the customer's currently
-	resolved Seal Billing Rate, or None if no rule resolves."""
-	rule_name = resolve_customer_billing(customer).get("billing_rule")
-	if not rule_name:
+def _get_customer_billing_type(customer, journeys=None):
+	"""billing_type ("Leasing"/"Subscription") the Sales Order for ``journeys``
+	should be raised under — it picks the order's item codes and its Cost
+	Center (see _get_business_line / generate_sales_order).
+
+	Read from the rules the journeys were *actually* billed on
+	(Seal Journey.billing_rule), not by re-resolving the customer's current
+	setting — the same reasoning as the currency snapshot in
+	generate_sales_order: changing a customer's billing later must not
+	retroactively relabel a Sales Order for journeys already billed under the
+	old terms. It matters more now that rates are split by journey type, since
+	a customer's Local and Import/Export rate sets are separate rules and may
+	not even share a billing_type — so this is a property of the journeys being
+	billed, not of the customer alone.
+
+	Falls back to the customer's currently resolved rule when no journey
+	carries one, which is how a Sales Order covering only recurring fees (no
+	journeys) still gets its items and Cost Center. Returns None when nothing
+	resolves.
+	"""
+	rule_names = {j.get("billing_rule") for j in (journeys or []) if j.get("billing_rule")}
+
+	if not rule_names:
+		fallback = resolve_customer_billing(customer).get("billing_rule")
+		if not fallback:
+			return None
+		rule_names = {fallback}
+
+	billing_types = {
+		bt
+		for bt in frappe.get_all(
+			"Seal Billing Rate",
+			filters={"name": ["in", list(rule_names)]},
+			pluck="billing_type",
+		)
+		if bt
+	}
+
+	if not billing_types:
 		return None
-	return frappe.db.get_value("Seal Billing Rate", rule_name, "billing_type")
+
+	if len(billing_types) > 1:
+		# One Sales Order carries a single Cost Center and one pair of item
+		# codes (PCB-LEASING/... vs PCB SUBSCRIPTIONS), so a mix would label
+		# half the lines wrongly. Refuse rather than silently pick one —
+		# mirrors the mixed_currency guard in generate_sales_order.
+		frappe.throw(
+			_(
+				"These journeys were billed under more than one billing type ({0}) — a "
+				"customer's Local and Import/Export rates can differ. Bill them in "
+				"separate Sales Orders per billing type instead of combining them."
+			).format(", ".join(sorted(billing_types)))
+		)
+
+	return billing_types.pop()
 
 
 def _get_business_line(billing_type):
@@ -143,6 +191,11 @@ _FIELDS = [
 	"extra_billing_extra_day_amount",
 	"sales_order_reference", "billing_status", "extra_days", "currency",
 	"billable_days",
+	# The rule each journey was actually billed on, and which rate set it came
+	# from — a customer's Local and Import/Export rates are separate rules, so
+	# the Sales Order's billing type has to be read off the journeys rather
+	# than off the customer (see _get_customer_billing_type).
+	"billing_rule", "journey_type",
 ]
 
 
@@ -281,43 +334,89 @@ def _get_seals_by_journey(journey_names):
 	return {parent: ", ".join(seals) for parent, seals in seals_by_journey.items()}
 
 
-def _get_customer_compound_rule(customer):
-	"""The customer's currently resolved billing rule, if its Computation is
-	Compound (Set Billing modal, Non-Flat Rate Subscription only) — None for
-	everyone else (including Simple). Each such journey's own charge was
-	already zeroed at billing time (Seal Journey.set_billing) — the real
-	charge only exists in aggregate: total billable_days across every journey
-	billed together, divided by this rule's first_period_days, rounded up to
-	a whole period, times first_period_amount (see _billing_summary's
-	compound_charges / generate_sales_order)."""
-	rule_name = resolve_customer_billing(customer).get("billing_rule")
-	if not rule_name:
-		return None
-	rule = frappe.db.get_value(
-		"Seal Billing Rate", rule_name,
-		["name", "computation_method", "first_period_days", "first_period_amount"],
-		as_dict=True,
-	)
-	if not rule or rule.computation_method != "Compound":
-		return None
-	return rule
+_COMPOUND_RULE_FIELDS = ["name", "computation_method", "first_period_days", "first_period_amount"]
 
 
-def _compute_compound_charge(compound_rule, group):
-	"""Batches every journey in ``group`` together: sum their billable_days,
-	divide by the rule's first_period_days, round UP to a whole period (any
-	partial period bills a full one — Set Billing modal's Computation =
-	Compound spec), times first_period_amount. Zero when there are no days
-	to bill (an empty group, or a customer who only carries a recurring fee
-	this period)."""
-	if not compound_rule:
+def _get_customer_compound_rules(customer, journeys=None):
+	"""The Compound-computation rules these journeys were billed on, keyed by
+	rule name — ``{}`` when none of them are Compound.
+
+	Computation = Compound (Set Billing modal, Non-Flat Rate Subscription
+	only) zeroes each journey's own charge at billing time
+	(Seal Journey.set_billing); the real charge only exists in aggregate, so
+	it's rebuilt here from the rules the journeys were actually billed on
+	(Seal Journey.billing_rule) rather than by re-resolving the customer's
+	current setting — same reasoning as _get_customer_billing_type.
+
+	A customer's Local and Import/Export rate sets are separate rules with
+	their own first_period_days/first_period_amount, so more than one can come
+	back and each batches independently — see _compute_compound_charge.
+
+	Journeys carrying no rule of their own (and the recurring-fees-only case,
+	where there are no journeys at all) fall back to the customer's currently
+	resolved rule, keyed under ``None`` to match how _compute_compound_charge
+	buckets them.
+	"""
+	journeys = journeys or []
+	rule_names = {j.get("billing_rule") for j in journeys if j.get("billing_rule")}
+
+	rules = {}
+	if rule_names:
+		for row in frappe.get_all(
+			"Seal Billing Rate",
+			filters={"name": ["in", list(rule_names)], "computation_method": "Compound"},
+			fields=_COMPOUND_RULE_FIELDS,
+		):
+			rules[row.name] = row
+
+	if not rule_names or any(not j.get("billing_rule") for j in journeys):
+		fallback_name = resolve_customer_billing(customer).get("billing_rule")
+		if fallback_name:
+			fallback = frappe.db.get_value(
+				"Seal Billing Rate", fallback_name, _COMPOUND_RULE_FIELDS, as_dict=True
+			)
+			if fallback and fallback.computation_method == "Compound":
+				rules[None] = fallback
+
+	return rules
+
+
+def _compute_compound_charge(compound_rules, group):
+	"""Batch the journeys in ``group`` per rate set: for each Compound rule,
+	sum the billable_days of the journeys billed on it, divide by that rule's
+	first_period_days, round UP to a whole period (any partial period bills a
+	full one — Set Billing modal's Computation = Compound spec), times its
+	first_period_amount. Returns (total charge, total batched days).
+
+	Batching is per rule rather than across the whole group because a
+	customer's Local and Import/Export rate sets price differently — pooling
+	their days and applying one set's numbers would misprice both. Journeys
+	billed on a non-Compound rule are skipped entirely: their own charge was
+	never zeroed, so it's already counted in journey_total.
+
+	Zero when there's nothing to batch (an empty group, or a customer who only
+	carries a recurring fee this period)."""
+	if not compound_rules:
 		return 0, 0
-	total_days = sum(cint(j.get("billable_days")) for j in group)
-	if not total_days:
-		return 0, 0
-	period_days = cint(compound_rule.first_period_days) or 1
-	periods = math.ceil(total_days / period_days)
-	return periods * flt(compound_rule.first_period_amount), total_days
+
+	days_by_rule = {}
+	for j in group:
+		key = j.get("billing_rule") or None
+		if key not in compound_rules:
+			continue
+		days_by_rule[key] = days_by_rule.get(key, 0) + cint(j.get("billable_days"))
+
+	total_charge = 0
+	total_days = 0
+	for key, days in days_by_rule.items():
+		if not days:
+			continue
+		rule = compound_rules[key]
+		period_days = cint(rule.first_period_days) or 1
+		total_charge += math.ceil(days / period_days) * flt(rule.first_period_amount)
+		total_days += days
+
+	return total_charge, total_days
 
 
 def _build_customer_groups(journeys, customer_filter=None):
@@ -349,7 +448,7 @@ def _build_customer_groups(journeys, customer_filter=None):
 		group = groups[c]
 		recurring = recurring_by_customer.get(c, [])
 		tax_category = tax_category_by_customer.get(c, TAX_CATEGORY_NORMAL)
-		compound_rule = _get_customer_compound_rule(c)
+		compound_rules = _get_customer_compound_rules(c, group)
 		customers.append({
 			"customer": c,
 			"journeys": group,
@@ -357,7 +456,7 @@ def _build_customer_groups(journeys, customer_filter=None):
 			"total_days_taken": sum(flt(j.get("days_taken")) for j in group),
 			"recurring_fees": recurring,
 			"tax_category": tax_category,
-			"summary": _billing_summary(group, recurring, tax_category, compound_rule),
+			"summary": _billing_summary(group, recurring, tax_category, compound_rules),
 		})
 
 	grand_total = None
@@ -437,7 +536,7 @@ def generate_sales_order(customer, from_date=None, to_date=None):
 	if summary.get("tax_category") and summary["tax_category"] != TAX_CATEGORY_NORMAL:
 		so.tax_category = summary["tax_category"]
 
-	billing_type = _get_customer_billing_type(customer)
+	billing_type = _get_customer_billing_type(customer, journeys)
 	business_line = _get_business_line(billing_type)
 	if business_line:
 		so.cost_center = business_line
@@ -654,7 +753,7 @@ def _get_recurring_fees_by_customer(customer_filter=None):
 	return fees_by_customer
 
 
-def _billing_summary(group, recurring=None, tax_category=None, compound_rule=None):
+def _billing_summary(group, recurring=None, tax_category=None, compound_rules=None):
 	"""Normal Charges / Extra Charges / Extra Billing / Recurring Fees / Total
 	Cost / VAT / Total Payable for a set of journeys plus any recurring
 	subscription fees. first_period_amount and extra_day_amount are stored
@@ -665,11 +764,12 @@ def _billing_summary(group, recurring=None, tax_category=None, compound_rule=Non
 	total, not per-seal, so it's summed as-is. Tax Exempt / Zero Rated
 	customers owe no VAT — see ``_vat_rate_for_category``.
 
-	``compound_rule`` (Set Billing modal's Computation = Compound, Non-Flat
-	Rate Subscription only — see _get_customer_compound_rule) means
-	normal_charges/journey_total are already zero (each journey's own charge
-	was zeroed at billing time); the real charge is compound_charges, batched
-	across every journey in ``group`` — see _compute_compound_charge."""
+	``compound_rules`` (Set Billing modal's Computation = Compound, Non-Flat
+	Rate Subscription only — see _get_customer_compound_rules) means
+	normal_charges/journey_total are already zero for the journeys billed on
+	those rules (each such journey's own charge was zeroed at billing time);
+	the real charge is compound_charges, batched per rate set across the
+	journeys in ``group`` — see _compute_compound_charge."""
 	recurring = recurring or []
 	tax_category = tax_category or TAX_CATEGORY_NORMAL
 	vat_rate = _vat_rate_for_category(tax_category)
@@ -692,7 +792,7 @@ def _billing_summary(group, recurring=None, tax_category=None, compound_rule=Non
 	extra_billing_base = sum(scaled_extra_billing("extra_billing_first_period_amount", j) for j in group)
 	extra_billing_extra_day_total = sum(scaled_extra_billing("extra_billing_extra_day_amount", j) for j in group)
 	recurring_total = sum(flt(f["amount"]) for f in recurring)
-	compound_charges, compound_days = _compute_compound_charge(compound_rule, group)
+	compound_charges, compound_days = _compute_compound_charge(compound_rules, group)
 	total_cost = journey_total + extra_billing_total + recurring_total + compound_charges
 	vat = total_cost * vat_rate
 	total_payable = total_cost + vat

@@ -12,6 +12,7 @@
   "details_section",
   "customer",
   "journey_request",
+  "journey_type",
   "tagging_booking",
   "pcb_job_order",
   "pcb_assignment",
@@ -1082,6 +1083,17 @@
    "fieldtype": "Link",
    "label": "Journey Request",
    "options": "Journey Request",
+   "read_only": 1
+  },
+  {
+   "default": "Local",
+   "description": "Which rate set bills this journey. Mirrored from the Journey Request and re-read on every save, so changing it there re-prices the journey — until billing is Billed, which set_billing treats as terminal. Journeys with no Journey Request bill as Local.",
+   "fetch_from": "journey_request.journey_type",
+   "fetch_if_empty": 0,
+   "fieldname": "journey_type",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Journey Type",
    "read_only": 1
   },
   {

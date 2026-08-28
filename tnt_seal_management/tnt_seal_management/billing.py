@@ -23,7 +23,7 @@ from frappe.utils import cint, date_diff, flt, getdate, nowdate
 # Resolution
 # ---------------------------------------------------------------------------
 
-def get_applicable_billing_rule(customer, on_date=None):
+def get_applicable_billing_rule(customer, on_date=None, journey_type=None):
 	"""Return the name of the Seal Billing Rate that applies to ``customer`` on
 	``on_date`` (defaults to today), resolved in priority order:
 
@@ -31,17 +31,20 @@ def get_applicable_billing_rule(customer, on_date=None):
 	2. An active, date-valid assignment on the customer's direct customer group.
 	3. The system-wide default Seal Billing Rate (``is_global_default``).
 
+	``journey_type`` (Local / Import / Export) picks which of the customer's
+	rate sets applies — see ``resolve_customer_billing``.
+
 	Returns ``None`` when nothing resolves. Thin wrapper over
 	``resolve_customer_billing`` for callers that only need the rule name, not
 	any per-customer rate override.
 	"""
-	return resolve_customer_billing(customer, on_date)["billing_rule"]
+	return resolve_customer_billing(customer, on_date, journey_type)["billing_rule"]
 
 
 _NO_OVERRIDE = {"override_first_period_amount": None, "override_currency": None}
 
 
-def resolve_customer_billing(customer, on_date=None):
+def resolve_customer_billing(customer, on_date=None, journey_type=None):
 	"""Like ``get_applicable_billing_rule``, but also returns any per-customer
 	Rate/Currency override captured on the winning Customer Billing Assignment
 	(see the Set Billing modal's Rate Terms section — Subscription only,
@@ -49,11 +52,35 @@ def resolve_customer_billing(customer, on_date=None):
 	``{"billing_rule": name or None, "override_first_period_amount": value or
 	None, "override_currency": value or None}``. The global-default fallback
 	never carries an override (there's no assignment row to carry it on).
+
+	``journey_type`` is the kind of journey being billed (Local / Import /
+	Export, from Journey Request.journey_type). Rates differ by journey type:
+	Local is the customer's primary rule — the one their assignment points at,
+	so the resolution above returns it directly — while Import and Export share
+	a sibling rule that carries only its own rates and has no assignment of its
+	own. For those, the resolved Local rule is swapped for that sibling; see
+	``_import_export_rule_for``.
 	"""
 	if not customer:
 		return {"billing_rule": _global_default_rule(), **_NO_OVERRIDE}
 
 	on_date = getdate(on_date) if on_date else getdate(nowdate())
+
+	# An Import/Export journey bills off the customer's own Import/Export rate
+	# set, which is reached by name rather than through the assignment
+	# hierarchy. Resolved up front: it's a per-customer private contract, so it
+	# outranks a customer-group assignment or the global default the same way
+	# the customer's own Local rule does.
+	if _is_import_export(journey_type):
+		alt_rule = _import_export_rule_for(customer)
+		# Deliberately no fall back to the Local rate when the Import/Export set
+		# is missing or not yet approved: billing an import journey at local
+		# prices is a silent revenue error, whereas leaving it unresolved
+		# surfaces as "Not Billed" for Finance to fix. The Journey Request's own
+		# Journey Type dropdown only offers Import/Export once the rates exist
+		# (see journey_request.get_available_journey_types), so this is the
+		# after-the-fact case where they were removed or sent back for approval.
+		return {"billing_rule": alt_rule, **_NO_OVERRIDE}
 
 	resolved = _resolve_assignment("Customer", "customer", customer, on_date)
 	if resolved:
@@ -66,6 +93,40 @@ def resolve_customer_billing(customer, on_date=None):
 			return resolved
 
 	return {"billing_rule": _global_default_rule(), **_NO_OVERRIDE}
+
+
+def _is_import_export(journey_type):
+	from tnt_seal_management.tnt_seal_management.api.current_customers import (
+		JOURNEY_TYPE_BUCKET,
+		JOURNEY_TYPE_IMPORT_EXPORT,
+	)
+
+	return JOURNEY_TYPE_BUCKET.get(journey_type) == JOURNEY_TYPE_IMPORT_EXPORT
+
+
+def _import_export_rule_for(customer):
+	"""The customer's private Import/Export rate set, or None when they have no
+	usable one. Both of a customer's rate sets share a single
+	``billing_rule_name`` ("<Customer Name> BR") and are told apart by
+	``journey_type``, and only the Local one carries a Customer Billing
+	Assignment — so this is a direct lookup, not a hierarchy walk."""
+	from tnt_seal_management.tnt_seal_management.api.current_customers import (
+		JOURNEY_TYPE_IMPORT_EXPORT,
+		_customer_rule_name,
+	)
+
+	customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
+	rule_name = frappe.db.get_value(
+		"Seal Billing Rate",
+		{
+			"billing_rule_name": _customer_rule_name(customer_name),
+			"journey_type": JOURNEY_TYPE_IMPORT_EXPORT,
+		},
+		"name",
+	)
+	if not rule_name or not _rule_is_usable(rule_name):
+		return None
+	return rule_name
 
 
 def _resolve_assignment(assignment_type, field, value, on_date):

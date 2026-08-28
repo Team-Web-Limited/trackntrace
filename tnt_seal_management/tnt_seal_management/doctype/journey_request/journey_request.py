@@ -141,6 +141,30 @@ class JourneyRequest(Document):
 		self.enforce_tagging_irreversible()
 		self.validate_seals()
 		self.validate_route()
+		self.validate_journey_type()
+
+	def validate_journey_type(self):
+		"""Journey Type picks which of the customer's rate sets bills this
+		journey (see billing.resolve_customer_billing), so it can only be set to
+		a type that customer actually has rates for. The form's own dropdown is
+		already narrowed to those (see get_available_journey_types); this is the
+		server-side guard for API callers and for a type that was valid when the
+		request was raised but has since lost its rates."""
+		if not self.journey_type:
+			return
+
+		available = get_available_journey_types(self.client_name)
+		if self.journey_type in available:
+			return
+
+		frappe.throw(
+			_(
+				"{0} journeys are not configured for {1}. Set the Import/Export rates from "
+				"Current Customer List → Set Billing (and have them approved) before raising "
+				"an {0} journey request."
+			).format(self.journey_type, self.client_name or _("this customer")),
+			title=_("Journey Type Not Available"),
+		)
 
 	def set_photo_types(self):
 		for fieldname, photo_type in PHOTO_TABLE_TYPES.items():
@@ -1274,6 +1298,29 @@ def _finalize_seal_journey_from_request(jr):
 		ignore_permissions=True, ignore_mandatory=True
 	)
 	return journey
+
+
+# ----------------------------------------------------------------------
+# Journey type / rates
+# ----------------------------------------------------------------------
+@frappe.whitelist()
+def get_available_journey_types(customer=None):
+	"""Journey Types this customer can actually be billed for.
+
+	Rates differ by journey type, and a journey bills off the matching rate set
+	(billing.resolve_customer_billing). Local is always offered — it's the
+	customer's primary rate set and the historical default every journey used
+	before rates were split. Import and Export are only offered once that
+	customer has a usable (active + Managing-Director-approved) Import/Export
+	rate set, so a journey can never be raised against rates that don't exist
+	and would otherwise leave it unbillable.
+	"""
+	from tnt_seal_management.tnt_seal_management.billing import _import_export_rule_for
+
+	types = ["Local"]
+	if customer and _import_export_rule_for(customer):
+		types += ["Import", "Export"]
+	return types
 
 
 # ----------------------------------------------------------------------

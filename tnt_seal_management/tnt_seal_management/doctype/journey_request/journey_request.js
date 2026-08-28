@@ -6,6 +6,7 @@ frappe.ui.form.on("Journey Request", {
 		frm.add_fetch("seal_device", "current_location", "api_location");
 		frm.add_fetch("seal_device", "last_api_sync_time", "api_last_update_time");
 
+		_journey_request_apply_journey_type_options(frm);
 		_journey_request_apply_locks(frm);
 		_journey_request_lock_pre_tagging_checklist(frm);
 		_journey_request_configure_photo_tables(frm);
@@ -43,6 +44,16 @@ frappe.ui.form.on("Journey Request", {
 		}
 
 		_journey_request_add_buttons(frm);
+	},
+
+	// client_name is fetched from the Job Order, so the customer (and with it
+	// which rate sets exist) only becomes known once a Job Order is picked.
+	job_order(frm) {
+		_journey_request_apply_journey_type_options(frm);
+	},
+
+	client_name(frm) {
+		_journey_request_apply_journey_type_options(frm);
 	},
 
 	number_of_seals(frm) {
@@ -449,6 +460,10 @@ function _journey_request_add_seals_grid_button(frm) {
 }
 
 const JR_CONTENT_FIELDS = [
+	// journey_type picks which rate set bills the journey, so it's locked from
+	// Tagging onward exactly like the rest of the journey's content — the
+	// server enforces this too (CONTENT_FIELDS in journey_request.py).
+	"journey_type",
 	"vehicle",
 	"entry_number",
 	"container_number",
@@ -477,6 +492,40 @@ const JR_SEAL_RETURN_FIELDS = [
 	"seal_return_confirmed_by_technician",
 	"seal_return_condition",
 ];
+
+// Journey Type decides which of the customer's rate sets bills this journey,
+// so only types that customer actually has usable rates for are offered.
+// Import/Export appear once that rate set exists and is approved (see
+// journey_request.get_available_journey_types); Local is always available.
+// The server re-checks this on save — see JourneyRequest.validate_journey_type.
+function _journey_request_apply_journey_type_options(frm) {
+	const applyOptions = (types) => {
+		frm.set_df_property("journey_type", "options", types.join("\n"));
+		// A value that's no longer on offer (the rates were removed or sent back
+		// for approval after this request was raised) would otherwise sit in the
+		// control as a blank-looking selection. Leave an already-saved journey
+		// alone — it's locked from Tagging onward anyway, and rewriting it here
+		// would silently re-price the journey.
+		if (frm.is_new() && !types.includes(frm.doc.journey_type)) {
+			frm.set_value("journey_type", "Local");
+		}
+		frm.refresh_field("journey_type");
+	};
+
+	if (!frm.doc.client_name) {
+		applyOptions(["Local"]);
+		return;
+	}
+
+	frappe.call({
+		method:
+			"tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.get_available_journey_types",
+		args: { customer: frm.doc.client_name },
+		callback(r) {
+			applyOptions((r && r.message) || ["Local"]);
+		},
+	});
+}
 
 function _journey_request_apply_locks(frm) {
 	if (frappe.user.has_role("System Manager")) {

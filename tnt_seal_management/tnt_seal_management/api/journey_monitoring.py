@@ -44,7 +44,11 @@ _FIELDS = [
 	"assigned_team_lead", "assigned_technician",
 	"api_device_status", "api_device_location",
 	"api_latitude", "api_longitude", "api_speed", "api_battery_level",
-	"api_last_update_time", "api_sync_error", "creation", "days_taken"
+	"api_last_update_time", "api_sync_error", "creation", "days_taken",
+	# Which rate set this journey bills on — Local and Import/Export carry
+	# their own first_period_days, i.e. their own grace period before a journey
+	# counts as running long (see _attach_longer_in_journey).
+	"journey_type",
 ]
 
 # --- Custody / "warehouse" lifecycle -----------------------------------------
@@ -354,36 +358,63 @@ def _attach_seals(journeys):
 		j["alert_level"] = _roll_up_level(all_alerts)
 
 
+def _allowance_key(journey):
+	"""Grace periods are per (customer, rate set), so journeys of the same type
+	for the same customer share one lookup."""
+	return (journey.get("customer"), journey.get("journey_type") or "")
+
+
+def _allowed_days_by_journey(journeys):
+	"""Grace period (the rule's first_period_days) for each distinct
+	(customer, journey_type) among ``journeys``.
+
+	The rule is resolved through the usual assignment hierarchy (customer ->
+	customer group -> global default), but keyed by journey type as well as
+	customer: rates are split by type, and Local and Import/Export each carry
+	their own first_period_days — so an Import journey has to be measured
+	against the Import/Export allowance, not the customer's Local one.
+
+	An unresolved rule maps to 0, which callers read as "no allowance to
+	measure against" (and so no overdue flag) rather than as a zero-day grace
+	period — that's what keeps an Import/Export journey whose rate set isn't
+	configured or approved from being flagged overdue from day one.
+	"""
+	allowed_days = {}
+	rule_days_cache = {}
+
+	for j in journeys:
+		key = _allowance_key(j)
+		if not key[0] or key in allowed_days:
+			continue
+
+		rule_name = get_applicable_billing_rule(key[0], journey_type=j.get("journey_type"))
+		if not rule_name:
+			allowed_days[key] = 0
+			continue
+
+		if rule_name not in rule_days_cache:
+			rule_days_cache[rule_name] = flt(
+				frappe.db.get_value("Seal Billing Rate", rule_name, "first_period_days")
+			)
+		allowed_days[key] = rule_days_cache[rule_name]
+
+	return allowed_days
+
+
 def _attach_longer_in_journey(journeys):
-	"""Calculate longer_in_journey extra days based on customer billing rate."""
+	"""Calculate longer_in_journey extra days against the grace period of the
+	rate set each journey bills on — see _allowed_days_by_journey."""
 	if not journeys:
 		return
 
 	for j in journeys:
 		j["longer_in_journey"] = 0
 
-	customer_names = list({j["customer"] for j in journeys if j.get("customer")})
-	if not customer_names:
-		return
-
-	# Resolve each customer's applicable rule through the assignment hierarchy
-	# (customer -> customer group -> global default), then read its grace period.
-	allowed_days_by_customer = {}
-	rule_days_cache = {}
-	for customer in customer_names:
-		rule_name = get_applicable_billing_rule(customer)
-		if not rule_name:
-			allowed_days_by_customer[customer] = 0
-			continue
-		if rule_name not in rule_days_cache:
-			rule_days_cache[rule_name] = flt(
-				frappe.db.get_value("Seal Billing Rate", rule_name, "first_period_days")
-			)
-		allowed_days_by_customer[customer] = rule_days_cache[rule_name]
+	allowed_days_by_key = _allowed_days_by_journey(journeys)
 
 	now = now_datetime()
 	for j in journeys:
-		allowed_days = allowed_days_by_customer.get(j["customer"], 0)
+		allowed_days = allowed_days_by_key.get(_allowance_key(j), 0)
 
 		j["longer_in_journey"] = 0
 
