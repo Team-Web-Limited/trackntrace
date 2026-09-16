@@ -317,10 +317,10 @@ function _sbr_row_html(page, rate) {
 	const isGlobal = cint(rate.is_global_default);
 	const typeClass = (rate.billing_type || "subscription").toLowerCase();
 	const firstAmt = rate.first_period_amount
-		? frappe.format(rate.first_period_amount, { fieldtype: "Currency" })
+		? frappe.format(rate.first_period_amount, { fieldtype: "Currency", options: "currency" }, null, rate)
 		: "—";
 	const extraRate = rate.extra_day_rate
-		? frappe.format(rate.extra_day_rate, { fieldtype: "Currency" })
+		? frappe.format(rate.extra_day_rate, { fieldtype: "Currency", options: "currency" }, null, rate)
 		: "—";
 	return `
 		<tr class="sbr-row" data-name="${frappe.utils.escape_html(rate.name)}">
