@@ -286,13 +286,13 @@ def export_pdf(html, filename):
 
 # (label, fieldname, column width) — same columns the PDF report shows.
 _EXPORT_COLUMNS = (
+	("Booking Status", "booking_status", 26),
 	("Booking", "name", 20),
 	("Client", "client_name", 28),
 	("Location", "location", 24),
 	("Date and Time", "booking_date_time", 20),
 	("Contact Person", "contact_person_name", 24),
 	("Phone", "contact_person_phone", 18),
-	("Booking Status", "booking_status", 26),
 )
 
 
@@ -492,6 +492,39 @@ def reject_booking(docname, remarks=None):
 	doc.finance_pcb_remarks = remarks or doc.finance_pcb_remarks
 	doc.save()
 	set_journey_status(doc.seal_journey_reference, "Finance PCB Rejected")
+	sync_seal_journey_mirror(doc.seal_journey_reference)
+	frappe.db.commit()
+
+
+@frappe.whitelist()
+def amend_booking(docname, reason=None):
+	"""Return a booking pending Finance review to its pre-submission state,
+	same revert shape as reopen_booking() but triggered one stage earlier —
+	before Finance has approved or rejected it, so there is no PCB Job Order
+	to park yet."""
+	_ensure_finance_role()
+	doc = _get_tagging_booking(docname)
+	if doc.booking_status != "Pending Finance PCB Approval":
+		frappe.throw(
+			_("Only tagging bookings pending Finance approval can be amended."),
+			title=_("Invalid Status"),
+		)
+
+	_guard_no_downstream_work(doc)
+
+	doc.booking_status = (
+		"Pending Account Manager Review"
+		if doc.booking_source == "Customer Portal"
+		else "Draft"
+	)
+	doc.account_manager_submission_date_time = None
+	doc.finance_pcb_approver = None
+	doc.finance_pcb_approval_date_time = None
+	if reason:
+		doc.finance_pcb_remarks = reason
+	doc.save()
+
+	set_journey_status(doc.seal_journey_reference, "Draft")
 	sync_seal_journey_mirror(doc.seal_journey_reference)
 	frappe.db.commit()
 

@@ -143,30 +143,41 @@ frappe.ui.form.on("Tagging Booking", {
 			);
 
 			frm.add_custom_button(
-				__("Reject"),
+				__("Amend"),
 				() => {
 					frappe.prompt(
 						[
 							{
-								fieldname: "remarks",
+								fieldname: "reason",
 								fieldtype: "Small Text",
-								label: __("Rejection Reason"),
+								label: __("Reason for Amendment"),
 								reqd: 1,
 							},
 						],
 						(values) => {
 							frappe.call({
 								method:
-									"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.reject_booking",
+									"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.amend_booking",
 								args: {
 									docname: frm.doc.name,
-									remarks: values.remarks,
+									reason: values.reason,
 								},
-								callback: () => frm.reload_doc(),
+								freeze: true,
+								freeze_message: __("Amending booking…"),
+								callback: () => {
+									frappe.show_alert(
+										{
+											message: __("Booking returned for amendment"),
+											indicator: "blue",
+										},
+										5
+									);
+									frm.reload_doc();
+								},
 							});
 						},
-						__("Reject Tagging Booking"),
-						__("Reject")
+						__("Amend Tagging Booking"),
+						__("Amend")
 					);
 				},
 				__("Actions")

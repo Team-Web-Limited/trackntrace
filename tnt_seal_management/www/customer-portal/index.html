@@ -42,8 +42,18 @@
 						<input class="form-control" id="tb-location" name="location" maxlength="140" required>
 					</div>
 					<div class="col-md-6 form-group">
-						<label for="tb-date-time">{{ _("Requested Date and Time") }}</label>
-						<input class="form-control" id="tb-date-time" name="booking_date_time" type="datetime-local" required>
+						<label id="tb-date-time-label">{{ _("Requested Date and Time") }}</label>
+						<div class="tb-datetime-fields" role="group" aria-labelledby="tb-date-time-label">
+							<input class="form-control" id="tb-date-day" type="text" inputmode="numeric" placeholder="{{ _('DD') }}" data-date-day aria-label="{{ _('Day') }}" required>
+							<input class="form-control" id="tb-date-month" type="text" inputmode="numeric" placeholder="{{ _('MM') }}" data-date-month aria-label="{{ _('Month') }}" required>
+							<select class="form-control" id="tb-date-year" data-date-year aria-label="{{ _('Year') }}" required></select>
+							<span class="tb-datetime-sep" aria-hidden="true"></span>
+							<input class="form-control" id="tb-time-hour" type="text" inputmode="numeric" placeholder="{{ _('HH') }}" data-time-hour aria-label="{{ _('Hour') }}" required>
+							<select class="form-control" id="tb-time-ampm" data-time-ampm aria-label="{{ _('AM or PM') }}" required>
+								<option value="AM">{{ _("AM") }}</option>
+								<option value="PM">{{ _("PM") }}</option>
+							</select>
+						</div>
 					</div>
 					<div class="col-md-6 form-group">
 						<label for="tb-contact-name">{{ _("Name") }}</label>
@@ -73,7 +83,7 @@
 					</div>
 					<div class="col-8 col-md-4 form-group">
 						<label for="tb-phone">{{ _("Phone Number") }}</label>
-						<input class="form-control" id="tb-phone" type="tel" maxlength="15" placeholder="712 345 678" data-phone-number required>
+						<input class="form-control" id="tb-phone" type="tel" inputmode="numeric" maxlength="10" pattern="\d{10}" placeholder="0712345678" data-phone-number required>
 					</div>
 				</div>
 				<div class="d-flex justify-content-end">
@@ -214,6 +224,24 @@
 	font-weight: 600;
 	color: #1f3b73;
 	margin-bottom: 18px;
+}
+
+.tb-datetime-fields {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+
+.tb-datetime-fields .form-control {
+	flex: 1 1 0;
+	min-width: 62px;
+	padding-left: 6px;
+	padding-right: 6px;
+}
+
+.tb-datetime-sep {
+	width: 10px;
 }
 
 .tb-primary-btn {

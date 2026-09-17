@@ -28,7 +28,6 @@ JOURNEY_REQUEST_STATUSES = (
 	"Awaiting Seal Return",
 	"Pending Seal Return Approval",
 	"Seal Returned",
-	"Rejected",
 	"Cancelled",
 )
 
@@ -463,6 +462,35 @@ def _notify_control_room_approval_pending(doc):
 	)
 
 
+def _notify_technician_control_room_decision(doc, approved, remarks=None):
+	"""Tell the Field Technician the Control Room returned their submission for
+	amendment (there is no notification on approval — the technician sees the
+	status change to Tagging directly)."""
+	from tnt_seal_management.tnt_seal_management.api.notifications import notify_users
+
+	if approved or not doc.assigned_technician:
+		return
+
+	email = frappe.db.get_value("User", doc.assigned_technician, "email")
+	subject = _("Journey Request Returned for Amendment: {0}").format(doc.name)
+	lines = [
+		_("The Control Room returned {0} for amendment.").format(doc.name),
+		_("Correct the details and resubmit to the Control Room."),
+	]
+	if cstr(remarks).strip():
+		lines.append(_("Remarks: {0}").format(cstr(remarks).strip()))
+	message = "<br>".join(str(line) for line in lines)
+
+	notify_users(
+		[(doc.assigned_technician, email or doc.assigned_technician)],
+		subject,
+		message,
+		document_type="Journey Request",
+		document_name=doc.name,
+		link=f"/app/journey-request/{doc.name}",
+	)
+
+
 def _seal_return_approvers(doc):
 	"""Recipients for the seal-return approval queue: the Seal Journey's own
 	assigned team lead when there is one, otherwise every PCB Team Leader."""
@@ -519,9 +547,9 @@ def _notify_technician_seal_return_decision(doc, approved, remarks=None):
 		subject = _("Seal Return Approved: {0}").format(doc.name)
 		lines = [_("The PCB Team Leader approved the seal return for {0}.").format(doc.name)]
 	else:
-		subject = _("Seal Return Rejected: {0}").format(doc.name)
+		subject = _("Seal Return Returned for Amendment: {0}").format(doc.name)
 		lines = [
-			_("The PCB Team Leader rejected the seal return for {0}.").format(doc.name),
+			_("The PCB Team Leader returned the seal return for {0} for amendment.").format(doc.name),
 			_("Correct the return details and confirm the seal return again."),
 		]
 	if cstr(remarks).strip():
@@ -649,28 +677,38 @@ def approve_by_control_room(docname, remarks=None):
 
 
 @frappe.whitelist()
-def reject_by_control_room(docname, remarks=None):
+def return_for_amendment_by_control_room(docname, remarks=None):
+	"""Control Room kickback — hands the request back to the Field Technician,
+	editable again from Draft, so it can be corrected (e.g. swap a seal, fix
+	the file/departure numbers) and resubmitted."""
 	_ensure_role(
 		"Operations Control Room",
-		_("Only the Operations Control Room can reject at this stage."),
+		_("Only the Operations Control Room can return a request for amendment."),
 	)
 	doc = _get_journey_request(docname)
 	if doc.journey_request_status != "Pending Control Room Approval":
 		frappe.throw(
-			_("Only journey requests pending Control Room approval can be rejected."),
+			_("Only journey requests pending Control Room approval can be returned for amendment."),
 			title=_("Invalid Status"),
 		)
 
-	doc.journey_request_status = "Rejected"
+	remarks = cstr(remarks).strip()
+	if not remarks:
+		frappe.throw(
+			_("Enter what needs to be amended before returning this request."),
+			title=_("Remarks Required"),
+		)
+
+	doc.journey_request_status = "Draft"
 	doc.control_room_approver = frappe.session.user
 	doc.control_room_approval_date_time = now_datetime()
 	doc.control_room_remarks = remarks
-	_append_approval_log(doc, "Control Room Rejected", remarks)
+	_append_approval_log(doc, "Returned for Amendment", remarks)
 	doc.flags.ignore_field_locks = True
 	doc.save()
-	# Rejection can be a hard stop or just a kickback for rework (e.g. swap a
-	# seal and resubmit) — leave the Seal Journey's stage status untouched and
-	# only mirror the rejection remarks/approver through for visibility.
+	# Leave the Seal Journey's stage status untouched and only mirror the
+	# amendment remarks/approver through for visibility.
+	_notify_technician_control_room_decision(doc, approved=False, remarks=remarks)
 	sync_seal_journey_mirror(doc.journey_reference)
 	frappe.db.commit()
 
@@ -1060,24 +1098,24 @@ def approve_seal_return(docname, remarks=None):
 
 
 @frappe.whitelist()
-def reject_seal_return(docname, remarks=None):
-	"""PCB Team Leader rejection — hands the request back to the Field Technician
+def return_seal_return_for_amendment(docname, remarks=None):
+	"""PCB Team Leader kickback — hands the request back to the Field Technician
 	so the return evidence can be corrected and re-confirmed."""
 	_ensure_role(
 		PCB_TEAM_LEAD_ROLE,
-		_("Only the PCB Team Leader can reject a seal return."),
+		_("Only the PCB Team Leader can return a seal return for amendment."),
 	)
 	doc = _get_journey_request(docname)
 	if doc.journey_request_status != "Pending Seal Return Approval":
 		frappe.throw(
-			_("Only journey requests pending seal return approval can be rejected."),
+			_("Only journey requests pending seal return approval can be returned for amendment."),
 			title=_("Invalid Status"),
 		)
 
 	remarks = cstr(remarks).strip()
 	if not remarks:
 		frappe.throw(
-			_("Enter the reason for rejecting the seal return."),
+			_("Enter what needs to be amended before returning the seal return."),
 			title=_("Remarks Required"),
 		)
 
@@ -1088,7 +1126,7 @@ def reject_seal_return(docname, remarks=None):
 	# cleared so the return has to be deliberately re-confirmed.
 	doc.seal_return_confirmed_by_technician = 0
 	doc.journey_request_status = "Awaiting Seal Return"
-	_append_approval_log(doc, "Seal Return Rejected", remarks)
+	_append_approval_log(doc, "Seal Return Returned for Amendment", remarks)
 	doc.flags.ignore_field_locks = True
 	doc.save()
 

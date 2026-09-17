@@ -144,8 +144,8 @@ function _journey_request_add_buttons(frm) {
 			_jr_call(frm, "approve_by_control_room", { remarks: frm.doc.control_room_remarks })
 		).addClass("btn-primary");
 
-		frm.add_custom_button(__("Reject"), () =>
-			_jr_prompt_reject(frm, "reject_by_control_room")
+		frm.add_custom_button(__("Return for Amendment"), () =>
+			_jr_prompt_return_for_amendment(frm, "return_for_amendment_by_control_room")
 		);
 	}
 
@@ -187,7 +187,7 @@ function _journey_request_add_buttons(frm) {
 		frm.add_custom_button(__("Approve Seal Return"), () => _jr_prompt_approve_seal_return(frm)).addClass(
 			"btn-primary"
 		);
-		frm.add_custom_button(__("Reject Seal Return"), () => _jr_prompt_reject_seal_return(frm));
+		frm.add_custom_button(__("Return for Amendment"), () => _jr_prompt_return_seal_return_for_amendment(frm));
 	}
 }
 
@@ -209,12 +209,12 @@ function _jr_prompt_approve_seal_return(frm) {
 	);
 }
 
-function _jr_prompt_reject_seal_return(frm) {
+function _jr_prompt_return_seal_return_for_amendment(frm) {
 	frappe.prompt(
-		[{ fieldname: "remarks", fieldtype: "Small Text", label: __("Reason for Rejection"), reqd: 1 }],
-		(values) => _jr_call(frm, "reject_seal_return", { remarks: values.remarks }),
-		__("Reject Seal Return"),
-		__("Reject")
+		[{ fieldname: "remarks", fieldtype: "Small Text", label: __("What needs to be amended"), reqd: 1 }],
+		(values) => _jr_call(frm, "return_seal_return_for_amendment", { remarks: values.remarks }),
+		__("Return Seal Return for Amendment"),
+		__("Return")
 	);
 }
 
@@ -341,11 +341,12 @@ function _jr_confirm_seal_return(frm, manualLocation = null, remarks = "") {
 	});
 }
 
-function _jr_prompt_reject(frm, method) {
+function _jr_prompt_return_for_amendment(frm, method) {
 	frappe.prompt(
-		[{ fieldname: "remarks", fieldtype: "Small Text", label: __("Remarks"), reqd: 1 }],
+		[{ fieldname: "remarks", fieldtype: "Small Text", label: __("What needs to be amended"), reqd: 1 }],
 		(values) => _jr_call(frm, method, { remarks: values.remarks }),
-		__("Reject Journey Request")
+		__("Return Journey Request for Amendment"),
+		__("Return")
 	);
 }
 

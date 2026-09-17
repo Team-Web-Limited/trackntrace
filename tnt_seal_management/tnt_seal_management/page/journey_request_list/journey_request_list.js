@@ -38,7 +38,6 @@ function _jrl_build_page(page) {
 		["Tagging", __("Tagging")],
 		["Journey Ready", __("Journey Ready")],
 		["Untagging", __("Untagging")],
-		["Rejected", __("Rejected")],
 		["Cancelled", __("Cancelled")],
 	];
 
@@ -337,6 +336,7 @@ function _jrl_print_styles() {
 		.jrl-print-badge--pending { background: #fef3c7; color: #92400e; }
 		.jrl-print-badge--tagging { background: #e0f2fe; color: #0369a1; }
 		.jrl-print-badge--untagging { background: #fff7ed; color: #c2410c; }
+		.jrl-print-badge--ready { background: #dbeafe; color: #1d4ed8; }
 		.jrl-print-badge--draft { background: #e5e7eb; color: #4b5563; }
 	`;
 }
@@ -351,17 +351,13 @@ function _jrl_render_stats(page, summary) {
 			<div class="jrl-stat-label">${__("Pending CR")}</div>
 			<div class="jrl-stat-value">${summary["Pending Control Room Approval"] || 0}</div>
 		</div>
-		<div class="jrl-stat-card jrl-stat--approved">
+		<div class="jrl-stat-card jrl-stat--ready">
 			<div class="jrl-stat-label">${__("Journey Ready")}</div>
 			<div class="jrl-stat-value">${summary["Journey Ready"] || 0}</div>
 		</div>
 		<div class="jrl-stat-card jrl-stat--untagging">
 			<div class="jrl-stat-label">${__("Untagging")}</div>
 			<div class="jrl-stat-value">${summary["Untagging"] || 0}</div>
-		</div>
-		<div class="jrl-stat-card jrl-stat--rejected">
-			<div class="jrl-stat-label">${__("Rejected")}</div>
-			<div class="jrl-stat-value">${summary.Rejected || 0}</div>
 		</div>
 	`;
 	if (page.jrl_stats_bar) {
@@ -427,8 +423,9 @@ function _jrl_row_html(request) {
 }
 
 function _jrl_status_class(status) {
-	if (status === "Journey Ready") return "approved";
-	if (status === "Rejected" || status === "Cancelled") return "rejected";
+	if (status === "Journey Ready") return "ready";
+	if (status === "Seal Returned") return "approved";
+	if (status === "Cancelled") return "rejected";
 	if (status === "Pending Control Room Approval") return "pending";
 	if (status === "Tagging") return "tagging";
 	if (status === "Untagging") return "untagging";
@@ -449,8 +446,8 @@ function _jrl_action_html(request) {
 				<button class="jrl-action-btn jrl-action-btn--approve" data-action="cr_approve" data-name="${name}">
 					${__("Approve")}
 				</button>
-				<button class="jrl-action-btn jrl-action-btn--amend" data-action="cr_reject" data-name="${name}">
-					${__("Reject")}
+				<button class="jrl-action-btn jrl-action-btn--amend" data-action="cr_return_amend" data-name="${name}">
+					${__("Return for Amendment")}
 				</button>
 			</div>
 		`;
@@ -479,27 +476,27 @@ function _jrl_control_room_approve(page, docname) {
 	});
 }
 
-function _jrl_control_room_reject(page, docname) {
+function _jrl_control_room_return_for_amendment(page, docname) {
 	frappe.prompt(
-		[{ fieldname: "remarks", fieldtype: "Small Text", label: __("Remarks"), reqd: 1 }],
+		[{ fieldname: "remarks", fieldtype: "Small Text", label: __("What needs to be amended"), reqd: 1 }],
 		(values) => {
 			frappe.call({
 				method:
-					"tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.reject_by_control_room",
+					"tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.return_for_amendment_by_control_room",
 				args: { docname, remarks: values.remarks },
 				freeze: true,
-				freeze_message: __("Rejecting..."),
+				freeze_message: __("Returning..."),
 				callback() {
 					frappe.show_alert(
-						{ message: __("Rejected by Control Room"), indicator: "orange" },
+						{ message: __("Returned for Amendment"), indicator: "orange" },
 						5
 					);
 					_jrl_load(page);
 				},
 			});
 		},
-		__("Reject Journey Request"),
-		__("Submit")
+		__("Return Journey Request for Amendment"),
+		__("Return")
 	);
 }
 
@@ -586,6 +583,7 @@ function _jrl_inject_styles() {
 		}
 		.jrl-header-stats .jrl-stat--pending { border-top-color: #f59e0b; }
 		.jrl-header-stats .jrl-stat--approved { border-top-color: #16a34a; }
+		.jrl-header-stats .jrl-stat--ready { border-top-color: #1d4ed8; }
 		.jrl-header-stats .jrl-stat--untagging { border-top-color: #ea580c; }
 		.jrl-header-stats .jrl-stat--rejected { border-top-color: #dc2626; }
 		.jrl-header-stats .jrl-stat-label {
@@ -855,6 +853,7 @@ function _jrl_inject_styles() {
 		.jrl-badge--pending { background: #fef3c7; color: #92400e; }
 		.jrl-badge--tagging { background: #e0f2fe; color: #0369a1; }
 		.jrl-badge--untagging { background: #fff7ed; color: #c2410c; }
+		.jrl-badge--ready { background: #dbeafe; color: #1d4ed8; }
 		.jrl-badge--draft { background: #e5e7eb; color: #4b5563; }
 		.jrl-empty { padding: 60px 20px; text-align: center; color: #64748b; }
 		.jrl-empty strong { display: block; margin-bottom: 6px; color: #0c4a6e; font-size: 22px; }

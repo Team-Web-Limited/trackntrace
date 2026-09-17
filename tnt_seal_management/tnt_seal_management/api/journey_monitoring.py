@@ -25,7 +25,7 @@ from tnt_seal_management.tnt_seal_management.api.seal_sync import (
 # Alert thresholds — tune here. (Could later move to Seal API Settings.)
 # ---------------------------------------------------------------------------
 STALE_MINUTES = 30  # no API update for this many minutes => stale
-LOW_BATTERY_PCT = 20  # battery below this (%) => low-battery warning
+LOW_BATTERY_PCT = 50  # battery below this (%) => low-battery warning
 
 # Journey statuses that count as "active / incomplete" (everything except the
 # two terminal states). Used for the active view and summary counts.

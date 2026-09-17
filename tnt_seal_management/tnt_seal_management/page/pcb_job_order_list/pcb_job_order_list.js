@@ -405,7 +405,7 @@ function _pjo_render_table(page, jobOrders) {
 	$(page.body).find(".pjo-table-wrap").html(`
 		<table class="pjo-table">
 			<thead><tr>
-				<th>${__("Job Order")}</th>
+				<th>${__("Status")}</th>
 				<th>${__("Tagging Booking")}</th>
 				<th>${__("Client")}</th>
 				<th>${__("Location")}</th>
@@ -413,7 +413,7 @@ function _pjo_render_table(page, jobOrders) {
 				<th>${__("Contact Person")}</th>
 				<th>${__("Phone")}</th>
 				<th>${__("PCB Team Leader")}</th>
-				<th>${__("Status")}</th>
+				<th>${__("Job Order")}</th>
 			</tr></thead>
 			<tbody>${jobOrders.map(_pjo_row_html).join("")}</tbody>
 		</table>
@@ -437,7 +437,7 @@ function _pjo_row_html(order) {
 
 	return `
 		<tr class="pjo-row" data-name="${frappe.utils.escape_html(order.name)}">
-			<td><span class="pjo-name">${frappe.utils.escape_html(order.name)}</span></td>
+			<td><span class="pjo-badge pjo-badge--${statusClass}">${frappe.utils.escape_html(displayStatus)}</span></td>
 			<td>${frappe.utils.escape_html(order.tagging_booking || "—")}</td>
 			<td title="${frappe.utils.escape_html(rawClient)}">${frappe.utils.escape_html(displayClient || "—")}</td>
 			<td>${frappe.utils.escape_html(order.location || "—")}</td>
@@ -445,7 +445,7 @@ function _pjo_row_html(order) {
 			<td>${frappe.utils.escape_html(order.contact_person_name || "—")}</td>
 			<td>${frappe.utils.escape_html(order.contact_person_phone || "—")}</td>
 			<td>${frappe.utils.escape_html(order.assigned_pcb_team_leader || __("Not assigned"))}</td>
-			<td><span class="pjo-badge pjo-badge--${statusClass}">${frappe.utils.escape_html(displayStatus)}</span></td>
+			<td><span class="pjo-name">${frappe.utils.escape_html(order.name)}</span></td>
 		</tr>
 	`;
 }

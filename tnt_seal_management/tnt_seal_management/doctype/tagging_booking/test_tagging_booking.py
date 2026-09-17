@@ -12,6 +12,7 @@ from unittest.mock import patch
 from tnt_seal_management.tnt_seal_management.api.customer_tagging_bookings import _get_eligible_account_managers
 from tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking import (
 	assign_to_me,
+	amend_booking,
 	approve_booking,
 	reject_booking,
 	submit_to_finance,
@@ -41,6 +42,33 @@ class IntegrationTestTaggingBooking(IntegrationTestCase):
 		with test_user(roles=["Account Manager"], commit=True) as user:
 			with set_user(user.name), self.assertRaises(frappe.ValidationError):
 				reject_booking(booking.name, remarks="Rejected by mistake")
+
+	def test_account_manager_cannot_amend_booking(self):
+		booking = self._make_booking(status="Pending Finance PCB Approval")
+
+		with test_user(roles=["Account Manager"], commit=True) as user:
+			with set_user(user.name), self.assertRaises(frappe.ValidationError):
+				amend_booking(booking.name, reason="Amending by mistake")
+
+	def test_amend_booking_reverts_to_draft_and_clears_finance_fields(self):
+		booking = self._make_booking(status="Pending Finance PCB Approval")
+
+		with test_user(roles=["Finance PCB"], commit=True) as user:
+			with set_user(user.name):
+				amend_booking(booking.name, reason="Needs correction")
+
+		booking.reload()
+		self.assertEqual(booking.booking_status, "Draft")
+		self.assertIsNone(booking.finance_pcb_approver)
+		self.assertIsNone(booking.finance_pcb_approval_date_time)
+		self.assertEqual(booking.finance_pcb_remarks, "Needs correction")
+
+	def test_amend_booking_rejects_wrong_status(self):
+		booking = self._make_booking(status="Draft")
+
+		with test_user(roles=["Finance PCB"], commit=True) as user:
+			with set_user(user.name), self.assertRaises(frappe.ValidationError):
+				amend_booking(booking.name, reason="Should not work")
 
 	def test_account_manager_cannot_change_finance_approval_fields_directly(self):
 		booking = self._make_booking(status="Pending Finance PCB Approval")

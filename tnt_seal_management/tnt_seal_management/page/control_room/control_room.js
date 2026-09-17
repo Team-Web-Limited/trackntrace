@@ -830,7 +830,7 @@ function _control_room_request_card(req, kind = "tagging") {
 			<footer class="cr-req-actions">
 				<button class="cr-act cr-act--refresh" data-act="refresh">${__("Refresh Seal Status")}</button>
 				<div class="cr-req-actions-right">
-					<button class="cr-act cr-act--reject" data-act="reject">${__("Reject")}</button>
+					<button class="cr-act cr-act--reject" data-act="return_amend">${__("Return for Amendment")}</button>
 					<button class="cr-act cr-act--approve" data-act="approve">${__("Approve")}</button>
 				</div>
 			</footer>
@@ -926,7 +926,7 @@ function _cr_battery(raw) {
 }
 
 function _control_room_bind_actions(page) {
-	// Approve/Reject/Refresh buttons only render inside a frappe.ui.Dialog,
+	// Approve/Return for Amendment/Refresh buttons only render inside a frappe.ui.Dialog,
 	// which Frappe mounts under document.body rather than page.body — so the
 	// click delegation for them must live on document, not page.body.
 	$(document)
@@ -940,7 +940,7 @@ function _control_room_bind_actions(page) {
 
 			if (act === "refresh") _control_room_refresh_seals(page, docname);
 			else if (act === "approve") _control_room_approve(page, docname, kind);
-			else if (act === "reject") _control_room_reject(page, docname, kind);
+			else if (act === "return_amend") _control_room_return_for_amendment(page, docname, kind);
 		});
 
 	$(page.body)
@@ -1490,8 +1490,8 @@ function _control_room_reload_queue_for_kind(page, kind) {
 const CR_APPROVE_METHOD = {
 	tagging: "approve_by_control_room",
 };
-const CR_REJECT_METHOD = {
-	tagging: "reject_by_control_room",
+const CR_RETURN_AMEND_METHOD = {
+	tagging: "return_for_amendment_by_control_room",
 };
 const CR_APPROVE_MESSAGE = {
 	tagging: (docname) => __("{0} approved — tagging can begin", [docname]),
@@ -1527,15 +1527,15 @@ function _control_room_approve(page, docname, kind = "tagging") {
 	);
 }
 
-function _control_room_reject(page, docname, kind = "tagging") {
-	const method = CR_REJECT_METHOD[kind] || CR_REJECT_METHOD.tagging;
+function _control_room_return_for_amendment(page, docname, kind = "tagging") {
+	const method = CR_RETURN_AMEND_METHOD[kind] || CR_RETURN_AMEND_METHOD.tagging;
 
 	frappe.prompt(
 		[
 			{
 				fieldname: "remarks",
 				fieldtype: "Small Text",
-				label: __("Reason for rejection"),
+				label: __("What needs to be amended"),
 				reqd: 1,
 			},
 		],
@@ -1544,16 +1544,16 @@ function _control_room_reject(page, docname, kind = "tagging") {
 				method: CR_METHOD(method),
 				args: { docname, remarks: values.remarks },
 				freeze: true,
-				freeze_message: __("Rejecting…"),
+				freeze_message: __("Returning…"),
 				callback() {
-					frappe.show_alert({ message: __("{0} rejected", [docname]), indicator: "orange" }, 6);
+					frappe.show_alert({ message: __("{0} returned for amendment", [docname]), indicator: "orange" }, 6);
 					page.control_room_state.dialog?.hide();
 					_control_room_reload_queue_for_kind(page, kind);
 				},
 			});
 		},
-		__("Reject {0}", [docname]),
-		__("Reject")
+		__("Return {0} for Amendment", [docname]),
+		__("Return")
 	);
 }
 

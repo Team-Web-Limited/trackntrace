@@ -12,6 +12,7 @@ frappe.ready(() => {
 	if (!root) return;
 
 	bindTabs(root);
+	initBookingForm(root);
 	root.querySelector("[data-booking-form]").addEventListener("submit", (event) => {
 		event.preventDefault();
 		createBooking(root, event.currentTarget);
@@ -51,6 +52,93 @@ function setActiveTab(root, tabName) {
 	});
 }
 
+function initBookingForm(root) {
+	const form = root.querySelector("[data-booking-form]");
+	if (!form) return;
+
+	const dayInput = form.querySelector("[data-date-day]");
+	const monthInput = form.querySelector("[data-date-month]");
+	const yearInput = form.querySelector("[data-date-year]");
+	const hourInput = form.querySelector("[data-time-hour]");
+
+	bindBoundedNumberInput(dayInput, { min: 1, max: 31, maxLength: 2 });
+	bindBoundedNumberInput(monthInput, { min: 1, max: 12, maxLength: 2 });
+	bindBoundedNumberInput(hourInput, { min: 1, max: 12, maxLength: 2 });
+	populateYearOptions(yearInput);
+
+	const phoneInput = form.querySelector("[data-phone-number]");
+	phoneInput?.addEventListener("input", () => {
+		phoneInput.value = phoneInput.value.replace(/\D/g, "").slice(0, 10);
+	});
+}
+
+// Lets the user type freely (so "1" can still become "12") but strips
+// non-digits, caps the digit count, and clamps out-of-range values once the
+// field is fully typed or loses focus.
+function bindBoundedNumberInput(input, { min, max, maxLength }) {
+	if (!input) return;
+
+	const clamp = () => {
+		if (input.value === "") return;
+		let num = parseInt(input.value, 10);
+		if (Number.isNaN(num)) {
+			input.value = "";
+			return;
+		}
+		if (num < min) num = min;
+		if (num > max) num = max;
+		input.value = String(num);
+	};
+
+	input.addEventListener("input", () => {
+		input.value = input.value.replace(/\D/g, "").slice(0, maxLength);
+		if (input.value.length === maxLength) clamp();
+	});
+	input.addEventListener("blur", clamp);
+}
+
+// Always derived from today's date, never hardcoded — this year plus the
+// next two, refreshed every time the form is initialized.
+function populateYearOptions(select) {
+	if (!select) return;
+	const currentYear = new Date().getFullYear();
+	select.innerHTML = "";
+	for (let year = currentYear; year <= currentYear + 2; year++) {
+		const option = document.createElement("option");
+		option.value = String(year);
+		option.textContent = String(year);
+		select.appendChild(option);
+	}
+}
+
+function getBookingDateTime(form) {
+	const day = parseInt(form.querySelector("[data-date-day]")?.value, 10);
+	const month = parseInt(form.querySelector("[data-date-month]")?.value, 10);
+	const year = parseInt(form.querySelector("[data-date-year]")?.value, 10);
+	const hour = parseInt(form.querySelector("[data-time-hour]")?.value, 10);
+	const ampm = form.querySelector("[data-time-ampm]")?.value;
+
+	const currentYear = new Date().getFullYear();
+	if (!Number.isInteger(day) || day < 1 || day > 31) return null;
+	if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+	if (!Number.isInteger(year) || year < currentYear || year > currentYear + 2) return null;
+	if (!Number.isInteger(hour) || hour < 1 || hour > 12) return null;
+	if (!ampm) return null;
+
+	let hour24 = hour % 12;
+	if (ampm === "PM") hour24 += 12;
+
+	const paddedDay = String(day).padStart(2, "0");
+	const paddedMonth = String(month).padStart(2, "0");
+	const paddedHour = String(hour24).padStart(2, "0");
+
+	return `${year}-${paddedMonth}-${paddedDay} ${paddedHour}:00:00`;
+}
+
+function isFutureDateTime(bookingDateTime) {
+	return new Date(bookingDateTime.replace(" ", "T")) > new Date();
+}
+
 async function loadBookings(root) {
 	setError(root, "");
 	root.querySelector("[data-booking-loading]").classList.remove("d-none");
@@ -74,8 +162,18 @@ async function createBooking(root, form) {
 	const countryCode = form.querySelector("[data-phone-country]")?.value || "";
 	const phoneNumber = (form.querySelector("[data-phone-number]")?.value || "").trim();
 
-	if (!phoneNumber) {
-		setError(root, __("Phone Number is required."));
+	if (!/^\d{10}$/.test(phoneNumber)) {
+		setError(root, __("Phone Number must be exactly 10 digits."));
+		return;
+	}
+
+	const bookingDateTime = getBookingDateTime(form);
+	if (!bookingDateTime) {
+		setError(root, __("Enter the requested date and time."));
+		return;
+	}
+	if (!isFutureDateTime(bookingDateTime)) {
+		setError(root, __("Requested date and time must be in the future."));
 		return;
 	}
 
@@ -84,6 +182,7 @@ async function createBooking(root, form) {
 	setError(root, "");
 
 	const data = Object.fromEntries(new FormData(form).entries());
+	data.booking_date_time = bookingDateTime;
 	data.contact_person_phone = countryCode + "-" + phoneNumber;
 
 	try {

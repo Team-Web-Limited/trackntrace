@@ -100,7 +100,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Control Room Approval\nTagging\nJourney Ready\nUntagging\nAwaiting Seal Return\nPending Seal Return Approval\nSeal Returned\nRejected\nCancelled",
+   "options": "Draft\nPending Control Room Approval\nTagging\nJourney Ready\nUntagging\nAwaiting Seal Return\nPending Seal Return Approval\nSeal Returned\nCancelled",
    "read_only": 1
   },
   {

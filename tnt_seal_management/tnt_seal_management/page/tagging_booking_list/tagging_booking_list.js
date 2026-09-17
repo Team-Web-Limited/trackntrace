@@ -259,13 +259,13 @@ function _export_tagging_bookings_pdf(page) {
 						<table class="tb-print-table">
 							<thead>
 								<tr>
+									<th>${__("Booking Status")}</th>
 									<th>${__("Booking")}</th>
 									<th>${__("Client")}</th>
 									<th>${__("Location")}</th>
 									<th>${__("Date and Time")}</th>
 									<th>${__("Contact Person")}</th>
 									<th>${__("Phone")}</th>
-									<th>${__("Booking Status")}</th>
 								</tr>
 							</thead>
 							<tbody>${rows}</tbody>
@@ -318,13 +318,13 @@ function _tagging_booking_pdf_row_html(booking) {
 
 	return `
 		<tr>
+			<td>${esc(booking.booking_status || __("Draft"))}</td>
 			<td>${esc(booking.name)}</td>
 			<td>${esc(booking.client_name || dash)}</td>
 			<td>${esc(booking.location || dash)}</td>
 			<td>${esc(bookingDate)}</td>
 			<td>${esc(booking.contact_person_name || dash)}</td>
 			<td>${esc(booking.contact_person_phone || dash)}</td>
-			<td>${esc(booking.booking_status || __("Draft"))}</td>
 		</tr>
 	`;
 }
@@ -392,13 +392,13 @@ function _render_tagging_booking_table(page, bookings) {
 		<table class="tb-table">
 			<thead>
 				<tr>
+					<th>${__("Booking Status")}</th>
 					<th>${__("Booking")}</th>
 					<th>${__("Client")}</th>
 					<th>${__("Location")}</th>
 					<th>${__("Date and Time")}</th>
 					<th>${__("Contact Person")}</th>
 					<th>${__("Phone")}</th>
-					<th>${__("Booking Status")}</th>
 				</tr>
 			</thead>
 			<tbody>${bookings.map(_tagging_booking_row_html).join("")}</tbody>
@@ -415,6 +415,7 @@ function _tagging_booking_row_html(booking) {
 
 	return `
 		<tr class="tb-booking-row" data-name="${frappe.utils.escape_html(booking.name)}">
+			<td><span class="tb-badge tb-badge--${statusClass}">${frappe.utils.escape_html(status)}</span></td>
 			<td>
 				<span class="tb-booking-name">${frappe.utils.escape_html(booking.name)}</span>
 			</td>
@@ -423,7 +424,6 @@ function _tagging_booking_row_html(booking) {
 			<td>${frappe.utils.escape_html(bookingDate)}</td>
 			<td>${frappe.utils.escape_html(booking.contact_person_name || "—")}</td>
 			<td>${frappe.utils.escape_html(booking.contact_person_phone || "—")}</td>
-			<td><span class="tb-badge tb-badge--${statusClass}">${frappe.utils.escape_html(status)}</span></td>
 		</tr>
 	`;
 }
