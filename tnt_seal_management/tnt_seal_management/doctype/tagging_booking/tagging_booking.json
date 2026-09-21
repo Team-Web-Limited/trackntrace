@@ -33,7 +33,9 @@
   "pcb_job_order_reference",
   "seal_journey_reference",
   "selected_vehicles_section",
-  "selected_vehicles"
+  "selected_vehicles",
+  "seal_journeys_section",
+  "seal_journeys"
  ],
  "fields": [
   {
@@ -202,6 +204,18 @@
    "fieldname": "selected_vehicles",
    "fieldtype": "Table",
    "options": "Tagging Booking Selected Vehicle"
+  },
+  {
+   "fieldname": "seal_journeys_section",
+   "fieldtype": "Section Break",
+   "label": "Seal Journeys (one per vehicle)"
+  },
+  {
+   "fieldname": "seal_journeys",
+   "fieldtype": "Table",
+   "label": "Seal Journeys",
+   "options": "Tagging Booking Seal Journey",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

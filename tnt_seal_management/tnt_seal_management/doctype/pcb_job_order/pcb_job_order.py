@@ -8,9 +8,9 @@ from frappe.utils import cint, cstr, getdate, now_datetime, today
 
 from tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment import (
 	_ensure_journey_request,
-	_seal_journey_for_job_order,
 )
 from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey import (
+	booking_journey_names,
 	set_journey_status,
 	sync_seal_journey_mirror,
 )
@@ -60,14 +60,13 @@ class PCBJobOrder(Document):
 		on the job order. Advances the journey to "Team Lead Assigned" only from
 		the immediately preceding stage so re-saving a job order never regresses a
 		journey that is already further along."""
-		seal_journey = _seal_journey_for_job_order(self.name)
-		if not seal_journey:
-			return
-		if self.assigned_pcb_team_leader and self.job_order_status == "Team Leader Assigned":
-			current = frappe.db.get_value("Seal Journey", seal_journey, "journey_status")
-			if current == "Finance PCB Approved":
-				set_journey_status(seal_journey, "Team Lead Assigned")
-		sync_seal_journey_mirror(seal_journey)
+		booking = self.tagging_booking
+		for seal_journey in booking_journey_names(booking):
+			if self.assigned_pcb_team_leader and self.job_order_status == "Team Leader Assigned":
+				current = frappe.db.get_value("Seal Journey", seal_journey, "journey_status")
+				if current == "Finance PCB Approved":
+					set_journey_status(seal_journey, "Team Lead Assigned")
+			sync_seal_journey_mirror(seal_journey)
 
 	def _validate_team_leader(self):
 		if not self.assigned_pcb_team_leader:
@@ -367,7 +366,7 @@ def get_job_order_list(
 		],
 		filters=filters,
 		or_filters=or_filters,
-		order_by="scheduled_date_time desc, creation desc",
+		order_by="modified desc, creation desc",
 		limit_start=(page - 1) * page_length,
 		limit_page_length=page_length,
 	)
@@ -430,7 +429,7 @@ def get_all_job_orders_for_export(search=None, status=None, team_leader=None, fr
 		],
 		filters=filters,
 		or_filters=or_filters,
-		order_by="scheduled_date_time desc, creation desc",
+		order_by="modified desc, creation desc",
 		limit_page_length=0,
 	)
 

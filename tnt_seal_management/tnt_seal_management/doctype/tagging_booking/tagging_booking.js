@@ -11,7 +11,23 @@ frappe.ui.form.on("Tagging Booking", {
 	vehicles(frm) {
 		sync_selected_vehicles(frm);
 	},
+	booking_date_time(frm) {
+		if (is_past_booking_time(frm.doc.booking_date_time)) {
+			frappe.show_alert({ message: __("Date and Time cannot be in the past."), indicator: "red" }, 5);
+			frm.set_value("booking_date_time", null);
+		}
+	},
+	validate(frm) {
+		if (
+			(frm.is_new() || frm.doc.__booking_dt_at_load !== frm.doc.booking_date_time) &&
+			is_past_booking_time(frm.doc.booking_date_time)
+		) {
+			frappe.throw(__("Date and Time cannot be in the past."));
+		}
+	},
 	refresh(frm) {
+		frm.doc.__booking_dt_at_load = frm.doc.booking_date_time;
+		set_booking_date_min(frm);
 		load_branch_options(frm);
 		frm.add_custom_button(__("Back"), () => {
 			frappe.set_route("tagging-booking-list");
@@ -233,4 +249,23 @@ function load_branch_options(frm) {
 	});
 
 	return frm._loading_branch_options;
+}
+
+
+function is_past_booking_time(value) {
+	if (!value) return false;
+	const now = frappe.datetime.now_datetime().slice(0, 16);
+	return value.slice(0, 16) < now;
+}
+
+// Grey out past days in the date picker. Server-side validation is the real
+// guard; this is just so the picker doesn't offer dates that will be refused.
+function set_booking_date_min(frm) {
+	const control = frm.fields_dict.booking_date_time;
+	if (!control || !control.datepicker) return;
+	try {
+		control.datepicker.update({ minDate: frappe.datetime.str_to_obj(frappe.datetime.now_datetime()) });
+	} catch (e) {
+		// Older datepicker builds: fall back to the change/validate checks above.
+	}
 }

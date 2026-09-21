@@ -504,10 +504,19 @@ def confirm_arrival(docname, unlock_method="physical"):
 	    Return" and a Seal Return request is raised so the PCB Team Leader can
 	    assign a Tag Operator to collect the seal from the client.
 
+	  • ``remote_retained`` — remote unlock at a destination too far to collect
+	    from (Rwanda and the like). The seal stays fitted to the vehicle and rides
+	    home with it, so there is no untagging, no collection and no seal-return
+	    request at all. The journey is completed on the spot and the seal goes
+	    straight back into the assignable pool, because nothing tells us when the
+	    vehicle re-enters the country — the next Tagging Booking on that vehicle
+	    is what picks the seal up again. Custody stays with the customer until
+	    then, and the normal warehouse flow resumes from that booking.
+
 	Captures location live from the seal's GPS and timestamps arrival, which also
 	makes Days Taken non-zero immediately (see SealJourney.set_days_taken)."""
 	_ensure_control_room_role()
-	if unlock_method not in ("physical", "remote"):
+	if unlock_method not in ("physical", "remote", "remote_retained"):
 		frappe.throw(_("Invalid unlock method {0}.").format(unlock_method), title=_("Invalid Request"))
 
 	doc = _get_seal_journey(docname)
@@ -532,6 +541,8 @@ def confirm_arrival(docname, unlock_method="physical"):
 
 	if unlock_method == "remote":
 		_confirm_remote_unlock(doc)
+	elif unlock_method == "remote_retained":
+		_confirm_remote_unlock_seal_retained(doc)
 	else:
 		_confirm_physical_unlock(doc)
 
@@ -582,14 +593,70 @@ def _confirm_remote_unlock(doc):
 		)
 
 
+def _confirm_remote_unlock_seal_retained(doc):
+	"""Remote unlock with the seal left on the vehicle: the destination is too far
+	for a Tag Operator, so the cycle ends here. Complete the journey at the moment
+	of unlock (that is when the service was delivered — days_taken already stops
+	at arrival, so billing is unaffected), skip untagging and seal return
+	entirely, and hand the seal back to the pool via the Journey Request so it can
+	be booked again the moment the vehicle turns up for its next tagging."""
+	doc.seal_unlock_method = "Remote - Seal Retained"
+	doc.untagging_status = "Not Required"
+	doc.journey_status = "Completed"
+	doc.completion_date_time = doc.arrival_date_time
+	doc.save()
+
+	try:
+		from tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request import (
+			close_for_retained_seal,
+		)
+
+		close_for_retained_seal(
+			doc.name,
+			remarks=_("Seal retained on vehicle at {0} — remote unlock, no collection.").format(
+				doc.destination or _("destination")
+			),
+		)
+	except Exception as exc:
+		frappe.log_error(
+			f"Retained-seal closure failed for {doc.name}: {exc}",
+			"Retained Seal Closure",
+		)
+
+
 @frappe.whitelist()
-def get_arrival_queue():
+def get_arrival_queue(search=None, page=1, page_length=30):
 	"""Seal Journeys currently In Transit, awaiting the Control Room's arrival /
-	seal-unlock confirmation — for the Approve tab's Arrivals section."""
+	seal-unlock confirmation — for the Approve tab's Arrivals section. Search and
+	paging are applied here; `total` is the filtered count, `overall` the
+	unfiltered one."""
 	_ensure_control_room_role(include_read_only=True)
+	page = max(cint(page), 1)
+	page_length = min(max(cint(page_length) or 30, 1), 100)
+	search = (search or "").strip()
+
+	filters = {"journey_status": "In Transit"}
+	or_filters = None
+	if search:
+		like = f"%{search}%"
+		or_filters = [
+			[field, "like", like]
+			for field in (
+				"name", "customer", "vehicle_plate_number", "container_number",
+				"assigned_seal", "origin", "destination", "api_device_location",
+			)
+		]
+
+	overall = len(frappe.get_list("Seal Journey", filters=filters, pluck="name", limit_page_length=0))
+	total = len(
+		frappe.get_list(
+			"Seal Journey", filters=filters, or_filters=or_filters, pluck="name", limit_page_length=0
+		)
+	)
 	journeys = frappe.get_list(
 		"Seal Journey",
-		filters={"journey_status": "In Transit"},
+		filters=filters,
+		or_filters=or_filters,
 		fields=[
 			"name", "customer", "vehicle_plate_number", "container_number",
 			"origin", "destination", "assigned_seal",
@@ -597,8 +664,10 @@ def get_arrival_queue():
 			"api_device_location", "api_last_update_time",
 		],
 		order_by="journey_start_date_time asc",
+		limit_start=(page - 1) * page_length,
+		limit_page_length=page_length,
 	)
-	return {"journeys": journeys}
+	return {"journeys": journeys, "total": total, "overall": overall}
 
 
 @frappe.whitelist()
@@ -931,29 +1000,36 @@ def resolve_seal_journey_mirror_values(seal_journey):
 			put("journey_request", jr_name)
 			# Plain text carried over from the Tagging Booking — see
 			# start_seal_journey in journey_request.py.
-			put("vehicle_plate_number", jr.vehicle)
+			vehicle_row = journey_vehicle_row(jr_name, seal_journey)
+			# A multi-vehicle request joins every plate into jr.vehicle, so each
+			# Seal Journey takes its own vehicle's plate from its row instead.
+			put("vehicle_plate_number", (vehicle_row.registration_number or vehicle_row.vehicle) if vehicle_row else jr.vehicle)
 			put("container_number", jr.container_number)
 			put("file_number", jr.file_number)
 			put("departure_card_number", jr.departure_card_number)
 			put("origin", jr.origin)  # JR origin overrides booking.location once set
 			put("destination", jr.destination)
 			put("assigned_technician", jr.assigned_technician)
-			put("control_room_approver", jr.control_room_approver)
-			put("control_room_approval_date_time", jr.control_room_approval_date_time)
-			put("control_room_remarks", jr.control_room_remarks)
-			put("tagging_date_time", jr.actual_tagging_date_time)
-			put("tagging_location", jr.tagging_location)
-			put("tagging_remarks", jr.tagging_remarks)
+			cr = vehicle_row or jr
+			put("control_room_approver", cr.control_room_approver)
+			put("control_room_approval_date_time", cr.control_room_approval_date_time)
+			put("control_room_remarks", cr.control_room_remarks)
+			tg = vehicle_row if vehicle_row and vehicle_row.actual_tagging_date_time else jr
+			put("tagging_date_time", tg.actual_tagging_date_time)
+			put("tagging_location", tg.tagging_location)
+			put("tagging_remarks", tg.tagging_remarks)
 			put("departure_confirmation", 1 if jr.approval_date_time else 0)
 
 			# --- Seal Return (mirrored onto the Seal Return tab) -------------
-			put("return_location", jr.seal_return_location)
+			ret = vehicle_row if vehicle_row and vehicle_row.seal_return_condition else jr
+			put("return_location", ret.seal_return_location)
 			put("seal_return_confirmed_by_technician", cint(jr.seal_return_confirmed_by_technician))
-			put("seal_condition_after_journey", jr.seal_return_condition)
-			put("retrieval_card_number", jr.retrieval_card_number)
+			put("seal_condition_after_journey", ret.seal_return_condition)
+			put("retrieval_card_number", ret.retrieval_card_number)
 			# Returned By is the technician who untagged/returned the seal, but only
 			# once the technician confirms the return.
-			if cint(jr.seal_returned):
+			returned = (vehicle_row.status == "Seal Returned") if vehicle_row else cint(jr.seal_returned)
+			if returned:
 				put("returned_by", jr.assigned_technician)
 
 	return values
@@ -1015,4 +1091,62 @@ def _user_role_query(role, txt, searchfield, start, page_len):
 			"start": cint(start),
 			"page_len": cint(page_len),
 		},
+	)
+
+
+def booking_journey_names(booking):
+	"""Every Seal Journey raised for a Tagging Booking — one per vehicle. Falls
+	back to the booking's single seal_journey_reference for bookings created
+	before per-vehicle journeys."""
+	if not booking:
+		return []
+	names = frappe.get_all(
+		"Tagging Booking Seal Journey",
+		filters={"parent": booking, "parenttype": "Tagging Booking"},
+		pluck="seal_journey",
+		order_by="idx",
+	)
+	names = [n for n in names if n]
+	if names:
+		return names
+	legacy = frappe.db.get_value("Tagging Booking", booking, "seal_journey_reference")
+	return [legacy] if legacy else []
+
+
+def journey_request_for_seal_journey(seal_journey):
+	"""The Journey Request covering a Seal Journey: found through its vehicle rows
+	(any vehicle of a multi-vehicle request), else the legacy journey_reference."""
+	if not seal_journey:
+		return None
+	parent = frappe.db.get_value(
+		"Journey Request Vehicle",
+		{"seal_journey": seal_journey, "parenttype": "Journey Request"},
+		"parent",
+	)
+	return parent or frappe.db.get_value("Journey Request", {"journey_reference": seal_journey}, "name")
+
+
+def journey_vehicle_row(journey_request, seal_journey):
+	"""The Journey Request Vehicle row for a Seal Journey, or None (legacy)."""
+	if not journey_request or not seal_journey:
+		return None
+	return frappe.db.get_value(
+		"Journey Request Vehicle",
+		{"parent": journey_request, "parenttype": "Journey Request", "seal_journey": seal_journey},
+		[
+			"name",
+			"vehicle",
+			"registration_number",
+			"status",
+			"control_room_approver",
+			"control_room_approval_date_time",
+			"control_room_remarks",
+			"seal_return_condition",
+			"seal_return_location",
+			"retrieval_card_number",
+			"actual_tagging_date_time",
+			"tagging_location",
+			"tagging_remarks",
+		],
+		as_dict=True,
 	)

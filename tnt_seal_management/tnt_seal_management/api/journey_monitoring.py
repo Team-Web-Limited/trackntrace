@@ -49,6 +49,13 @@ _FIELDS = [
 	# their own first_period_days, i.e. their own grace period before a journey
 	# counts as running long (see _attach_longer_in_journey).
 	"journey_type",
+	# The Tagging Booking this journey belongs to — a multi-vehicle booking has one
+	# Seal Journey per vehicle, so this is what ties the batch together.
+	"tagging_booking",
+	# A "Remote - Seal Retained" journey completes with the seal still on the
+	# vehicle, so a Completed status does NOT mean the seal is back in a
+	# warehouse — see _resolve_custodian.
+	"seal_unlock_method",
 ]
 
 # --- Custody / "warehouse" lifecycle -----------------------------------------
@@ -118,6 +125,7 @@ def get_journey_monitoring_data(
 		journeys = journeys_with_alerts[start : start + page_length]
 		_attach_longer_in_journey(journeys)
 		_attach_custodian(journeys)
+		_attach_batch(journeys)
 	else:
 		total = frappe.db.count("Seal Journey", filters=_count_filters(filters, or_filters))
 
@@ -133,6 +141,7 @@ def get_journey_monitoring_data(
 		_attach_seals(journeys)
 		_attach_longer_in_journey(journeys)
 		_attach_custodian(journeys)
+		_attach_batch(journeys)
 
 	return {
 		"journeys": [dict(j) for j in journeys],
@@ -174,6 +183,7 @@ def get_all_journeys_for_export(view="all", search=None, from_date=None, to_date
 
 	_attach_longer_in_journey(journeys)
 	_attach_custodian(journeys)
+	_attach_batch(journeys)
 	return [dict(j) for j in journeys]
 
 
@@ -216,6 +226,7 @@ _EXPORT_COLUMNS = (
 	("Journey", "name", 20),
 	("Client", "customer", 26),
 	("Vehicle", "vehicle_plate_number", 16),
+	("Booking", "tagging_booking", 20),
 	("Container", "container_number", 18),
 	("Origin", "origin", 22),
 	("Destination", "destination", 22),
@@ -276,6 +287,7 @@ def _journey_export_rows(journey):
 			"name": journey.get("name"),
 			"customer": journey.get("customer"),
 			"vehicle_plate_number": journey.get("vehicle_plate_number"),
+			"tagging_booking": journey.get("tagging_booking"),
 			"container_number": journey.get("container_number"),
 			"origin": journey.get("origin"),
 			"destination": journey.get("destination"),
@@ -435,6 +447,30 @@ def _attach_longer_in_journey(journeys):
 				j["longer_in_journey"] = total_days - allowed_days
 
 
+def _attach_batch(journeys):
+	"""Tag each journey with its place in a multi-vehicle booking: ``batch_size``
+	(vehicles on the booking) and ``batch_position`` (1-based). Single-vehicle and
+	older bookings get batch_size 1, which the page renders as nothing."""
+	bookings = {j.get("tagging_booking") for j in journeys if j.get("tagging_booking")}
+	position = {}
+	size = {}
+	if bookings:
+		for row in frappe.get_all(
+			"Tagging Booking Seal Journey",
+			filters={"parent": ["in", list(bookings)], "parenttype": "Tagging Booking"},
+			fields=["parent", "seal_journey"],
+			order_by="parent asc, idx asc",
+			limit_page_length=0,
+		):
+			size[row.parent] = size.get(row.parent, 0) + 1
+			position[row.seal_journey] = size[row.parent]
+
+	for j in journeys:
+		booking = j.get("tagging_booking")
+		j["batch_size"] = size.get(booking, 1)
+		j["batch_position"] = position.get(j.get("name"), 1)
+
+
 def _attach_custodian(journeys):
 	"""Attach the current "warehouse" (custodian) to each journey, derived from
 	its stage — see the _CUSTODY_*_STATUSES sets above for the hand-to-hand rules.
@@ -516,6 +552,11 @@ def _resolve_custodian(journey, user_names, seal_warehouse):
 		return "Customer", (journey.get("customer") or _("Customer"))
 
 	if status in _CUSTODY_RETURNED_STATUSES:
+		# Completed with the seal left on the vehicle at a far destination: no
+		# collection ever happened, so the customer is still holding it even though
+		# the journey is closed and the seal is assignable again.
+		if journey.get("seal_unlock_method") == "Remote - Seal Retained":
+			return "Customer", (journey.get("customer") or _("Customer"))
 		# Seal return signed off — custody is back with the warehouse, i.e. the
 		# seal's resting location. Prefer the persisted custody point, falling back
 		# to the seal's last known location, then a generic label.
@@ -623,6 +664,7 @@ def _build_or_filters(search):
 		["name", "like", like],
 		["customer", "like", like],
 		["vehicle_plate_number", "like", like],
+		["tagging_booking", "like", like],
 		["container_number", "like", like],
 		["assigned_seal", "like", like],
 		["api_device_location", "like", like],

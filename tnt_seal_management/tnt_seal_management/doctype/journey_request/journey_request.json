@@ -15,6 +15,7 @@
   "journey_type",
   "jr_row_2_section",
   "vehicle",
+  "vehicles",
   "jr_row_2_column",
   "assigned_technician",
   "driver_contact",
@@ -47,6 +48,8 @@
   "jr_cr_remarks_section",
   "control_room_remarks",
   "jr_tagging_section",
+  "vehicle_stage_summary",
+  "jr_tagging_fields_section",
   "actual_tagging_date_time",
   "jr_tagging_column",
   "tagging_location",
@@ -100,7 +103,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Draft\nPending Control Room Approval\nTagging\nJourney Ready\nUntagging\nAwaiting Seal Return\nPending Seal Return Approval\nSeal Returned\nCancelled",
+   "options": "Draft\nPending Control Room Approval\nTagging\nJourney Ready\nUntagging\nAwaiting Seal Return\nPending Seal Return Approval\nSeal Returned\nClosed - Seal Retained\nCancelled",
    "read_only": 1
   },
   {
@@ -145,6 +148,14 @@
    "label": "Vehicle",
    "read_only": 1,
    "reqd": 1
+  },
+  {
+   "fieldname": "vehicles",
+   "fieldtype": "Table",
+   "hidden": 1,
+   "label": "Vehicles",
+   "options": "Journey Request Vehicle",
+   "read_only": 1
   },
   {
    "fieldname": "jr_row_2_column",
@@ -287,7 +298,7 @@
    "options": "Seal Trip Photo"
   },
   {
-   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
+   "depends_on": "eval:doc.journey_request_status != \"Draft\" || (doc.vehicles || []).some((r) => r.status != \"Draft\")",
    "fieldname": "jr_cr_section",
    "fieldtype": "Section Break",
    "label": "Control Room Approval"
@@ -310,7 +321,7 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
+   "depends_on": "eval:doc.journey_request_status != \"Draft\" || (doc.vehicles || []).some((r) => r.status != \"Draft\")",
    "fieldname": "jr_cr_remarks_section",
    "fieldtype": "Section Break"
   },
@@ -321,10 +332,20 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
+   "depends_on": "eval:doc.journey_request_status != \"Draft\" || (doc.vehicles || []).some((r) => r.status != \"Draft\")",
    "fieldname": "jr_tagging_section",
    "fieldtype": "Section Break",
    "label": "Actual Tagging"
+  },
+  {
+   "fieldname": "vehicle_stage_summary",
+   "fieldtype": "HTML",
+   "label": "Progress by Vehicle"
+  },
+  {
+   "depends_on": "eval:doc.journey_request_status != \"Draft\" || (doc.vehicles || []).some((r) => r.status != \"Draft\")",
+   "fieldname": "jr_tagging_fields_section",
+   "fieldtype": "Section Break"
   },
   {
    "fieldname": "actual_tagging_date_time",
@@ -343,7 +364,7 @@
    "description": "Pulled automatically from the seal device's GPS when tagging is completed."
   },
   {
-   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
+   "depends_on": "eval:doc.journey_request_status != \"Draft\" || (doc.vehicles || []).some((r) => r.status != \"Draft\")",
    "fieldname": "jr_tagging_row2_section",
    "fieldtype": "Section Break"
   },
@@ -363,7 +384,7 @@
    "label": "Tagging Remarks"
   },
   {
-   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
+   "depends_on": "eval:doc.journey_request_status != \"Draft\" || (doc.vehicles || []).some((r) => r.status != \"Draft\")",
    "fieldname": "jr_row_9_section",
    "fieldtype": "Section Break",
    "label": "Journey Ready"
@@ -379,7 +400,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "depends_on": "eval:doc.journey_request_status != \"Draft\"",
+   "depends_on": "eval:doc.journey_request_status != \"Draft\" || (doc.vehicles || []).some((r) => r.status != \"Draft\")",
    "fieldname": "jr_row_10_section",
    "fieldtype": "Section Break",
    "label": "Approval History"
@@ -400,7 +421,7 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status) || (doc.vehicles || []).some((r) => [\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(r.status))",
    "fieldname": "jr_untagging_section",
    "fieldtype": "Section Break",
    "label": "Untagging Documents"
@@ -419,7 +440,7 @@
    "description": "Tick to confirm the seal has been physically removed."
   },
   {
-   "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status) || (doc.vehicles || []).some((r) => [\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(r.status))",
    "fieldname": "jr_untagging_row2_section",
    "fieldtype": "Section Break"
   },
@@ -442,7 +463,7 @@
    "description": "Pulled automatically from seal GPS when the Field Technician confirms untagging; manual entry is requested if GPS is unavailable."
   },
   {
-   "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status) || (doc.vehicles || []).some((r) => [\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(r.status))",
    "fieldname": "jr_untagging_row3_section",
    "fieldtype": "Section Break"
   },
@@ -455,7 +476,7 @@
    "description": "Set automatically when the Field Technician confirms untagging."
   },
   {
-   "depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status) || (doc.vehicles || []).some((r) => [\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(r.status))",
    "fieldname": "jr_seal_return_section",
    "fieldtype": "Section Break",
    "label": "Seal Return Documents & Photos"
@@ -490,7 +511,7 @@
    "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)"
   },
   {
-   "depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status) || (doc.vehicles || []).some((r) => [\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(r.status))",
    "fieldname": "jr_seal_return_row2_section",
    "fieldtype": "Section Break"
   },
@@ -521,7 +542,7 @@
    "description": "Pulled automatically from seal GPS when the Field Technician confirms the return; manual entry is requested if GPS is unavailable."
   },
   {
-   "depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status) || (doc.vehicles || []).some((r) => [\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(r.status))",
    "fieldname": "jr_seal_return_row3_section",
    "fieldtype": "Section Break"
   },
@@ -534,7 +555,7 @@
    "description": "Set automatically when the Field Technician confirms the seal return."
   },
   {
-   "depends_on": "eval:[\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "depends_on": "eval:[\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status) || (doc.vehicles || []).some((r) => [\"Pending Seal Return Approval\",\"Seal Returned\"].includes(r.status))",
    "fieldname": "jr_seal_return_approval_section",
    "fieldtype": "Section Break",
    "label": "Seal Return Approval"
@@ -581,7 +602,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-14 12:45:00.000000",
+ "modified": "2026-09-24 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Journey Request",

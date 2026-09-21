@@ -425,6 +425,9 @@ function _jrl_row_html(request) {
 function _jrl_status_class(status) {
 	if (status === "Journey Ready") return "ready";
 	if (status === "Seal Returned") return "approved";
+	// Closed with the seal still on the vehicle — a finished request, same as a
+	// returned one, so it reads the same in the list.
+	if (status === "Closed - Seal Retained") return "approved";
 	if (status === "Cancelled") return "rejected";
 	if (status === "Pending Control Room Approval") return "pending";
 	if (status === "Tagging") return "tagging";

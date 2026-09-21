@@ -102,6 +102,26 @@ def last_known_warehouse(seal_device, exclude_journey=None):
 	return rows[0].return_warehouse if rows else None
 
 
+def journey_start_custody(seal_device, exclude_journey=None):
+	"""Where the seal is starting its next journey from, for the start_warehouse
+	column on that journey's custody row.
+
+	Normally that is the warehouse it was last returned to. But a seal whose
+	previous journey ended with a remote unlock at a far destination never came
+	back to a warehouse — it stayed on the vehicle with the customer (see
+	journey_request.close_for_retained_seal), and the live custody pointer still
+	says so. In that case the customer is the true origin of this cycle, and the
+	warehouse flow picks up again when the seal is eventually returned."""
+	if not seal_device:
+		return None
+	custody = frappe.db.get_value(
+		_DOCTYPE, seal_device, ["current_custody_type", "current_custodian"], as_dict=True
+	)
+	if custody and custody.current_custody_type == "Customer" and custody.current_custodian:
+		return _custodian_name("Customer", custody.current_custodian)
+	return last_known_warehouse(seal_device, exclude_journey=exclude_journey)
+
+
 def record_journey_custody(seal_device, journey, column, values=None, remarks=None):
 	"""
 	Upsert the single "Journey Summary" row for (seal, journey) in the seal's

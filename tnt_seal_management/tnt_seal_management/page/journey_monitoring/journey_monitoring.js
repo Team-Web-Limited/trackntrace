@@ -304,6 +304,18 @@ function _journey_rows_html(j) {
 	return seals.map((seal, idx) => _row_html(j, seal, idx, seals.length)).join("");
 }
 
+// "TB-… · vehicle 2 of 3" under the plate, only for multi-vehicle bookings, so the
+// vehicles of one batch can be told apart from unrelated journeys at a glance.
+function _batch_label(j) {
+	if (!j.tagging_booking || !(j.batch_size > 1)) return "";
+	return `${j.tagging_booking} · ${__("vehicle {0} of {1}", [j.batch_position, j.batch_size])}`;
+}
+
+function _batch_html(j) {
+	const label = _batch_label(j);
+	return label ? `<div class="jm-cell-muted" title="${frappe.utils.escape_html(label)}">${frappe.utils.escape_html(label)}</div>` : "";
+}
+
 function _row_html(j, seal, idx, sealCount) {
 	const esc = frappe.utils.escape_html;
 	const dash = `<span class="jm-cell-muted">—</span>`;
@@ -312,7 +324,7 @@ function _row_html(j, seal, idx, sealCount) {
 	const client = j.customer
 		? `<span class="jm-truncate-chip" title="${esc(j.customer)}">${esc(_truncate_words(j.customer, 2))}</span>`
 		: dash;
-	const vehicle = j.vehicle_plate_number ? esc(j.vehicle_plate_number) : dash;
+	const vehicle = j.vehicle_plate_number ? esc(j.vehicle_plate_number) + _batch_html(j) : dash;
 	const container = j.container_number ? esc(j.container_number) : dash;
 	const origin = j.origin ? esc(j.origin) : dash;
 	const destination = j.destination ? esc(j.destination) : dash;
@@ -563,7 +575,7 @@ function _journey_pdf_row_html(j, seal) {
 		<tr>
 			<td>${esc(j.name)}</td>
 			<td>${esc(j.customer || dash)}</td>
-			<td>${esc(j.vehicle_plate_number || dash)}</td>
+			<td>${esc(j.vehicle_plate_number || dash)}${_batch_html(j)}</td>
 			<td>${esc(j.container_number || dash)}</td>
 			<td>${esc(j.origin || dash)}</td>
 			<td>${esc(j.destination || dash)}</td>

@@ -1,3 +1,5 @@
+const CR_QUEUE_PAGE_LENGTH = 30;
+
 frappe.pages["control-room"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
@@ -9,6 +11,13 @@ frappe.pages["control-room"].on_page_load = function (wrapper) {
 		tab: "approve",
 		loading: false,
 		requests: [],
+		requestTotal: 0,
+		requestOverall: 0,
+		requestPage: 1,
+		arrivalTotal: 0,
+		arrivalOverall: 0,
+		arrivalPage: 1,
+		queuePageLength: CR_QUEUE_PAGE_LENGTH,
 		dialog: null,
 		dialog_docname: null,
 		search: "",
@@ -22,7 +31,7 @@ frappe.pages["control-room"].on_page_load = function (wrapper) {
 		alertLevel: "all",
 		alertType: "all",
 		alertPage: 1,
-		alertPageLength: 20,
+		alertPageLength: CR_QUEUE_PAGE_LENGTH,
 		alertTotal: 0,
 		alertFilterOptions: { levels: [], types: [] },
 		alertSummary: { open: 0, critical_open: 0, unacknowledged_open: 0 },
@@ -153,7 +162,7 @@ function _control_room_render(page) {
 				<div class="cr-tabs">
 					<button class="cr-tab ${state.tab === "approve" ? "active" : ""}" data-tab="approve">
 						${__("Approve")}
-						<span class="cr-tab-count" data-cr-count>${state.requests.length + state.arrivals.length}</span>
+						<span class="cr-tab-count" data-cr-count>${state.requestOverall + state.arrivalOverall}</span>
 					</button>
 					<button class="cr-tab ${state.tab === "alert" ? "active" : ""}" data-tab="alert">
 						${__("Alert")}
@@ -233,7 +242,7 @@ function _control_room_render(page) {
 
 	const delayedSearch = _cr_debounce(() => {
 		page.control_room_state.search = ($(page.body).find(".cr-search").val() || "").trim();
-		_control_room_render_body(page);
+		_control_room_reload_approve(page);
 	}, 350);
 
 	$(page.body)
@@ -245,7 +254,7 @@ function _control_room_render(page) {
 		.on("change", ".cr-from-date, .cr-to-date", function () {
 			page.control_room_state.from_date = $(page.body).find(".cr-from-date").val() || "";
 			page.control_room_state.to_date = $(page.body).find(".cr-to-date").val() || "";
-			_control_room_render_body(page);
+			_control_room_reload_approve(page);
 		});
 
 	$(page.body)
@@ -255,7 +264,7 @@ function _control_room_render(page) {
 			page.control_room_state.from_date = "";
 			page.control_room_state.to_date = "";
 			$(page.body).find(".cr-search, .cr-from-date, .cr-to-date").val("");
-			_control_room_render_body(page);
+			_control_room_reload_approve(page);
 		});
 
 	$(page.body)
@@ -373,6 +382,24 @@ function _control_room_render(page) {
 		.off("click.cr-alert-download-dropdown")
 		.on("click.cr-alert-download-dropdown", () => {
 			$(page.body).find(".cr-alert-download-menu").removeClass("open");
+		});
+
+	$(page.body)
+		.off("click", ".cr-queue-page-btn")
+		.on("click", ".cr-queue-page-btn", function () {
+			const state = page.control_room_state;
+			const nextPage = Number($(this).data("page"));
+			const kind = $(this).data("kind");
+			if (!nextPage) return;
+			if (kind === "arrivals") {
+				if (nextPage === state.arrivalPage) return;
+				state.arrivalPage = nextPage;
+				_control_room_load_arrivals(page);
+			} else {
+				if (nextPage === state.requestPage) return;
+				state.requestPage = nextPage;
+				_control_room_load_queue(page);
+			}
 		});
 
 	$(page.body)
@@ -495,8 +522,7 @@ function _control_room_render_body(page) {
 
 	const arrivalsHtml = _control_room_arrivals_section_html(state);
 	const extraSectionsHtml = `${arrivalsHtml}`;
-	const hasOtherPending =
-		state.arrivals.length;
+	const filtersActive = !!(state.search || state.from_date || state.to_date);
 
 	if (state.loading) {
 		$body.html(`${extraSectionsHtml}<div class="cr-loading"><div class="cr-spinner"></div>${__("Loading approval queue…")}</div>`);
@@ -505,12 +531,31 @@ function _control_room_render_body(page) {
 
 	if (!state.requests.length) {
 		// The "nothing to do" placeholder must only show when every approval-type
-		// queue (Journey Requests + Arrivals) is empty —
-		// not just this one. Otherwise a pending card sits above a contradictory
-		// "Nothing awaiting approval" message.
+		// queue (Journey Requests + Arrivals) is empty — not just this one.
+		// Otherwise a pending card sits above a contradictory "Nothing awaiting
+		// approval" message.
+		if (state.requestOverall && filtersActive) {
+			$body.html(`
+				${extraSectionsHtml}
+				<div class="cr-empty">
+					<div class="cr-empty-icon">🔍</div>
+					<h3>${__("No matching requests found")}</h3>
+					<p>${__("Try clearing filters or adjusting your search term.")}</p>
+				</div>
+			`);
+			return;
+		}
 		$body.html(
-			hasOtherPending
+			state.arrivalTotal
 				? extraSectionsHtml
+				: filtersActive && state.arrivalOverall
+				? `
+			<div class="cr-empty">
+				<div class="cr-empty-icon">🔍</div>
+				<h3>${__("No matching requests found")}</h3>
+				<p>${__("Try clearing filters or adjusting your search term.")}</p>
+			</div>
+		`
 				: `
 			<div class="cr-empty">
 				<h3>${__("Nothing awaiting approval")}</h3>
@@ -521,39 +566,41 @@ function _control_room_render_body(page) {
 		return;
 	}
 
-	const filteredRequests = _control_room_get_filtered_requests(page);
-
-	if (!filteredRequests.length) {
-		$body.html(`
-			${extraSectionsHtml}
-			<div class="cr-empty">
-				<div class="cr-empty-icon">🔍</div>
-				<h3>${__("No matching requests found")}</h3>
-				<p>${__("Try clearing filters or adjusting your search term.")}</p>
-			</div>
-		`);
-		return;
-	}
-
 	$body.html(`
 		${extraSectionsHtml}
-		<div class="cr-table-wrap">${_control_room_request_table(filteredRequests, "tagging")}</div>
+		<div class="cr-table-wrap cr-queue-scroll">${_control_room_request_table(state.requests, "tagging")}</div>
+		${_control_room_queue_pagination(state.requestTotal, state.requestPage, state.queuePageLength, "requests")}
 	`);
 }
 
-
+function _control_room_queue_pagination(total, currentPage, pageLength, kind) {
+	const totalPages = Math.max(1, Math.ceil(total / pageLength));
+	const current = Math.min(Math.max(currentPage || 1, 1), totalPages);
+	const firstRow = total ? (current - 1) * pageLength + 1 : 0;
+	const lastRow = Math.min(current * pageLength, total);
+	return `
+		<div class="cr-alert-pagination">
+			<span class="cr-alert-page-summary">${__("Showing {0}-{1} of {2}", [firstRow, lastRow, total])}</span>
+			<div class="cr-alert-page-actions">
+				<button class="cr-alert-page-btn cr-queue-page-btn" data-kind="${kind}" data-page="${current - 1}" ${current === 1 ? "disabled" : ""}>${__("Previous")}</button>
+				<span>${__("Page {0} of {1}", [current, totalPages])}</span>
+				<button class="cr-alert-page-btn cr-queue-page-btn" data-kind="${kind}" data-page="${current + 1}" ${current === totalPages ? "disabled" : ""}>${__("Next")}</button>
+			</div>
+		</div>
+	`;
+}
 
 function _control_room_arrivals_section_html(state) {
 	if (state.arrivalsLoading) {
 		return `<div class="cr-loading"><div class="cr-spinner"></div>${__("Loading arrivals…")}</div>`;
 	}
-	const arrivals = _control_room_get_filtered_arrivals(state);
+	const arrivals = state.arrivals || [];
 	if (!arrivals.length) return "";
 
 	return `
 		<section class="cr-arrivals">
 			<h3 class="cr-section-title">${__("Arrivals — Confirm Seal Unlocked")}</h3>
-			<div class="cr-arrival-table-wrap">
+			<div class="cr-arrival-table-wrap cr-arrival-scroll">
 				<table class="cr-arrival-table">
 					<thead>
 						<tr>
@@ -567,20 +614,9 @@ function _control_room_arrivals_section_html(state) {
 					<tbody>${arrivals.map(_control_room_arrival_row).join("")}</tbody>
 				</table>
 			</div>
+			${_control_room_queue_pagination(state.arrivalTotal, state.arrivalPage, state.queuePageLength, "arrivals")}
 		</section>
 	`;
-}
-
-function _control_room_get_filtered_arrivals(state) {
-	const list = state.arrivals || [];
-	if (!state.search) return list;
-	const q = state.search.toLowerCase();
-	return list.filter((j) =>
-		[j.name, j.customer, j.vehicle_plate_number, j.container_number, j.assigned_seal, j.origin, j.destination, j.api_device_location]
-			.join(" ")
-			.toLowerCase()
-			.includes(q)
-	);
 }
 
 function _control_room_arrival_row(journey) {
@@ -652,6 +688,9 @@ function _control_room_arrival_card(journey) {
 					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--remote" data-name="${frappe.utils.escape_html(journey.name)}" data-method="remote">
 						${__("Remote Unlock — Skip to Seal Return")}
 					</button>
+					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--retained" data-name="${frappe.utils.escape_html(journey.name)}" data-method="remote_retained">
+						${__("Remote Unlock — Seal Stays on Vehicle")}
+					</button>
 				</div>
 			</footer>
 		</article>
@@ -659,16 +698,33 @@ function _control_room_arrival_card(journey) {
 }
 
 function _control_room_confirm_arrival(page, docname, method, $btn) {
-	const isRemote = method === "remote";
-	const message = isRemote
-		? __(
-				"Confirm arrival for {0} with a REMOTE unlock? Untagging will be skipped and a seal return assignment will be raised for the PCB Team Leader to assign a Tag Operator. Location will be captured live from the seal's GPS. This cannot be undone.",
-				[docname]
-			)
-		: __(
-				"Confirm arrival for {0} with a PHYSICAL unlock? An untagging assignment will be raised for the PCB Team Leader to assign a Tag Operator. Location will be captured live from the seal's GPS. This cannot be undone.",
-				[docname]
-			);
+	// Three ways an arrival closes out, picked by the Control Room on the call:
+	// physical untagging, remote unlock with the seal collected from the client,
+	// or remote unlock at a destination too far to collect from — where the seal
+	// rides home on the vehicle and the journey ends right here.
+	const messages = {
+		physical: __(
+			"Confirm arrival for {0} with a PHYSICAL unlock? An untagging assignment will be raised for the PCB Team Leader to assign a Tag Operator. Location will be captured live from the seal's GPS. This cannot be undone.",
+			[docname]
+		),
+		remote: __(
+			"Confirm arrival for {0} with a REMOTE unlock? Untagging will be skipped and a seal return assignment will be raised for the PCB Team Leader to assign a Tag Operator. Location will be captured live from the seal's GPS. This cannot be undone.",
+			[docname]
+		),
+		remote_retained: __(
+			"Confirm arrival for {0} with a REMOTE unlock and the seal LEFT ON THE VEHICLE? Use this when the destination is too far to collect from. There will be no untagging and no seal return: the journey is completed now, and the seal goes back into the pool so the vehicle's next tagging booking can use it. This cannot be undone.",
+			[docname]
+		),
+	};
+	const notes = {
+		physical: __("{0}: arrival confirmed (physical unlock) — sent for untagging", [docname]),
+		remote: __("{0}: arrival confirmed (remote unlock) — sent for seal return", [docname]),
+		remote_retained: __(
+			"{0}: arrival confirmed (remote unlock, seal retained) — journey completed, seal released for re-tagging",
+			[docname]
+		),
+	};
+	const message = messages[method] || messages.physical;
 
 	frappe.confirm(message, () => {
 		$btn.prop("disabled", true);
@@ -678,9 +734,7 @@ function _control_room_confirm_arrival(page, docname, method, $btn) {
 			freeze: true,
 			freeze_message: __("Confirming arrival…"),
 			callback() {
-				const note = isRemote
-					? __("{0}: arrival confirmed (remote unlock) — sent for seal return", [docname])
-					: __("{0}: arrival confirmed (physical unlock) — sent for untagging", [docname]);
+				const note = notes[method] || notes.physical;
 				frappe.show_alert({ message: note, indicator: "green" }, 6);
 				page.control_room_state.arrivalDialog?.hide();
 				_control_room_load_arrivals(page);
@@ -690,47 +744,6 @@ function _control_room_confirm_arrival(page, docname, method, $btn) {
 			},
 		});
 	});
-}
-
-function _control_room_get_filtered_requests(page) {
-	const state = page.control_room_state;
-	let list = state.requests || [];
-
-	if (state.search) {
-		const q = state.search.toLowerCase();
-		list = list.filter((r) => {
-			const seals = (r.seals || [])
-				.map((s) => `${s.seal_number || ""} ${s.serial_number || ""} ${s.seal_device || ""}`)
-				.join(" ");
-			const haystack = [
-				r.name, r.client_name, r.job_order, r.entry_number, r.container_number,
-				r.vehicle, r.assigned_technician_name, r.assigned_technician, seals,
-			]
-				.join(" ")
-				.toLowerCase();
-			return haystack.includes(q);
-		});
-	}
-
-	if (state.from_date) {
-		const fromTime = new Date(state.from_date + "T00:00:00").getTime();
-		list = list.filter((r) => {
-			if (!r.creation) return false;
-			const creationTime = new Date(r.creation).getTime();
-			return creationTime >= fromTime;
-		});
-	}
-
-	if (state.to_date) {
-		const toTime = new Date(state.to_date + "T23:59:59").getTime();
-		list = list.filter((r) => {
-			if (!r.creation) return false;
-			const creationTime = new Date(r.creation).getTime();
-			return creationTime <= toTime;
-		});
-	}
-
-	return list;
 }
 
 function _cr_debounce(callback, wait) {
@@ -807,6 +820,9 @@ function _control_room_request_card(req, kind = "tagging") {
 		? orderedSeals.map((s) => _control_room_seal_row(s, sealNumberByDevice)).join("")
 		: `<tr><td colspan="7" class="cr-seal-empty">${__("No seals on this request")}</td></tr>`;
 	const statusLabel = (CR_REQUEST_STATUS_LABEL[kind] || CR_REQUEST_STATUS_LABEL.tagging)();
+	const vehicles = req.vehicles || [];
+	const multiVehicle = vehicles.length > 1;
+	const vehicleBlock = vehicles.length ? _control_room_vehicle_block(vehicles) : "";
 
 	return `
 		<article class="cr-req" data-req="${frappe.utils.escape_html(req.name)}" data-kind="${kind}">
@@ -826,6 +842,8 @@ function _control_room_request_card(req, kind = "tagging") {
 				${_cr_meta(__("Route"), `${frappe.utils.escape_html(req.origin || "—")} → ${frappe.utils.escape_html(req.destination || "—")}`, true)}
 				${_cr_meta(__("Entry / Container"), `${frappe.utils.escape_html(req.entry_number || "—")} / ${frappe.utils.escape_html(req.container_number || "—")}`, true)}
 			</div>
+
+			${vehicleBlock}
 
 			<div class="cr-seal-wrap">
 				<table class="cr-seal-table">
@@ -847,11 +865,38 @@ function _control_room_request_card(req, kind = "tagging") {
 			<footer class="cr-req-actions">
 				<button class="cr-act cr-act--refresh" data-act="refresh">${__("Refresh Seal Status")}</button>
 				<div class="cr-req-actions-right">
-					<button class="cr-act cr-act--reject" data-act="return_amend">${__("Return for Amendment")}</button>
-					<button class="cr-act cr-act--approve" data-act="approve">${__("Approve")}</button>
+					<button class="cr-act cr-act--reject" data-act="return_amend">${multiVehicle ? __("Return All Pending") : __("Return for Amendment")}</button>
+					<button class="cr-act cr-act--approve" data-act="approve">${multiVehicle ? __("Approve All Pending") : __("Approve")}</button>
 				</div>
 			</footer>
 		</article>
+	`;
+}
+
+function _control_room_vehicle_block(vehicles) {
+	const rows = vehicles
+		.map((v) => {
+			const label = frappe.utils.escape_html(v.registration_number || v.vehicle || v.name);
+			const pending = v.status === "Pending Control Room Approval";
+			const state = pending
+				? `<span class="cr-pill cr-pill--warn">${__("Pending")}</span>`
+				: v.status === "Draft"
+				? `<span class="cr-pill cr-pill--muted">${__("Returned")}</span>`
+				: `<span class="cr-pill cr-pill--ok">${__("Approved")}</span>`;
+			const actions = pending
+				? `<button class="cr-act cr-act--reject" data-act="return_vehicle" data-vehicle-row="${frappe.utils.escape_html(v.name)}" data-vehicle-label="${label}">${__("Return")}</button>
+				   <button class="cr-act cr-act--approve" data-act="approve_vehicle" data-vehicle-row="${frappe.utils.escape_html(v.name)}" data-vehicle-label="${label}">${__("Approve")}</button>`
+				: "";
+			return `<tr><td>${label}</td><td>${state}</td><td class="cr-vehicle-actions">${actions}</td></tr>`;
+		})
+		.join("");
+	return `
+		<div class="cr-seal-wrap">
+			<table class="cr-seal-table">
+				<thead><tr><th>${__("Vehicle")}</th><th>${__("Status")}</th><th></th></tr></thead>
+				<tbody>${rows}</tbody>
+			</table>
+		</div>
 	`;
 }
 
@@ -955,9 +1000,16 @@ function _control_room_bind_actions(page) {
 			const act = $(this).data("act");
 			if (!docname || !act) return;
 
+			const vehicleRow = $(this).data("vehicle-row") || null;
+			const vehicleLabel = $(this).data("vehicle-label") || null;
+
 			if (act === "refresh") _control_room_refresh_seals(page, docname);
 			else if (act === "approve") _control_room_approve(page, docname, kind);
 			else if (act === "return_amend") _control_room_return_for_amendment(page, docname, kind);
+			else if (act === "approve_vehicle")
+				_control_room_approve(page, docname, kind, vehicleRow, vehicleLabel);
+			else if (act === "return_vehicle")
+				_control_room_return_for_amendment(page, docname, kind, vehicleRow, vehicleLabel);
 		});
 
 	$(page.body)
@@ -981,12 +1033,28 @@ function _control_room_load_queue(page) {
 	page.control_room_state.loading = true;
 	_control_room_render_body(page);
 
+	const state = page.control_room_state;
 	frappe.call({
 		method: CR_METHOD("get_control_room_queue"),
+		args: {
+			search: state.search || "",
+			from_date: state.from_date || "",
+			to_date: state.to_date || "",
+			page: state.requestPage || 1,
+			page_length: state.queuePageLength,
+		},
 		callback(r) {
-			const state = page.control_room_state;
+			const res = r.message || {};
+			const totalPages = Math.max(1, Math.ceil((res.total || 0) / state.queuePageLength));
+			if (state.requestPage > totalPages) {
+				state.requestPage = totalPages;
+				_control_room_load_queue(page);
+				return;
+			}
 			state.loading = false;
-			state.requests = (r.message && r.message.requests) || [];
+			state.requests = res.requests || [];
+			state.requestTotal = res.total || 0;
+			state.requestOverall = res.overall || 0;
 			_control_room_update_approve_count(page);
 			_control_room_render_body(page);
 			_control_room_refresh_dialog(page);
@@ -1006,10 +1074,24 @@ function _control_room_load_arrivals(page) {
 
 	frappe.call({
 		method: "tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey.get_arrival_queue",
+		args: {
+			search: state.search || "",
+			page: state.arrivalPage || 1,
+			page_length: state.queuePageLength,
+		},
 		callback(r) {
+			const res = r.message || {};
+			const totalPages = Math.max(1, Math.ceil((res.total || 0) / state.queuePageLength));
+			if (state.arrivalPage > totalPages) {
+				state.arrivalPage = totalPages;
+				_control_room_load_arrivals(page);
+				return;
+			}
 			state.arrivalsLoading = false;
 			state.arrivalsLoaded = true;
-			state.arrivals = (r.message && r.message.journeys) || [];
+			state.arrivals = res.journeys || [];
+			state.arrivalTotal = res.total || 0;
+			state.arrivalOverall = res.overall || 0;
 			_control_room_update_approve_count(page);
 			if (state.tab === "approve") _control_room_render_body(page);
 		},
@@ -1021,9 +1103,19 @@ function _control_room_load_arrivals(page) {
 	});
 }
 
+// Search / date filters are applied on the server, so any change restarts both
+// approve-tab queues from page 1.
+function _control_room_reload_approve(page) {
+	const state = page.control_room_state;
+	state.requestPage = 1;
+	state.arrivalPage = 1;
+	_control_room_load_queue(page);
+	_control_room_load_arrivals(page);
+}
+
 function _control_room_update_approve_count(page) {
 	const state = page.control_room_state;
-	const count = (state.requests || []).length + (state.arrivals || []).length;
+	const count = (state.requestOverall || 0) + (state.arrivalOverall || 0);
 	$(page.body).find("[data-cr-count]").text(count);
 }
 
@@ -1514,9 +1606,10 @@ const CR_APPROVE_MESSAGE = {
 	tagging: (docname) => __("{0} approved — tagging can begin", [docname]),
 };
 
-function _control_room_approve(page, docname, kind = "tagging") {
+function _control_room_approve(page, docname, kind = "tagging", vehicleRow = null, vehicleLabel = null) {
 	const method = CR_APPROVE_METHOD[kind] || CR_APPROVE_METHOD.tagging;
-	const successMessage = (CR_APPROVE_MESSAGE[kind] || CR_APPROVE_MESSAGE.tagging)(docname);
+	const target = vehicleLabel ? `${docname} · ${vehicleLabel}` : docname;
+	const successMessage = (CR_APPROVE_MESSAGE[kind] || CR_APPROVE_MESSAGE.tagging)(target);
 
 	frappe.prompt(
 		[
@@ -1529,7 +1622,7 @@ function _control_room_approve(page, docname, kind = "tagging") {
 		(values) => {
 			frappe.call({
 				method: CR_METHOD(method),
-				args: { docname, remarks: values.remarks || null },
+				args: { docname, remarks: values.remarks || null, vehicle_row: vehicleRow },
 				freeze: true,
 				freeze_message: __("Approving…"),
 				callback() {
@@ -1539,13 +1632,14 @@ function _control_room_approve(page, docname, kind = "tagging") {
 				},
 			});
 		},
-		__("Approve {0}", [docname]),
+		__("Approve {0}", [target]),
 		__("Approve")
 	);
 }
 
-function _control_room_return_for_amendment(page, docname, kind = "tagging") {
+function _control_room_return_for_amendment(page, docname, kind = "tagging", vehicleRow = null, vehicleLabel = null) {
 	const method = CR_RETURN_AMEND_METHOD[kind] || CR_RETURN_AMEND_METHOD.tagging;
+	const target = vehicleLabel ? `${docname} · ${vehicleLabel}` : docname;
 
 	frappe.prompt(
 		[
@@ -1559,17 +1653,17 @@ function _control_room_return_for_amendment(page, docname, kind = "tagging") {
 		(values) => {
 			frappe.call({
 				method: CR_METHOD(method),
-				args: { docname, remarks: values.remarks },
+				args: { docname, remarks: values.remarks, vehicle_row: vehicleRow },
 				freeze: true,
 				freeze_message: __("Returning…"),
 				callback() {
-					frappe.show_alert({ message: __("{0} returned for amendment", [docname]), indicator: "orange" }, 6);
+					frappe.show_alert({ message: __("{0} returned for amendment", [target]), indicator: "orange" }, 6);
 					page.control_room_state.dialog?.hide();
 					_control_room_reload_queue_for_kind(page, kind);
 				},
 			});
 		},
-		__("Return {0} for Amendment", [docname]),
+		__("Return {0} for Amendment", [target]),
 		__("Return")
 	);
 }
@@ -2108,7 +2202,18 @@ function _control_room_inject_styles() {
 			border-color: #c4b5fd;
 		}
 		.cr-arrival-unlock-btn--remote:hover:not(:disabled) { background: #f5f3ff; }
+		.cr-arrival-unlock-btn--retained {
+			background: #fff;
+			color: #9a3412;
+			border-color: #fdba74;
+		}
+		.cr-arrival-unlock-btn--retained:hover:not(:disabled) { background: #fff7ed; }
 
+		/* Cap tall lists at ~30 rows (row height x 30 + sticky header); the body scrolls. */
+		.cr-queue-scroll, .cr-alert-table-wrap { max-height: calc(30 * 52px + 44px); overflow-y: auto; }
+		.cr-arrival-scroll { max-height: calc(30 * 42px + 44px); overflow-y: auto; }
+		.cr-queue-scroll .cr-queue-table thead { position: sticky; top: 0; z-index: 1; }
+		.cr-arrival-scroll .cr-arrival-table thead { position: sticky; top: 0; z-index: 1; }
 		.cr-queue { display: grid; gap: 18px; }
 		.cr-table-wrap {
 			border: 1px solid #e2e8f0;
@@ -2343,6 +2448,8 @@ function _control_room_inject_styles() {
 		[data-theme="dark"] .cr-arrival-unlock-prompt { color: #7dd3fc; }
 		[data-theme="dark"] .cr-arrival-unlock-btn--remote { background: #1e293b; color: #c4b5fd; border-color: #6d28d9; }
 		[data-theme="dark"] .cr-arrival-unlock-btn--remote:hover:not(:disabled) { background: #2e1065; }
+		[data-theme="dark"] .cr-arrival-unlock-btn--retained { background: #1e293b; color: #fdba74; border-color: #9a3412; }
+		[data-theme="dark"] .cr-arrival-unlock-btn--retained:hover:not(:disabled) { background: #431407; }
 		[data-theme="dark"] .cr-arrival-dialog .modal-header { background: #082f49; border-color: #075985; }
 		[data-theme="dark"] .cr-arrival-dialog .modal-title { color: #bae6fd; }
 		[data-theme="dark"] .cr-arrivals { border-color: #334155; }

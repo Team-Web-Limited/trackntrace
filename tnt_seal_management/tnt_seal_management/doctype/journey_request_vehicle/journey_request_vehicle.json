@@ -1,0 +1,189 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-09-18 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "vehicle",
+  "registration_number",
+  "seal_journey",
+  "status",
+  "control_room_approver",
+  "control_room_approval_date_time",
+  "control_room_remarks",
+  "tagging_completed",
+  "actual_tagging_date_time",
+  "tagging_location",
+  "tagging_remarks",
+  "actual_untagging_date_time",
+  "untagging_location",
+  "seal_return_condition",
+  "retrieval_card_number",
+  "return_warehouse",
+  "seal_return_location",
+  "actual_seal_return_date_time",
+  "seal_return_approver",
+  "seal_return_approval_date_time",
+  "seal_return_approval_remarks"
+ ],
+ "fields": [
+  {
+   "columns": 3,
+   "fieldname": "vehicle",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Vehicle",
+   "options": "Vehicle",
+   "read_only": 1
+  },
+  {
+   "columns": 3,
+   "fetch_from": "vehicle.registration_number",
+   "fieldname": "registration_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Registration Number",
+   "read_only": 1
+  },
+  {
+   "columns": 3,
+   "fieldname": "seal_journey",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Seal Journey",
+   "options": "Seal Journey",
+   "read_only": 1
+  },
+  {
+   "columns": 3,
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nPending Control Room Approval\nTagging\nJourney Ready\nUntagging\nAwaiting Seal Return\nPending Seal Return Approval\nSeal Returned\nClosed - Seal Retained\nCancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "control_room_approver",
+   "fieldtype": "Link",
+   "label": "Control Room Approver",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "control_room_approval_date_time",
+   "fieldtype": "Datetime",
+   "label": "Control Room Approval Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "control_room_remarks",
+   "fieldtype": "Small Text",
+   "label": "Control Room Remarks",
+   "read_only": 1
+  },
+  {
+   "fieldname": "actual_untagging_date_time",
+   "fieldtype": "Datetime",
+   "label": "Actual Untagging Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "untagging_location",
+   "fieldtype": "Data",
+   "label": "Untagging Location",
+   "read_only": 1
+  },
+  {
+   "fieldname": "seal_return_condition",
+   "fieldtype": "Select",
+   "label": "Seal Condition",
+   "read_only": 1,
+   "options": "\nGood\nDamaged\nLost"
+  },
+  {
+   "fieldname": "retrieval_card_number",
+   "fieldtype": "Data",
+   "label": "Retrieval Card Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "return_warehouse",
+   "fieldtype": "Link",
+   "label": "Return Warehouse",
+   "read_only": 1,
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "seal_return_location",
+   "fieldtype": "Data",
+   "label": "Seal Return Location",
+   "read_only": 1
+  },
+  {
+   "fieldname": "actual_seal_return_date_time",
+   "fieldtype": "Datetime",
+   "label": "Actual Seal Return Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "seal_return_approver",
+   "fieldtype": "Link",
+   "label": "Seal Return Approver",
+   "read_only": 1,
+   "options": "User"
+  },
+  {
+   "fieldname": "seal_return_approval_date_time",
+   "fieldtype": "Datetime",
+   "label": "Seal Return Approval Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "seal_return_approval_remarks",
+   "fieldtype": "Small Text",
+   "label": "Seal Return Approval Remarks",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tagging_completed",
+   "fieldtype": "Check",
+   "label": "Tagging Completed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "actual_tagging_date_time",
+   "fieldtype": "Datetime",
+   "label": "Actual Tagging Date and Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tagging_location",
+   "fieldtype": "Data",
+   "label": "Tagging Location",
+   "read_only": 1
+  },
+  {
+   "fieldname": "tagging_remarks",
+   "fieldtype": "Small Text",
+   "label": "Tagging Remarks",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-23 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Journey Request Vehicle",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

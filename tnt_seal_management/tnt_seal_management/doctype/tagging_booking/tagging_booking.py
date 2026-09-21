@@ -4,12 +4,26 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cint, cstr, getdate, now_datetime, today
+from frappe.utils import cint, cstr, get_datetime, getdate, now_datetime, today
 
 from tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey import (
+	booking_journey_names,
 	set_journey_status,
 	sync_seal_journey_mirror,
 )
+
+
+def _set_booking_journeys_status(booking, status, sync=True):
+	"""Move every vehicle's Seal Journey on the booking to `status`."""
+	for journey in booking_journey_names(booking.name):
+		set_journey_status(journey, status)
+		if sync:
+			sync_seal_journey_mirror(journey)
+
+
+def _sync_booking_journeys(booking):
+	for journey in booking_journey_names(booking.name):
+		sync_seal_journey_mirror(journey)
 
 
 class TaggingBooking(Document):
@@ -22,32 +36,74 @@ class TaggingBooking(Document):
 				self.account_manager = frappe.session.user
 
 	def validate(self):
+		self._validate_booking_date_time_not_past()
 		self._enforce_finance_only_approval_controls()
 		self._sync_approval_status()
+
+	def _validate_booking_date_time_not_past(self):
+		"""The booking date/time must not be in the past. Only checked when the
+		value is new or has changed, so existing bookings whose slot has since
+		passed can still be approved, amended or reopened."""
+		if not self.booking_date_time:
+			return
+		if not self.is_new() and not self.has_value_changed("booking_date_time"):
+			return
+
+		# Compare to the minute: the picker has no seconds, so "now" as picked
+		# would otherwise always look a few seconds in the past.
+		now = get_datetime(now_datetime()).replace(second=0, microsecond=0)
+		if get_datetime(self.booking_date_time) < now:
+			frappe.throw(
+				_("Date and Time cannot be in the past."),
+				title=_("Invalid Date and Time"),
+			)
 
 	def after_insert(self):
 		self._ensure_seal_journey()
 
 	def _ensure_seal_journey(self, force=False):
-		"""Create the operational journey immediately for staff bookings, or
-		after Account Manager acceptance for customer portal bookings."""
-		if self.seal_journey_reference:
+		"""Create the operational journey(s) immediately for staff bookings, or
+		after Account Manager acceptance for customer portal bookings.
+
+		One Seal Journey is created per booked vehicle (see the Vehicles table),
+		so a multi-vehicle booking can be tagged, approved and monitored
+		independently per vehicle downstream. seal_journey_reference is kept
+		pointing at the first Seal Journey created, for older code that still
+		expects a single reference; the full set lives in seal_journeys."""
+		if self.seal_journey_reference or self.seal_journeys:
 			return
 		if not force and self.booking_source == "Customer Portal":
 			return
 
-		journey = frappe.get_doc(
-			{
-				"doctype": "Seal Journey",
-				"customer": self.client_name,
-				"tagging_booking": self.name,
-				"journey_status": "Draft",
-				"origin": self.location,
-			}
-		).insert(ignore_permissions=True, ignore_mandatory=True)
+		vehicles = [row.vehicle for row in (self.vehicles or []) if row.vehicle]
+		# A booking raised with no vehicles selected still gets one journey, same
+		# as before this change, so nothing regresses for that edge case.
+		if not vehicles:
+			vehicles = [None]
 
-		self.db_set("seal_journey_reference", journey.name)
-		sync_seal_journey_mirror(journey.name)
+		first_journey = None
+		for vehicle in vehicles:
+			plate = None
+			if vehicle:
+				plate = frappe.db.get_value("Vehicle", vehicle, "registration_number") or vehicle
+
+			journey = frappe.get_doc(
+				{
+					"doctype": "Seal Journey",
+					"customer": self.client_name,
+					"tagging_booking": self.name,
+					"journey_status": "Draft",
+					"origin": self.location,
+					"vehicle_plate_number": plate,
+				}
+			).insert(ignore_permissions=True, ignore_mandatory=True)
+
+			self.append("seal_journeys", {"vehicle": vehicle, "seal_journey": journey.name})
+			sync_seal_journey_mirror(journey.name)
+			first_journey = first_journey or journey.name
+
+		self.db_set("seal_journey_reference", first_journey)
+		self.save(ignore_permissions=True)
 
 	def _sync_approval_status(self):
 		status_map = {
@@ -183,7 +239,7 @@ def get_booking_list(
 		],
 		filters=filters,
 		or_filters=or_filters,
-		order_by="booking_date_time desc, creation desc",
+		order_by="modified desc, creation desc",
 		limit_start=(page - 1) * page_length,
 		limit_page_length=page_length,
 	)
@@ -246,7 +302,7 @@ def get_all_bookings_for_export(search=None, status=None, customer=None, from_da
 		],
 		filters=filters,
 		or_filters=or_filters,
-		order_by="booking_date_time desc, creation desc",
+		order_by="modified desc, creation desc",
 		limit_page_length=0,
 	)
 
@@ -443,8 +499,7 @@ def submit_to_finance(docname):
 	doc.booking_status = "Pending Finance PCB Approval"
 	doc.account_manager_submission_date_time = now_datetime()
 	doc.save()
-	set_journey_status(doc.seal_journey_reference, "Pending Finance PCB Approval")
-	sync_seal_journey_mirror(doc.seal_journey_reference)
+	_set_booking_journeys_status(doc, "Pending Finance PCB Approval")
 	frappe.db.commit()
 
 
@@ -467,11 +522,11 @@ def approve_booking(docname, remarks=None):
 	# auto-assigns the team leader on save, and its mirror only advances the
 	# journey to "Team Lead Assigned" from "Finance PCB Approved". Setting the
 	# status afterwards would regress that auto-advance.
-	set_journey_status(doc.seal_journey_reference, "Finance PCB Approved")
+	_set_booking_journeys_status(doc, "Finance PCB Approved", sync=False)
 	job_order = _get_or_create_pcb_job_order(doc)
 	doc.pcb_job_order_reference = job_order.name
 	doc.save()
-	sync_seal_journey_mirror(doc.seal_journey_reference)
+	_sync_booking_journeys(doc)
 	frappe.db.commit()
 	return {"pcb_job_order": job_order.name}
 
@@ -491,8 +546,7 @@ def reject_booking(docname, remarks=None):
 	doc.finance_pcb_approval_date_time = now_datetime()
 	doc.finance_pcb_remarks = remarks or doc.finance_pcb_remarks
 	doc.save()
-	set_journey_status(doc.seal_journey_reference, "Finance PCB Rejected")
-	sync_seal_journey_mirror(doc.seal_journey_reference)
+	_set_booking_journeys_status(doc, "Finance PCB Rejected")
 	frappe.db.commit()
 
 
@@ -524,8 +578,7 @@ def amend_booking(docname, reason=None):
 		doc.finance_pcb_remarks = reason
 	doc.save()
 
-	set_journey_status(doc.seal_journey_reference, "Draft")
-	sync_seal_journey_mirror(doc.seal_journey_reference)
+	_set_booking_journeys_status(doc, "Draft")
 	frappe.db.commit()
 
 
@@ -574,8 +627,7 @@ def reopen_booking(docname, reason=None):
 		doc.finance_pcb_remarks = reason
 	doc.save()
 
-	set_journey_status(doc.seal_journey_reference, "Draft")
-	sync_seal_journey_mirror(doc.seal_journey_reference)
+	_set_booking_journeys_status(doc, "Draft")
 	frappe.db.commit()
 
 
@@ -611,8 +663,7 @@ def _guard_no_downstream_work(booking):
 				title=_("Work Already Started"),
 			)
 
-	journey = booking.seal_journey_reference
-	if journey:
+	for journey in booking_journey_names(booking.name):
 		journey_status = frappe.db.get_value("Seal Journey", journey, "journey_status")
 		if journey_status and journey_status not in _REOPENABLE_JOURNEY_STATUSES:
 			frappe.throw(

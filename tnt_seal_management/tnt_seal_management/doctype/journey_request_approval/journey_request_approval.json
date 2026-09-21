@@ -7,6 +7,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "vehicle",
   "action",
   "action_by",
   "action_date_time",
@@ -14,11 +15,18 @@
  ],
  "fields": [
   {
+   "fieldname": "vehicle",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Vehicle",
+   "read_only": 1
+  },
+  {
    "fieldname": "action",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Action",
-   "options": "Submitted\nSubmitted to Control Room\nControl Room Approved\nControl Room Rejected\nReturned for Amendment\nTagging Completed\nApproved\nRejected\nSubmitted Untagging to Control Room\nUntagging Approved\nUntagging Rejected\nUntagging Confirmed\nSubmitted Seal Return to Control Room\nSeal Return Approved\nSeal Return Rejected\nSeal Return Returned for Amendment\nSeal Return Confirmed\nSeal Return Submitted for Approval",
+   "options": "Submitted\nSubmitted to Control Room\nControl Room Approved\nControl Room Rejected\nReturned for Amendment\nTagging Completed\nApproved\nRejected\nSubmitted Untagging to Control Room\nUntagging Approved\nUntagging Rejected\nUntagging Confirmed\nSubmitted Seal Return to Control Room\nSeal Return Approved\nSeal Return Rejected\nSeal Return Returned for Amendment\nSeal Return Confirmed\nSeal Return Submitted for Approval\nJourney Closed - Seal Retained",
    "read_only": 1
   },
   {
@@ -47,7 +55,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-07-14 12:45:00.000000",
+ "modified": "2026-09-21 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Journey Request Approval",

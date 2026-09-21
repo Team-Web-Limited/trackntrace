@@ -10,6 +10,12 @@ frappe.ui.form.on("Journey Request", {
 		_journey_request_apply_locks(frm);
 		_journey_request_lock_pre_tagging_checklist(frm);
 		_journey_request_configure_photo_tables(frm);
+		_journey_request_configure_seal_vehicles(frm);
+		_journey_request_configure_per_vehicle_fields(frm);
+		if (frm.is_new() || _jr_effective_status(frm) === "Draft") {
+			_journey_request_sync_number_of_seals(frm);
+			_journey_request_autofill_seal_vehicles(frm);
+		}
 		_journey_request_lock_remarks_log(frm);
 		_journey_request_apply_role_visibility(frm);
 		_journey_request_add_list_button(frm);
@@ -65,6 +71,7 @@ frappe.ui.form.on("Journey Request", {
 				frm.add_child("seals");
 			}
 			frm.refresh_field("seals");
+			_journey_request_autofill_seal_vehicles(frm);
 		} else if (target < current && target >= 0) {
 			frappe.show_alert({
 				message: __("Remove the extra seal rows to match Number of Seals."),
@@ -73,6 +80,12 @@ frappe.ui.form.on("Journey Request", {
 		}
 	},
 
+});
+
+frappe.ui.form.on("Journey Request Seal", {
+	seals_add(frm) {
+		_journey_request_autofill_seal_vehicles(frm);
+	},
 });
 
 frappe.ui.form.on("Seal Trip Photo", {
@@ -125,6 +138,188 @@ function _journey_request_set_photo_type(cdt, cdn, photoType) {
 	frappe.model.set_value(cdt, cdn, "photo_type", photoType);
 }
 
+function _jr_vehicle_label(row) {
+	return row.registration_number || row.vehicle || row.name;
+}
+
+function _jr_has_stage(frm, stage) {
+	const rows = frm.doc.vehicles || [];
+	return rows.length ? rows.some((row) => row.status === stage) : frm.doc.journey_request_status === stage;
+}
+
+// With vehicles at different stages the request-level status only says how far the
+// slowest one has got; the form's editability follows the stage the technician can
+// actually work on (earliest first: Draft, then Tagging, Untagging, Seal Return).
+function _jr_effective_status(frm) {
+	const rows = frm.doc.vehicles || [];
+	if (rows.length > 1) {
+		for (const stage of ["Draft", "Tagging", "Untagging", "Awaiting Seal Return"]) {
+			if (rows.some((row) => row.status === stage)) return stage;
+		}
+	}
+	return frm.doc.journey_request_status;
+}
+
+// On a multi-vehicle request several vehicles can sit at the same stage; let the
+// user act on one or on all of them. With one (or a legacy request) there is
+// nothing to choose and the server acts on everything eligible.
+function _jr_with_vehicle(frm, stage, callback) {
+	const eligible = (frm.doc.vehicles || []).filter((row) => row.status === stage);
+	if (eligible.length < 2) return callback(null);
+
+	const ALL = __("All ({0} vehicles)", [eligible.length]);
+	const byLabel = {};
+	eligible.forEach((row) => (byLabel[_jr_vehicle_label(row)] = row.name));
+	frappe.prompt(
+		[
+			{
+				fieldname: "vehicle",
+				fieldtype: "Select",
+				label: __("Vehicle"),
+				options: [ALL, ...Object.keys(byLabel)].join("\n"),
+				default: ALL,
+				reqd: 1,
+			},
+		],
+		(values) => callback(byLabel[values.vehicle] || null),
+		__("Which vehicle?"),
+		__("Continue")
+	);
+}
+
+// Which Draft vehicles to send up. With one there's nothing to choose; with several
+// they're all ticked by default so "submit everything" stays one click, and any can
+// be left out to submit later.
+function _jr_choose_vehicles_to_submit(frm, callback) {
+	const draft = (frm.doc.vehicles || []).filter((row) => row.status === "Draft");
+	if (draft.length < 2) return callback(null);
+
+	frappe.prompt(
+		[
+			{
+				fieldname: "vehicles",
+				fieldtype: "MultiCheck",
+				label: __("Vehicles to submit"),
+				columns: 1,
+				options: draft.map((row) => ({
+					label: _jr_vehicle_label(row),
+					value: row.name,
+					checked: 1,
+				})),
+			},
+		],
+		(values) => {
+			const chosen = values.vehicles || [];
+			if (!chosen.length) {
+				frappe.msgprint(__("Select at least one vehicle to submit."));
+				return;
+			}
+			callback(chosen);
+		},
+		__("Submit to Control Room"),
+		__("Submit")
+	);
+}
+
+// On a multi-vehicle request tagging, untagging and seal-return details belong to
+// each vehicle (entered in the action dialogs, stored on its row), so the shared
+// form fields step aside. The vehicles table itself stays hidden.
+const JR_PER_VEHICLE_FIELDS = [
+	"tagging_completed",
+	"tagging_remarks",
+	"actual_tagging_date_time",
+	"tagging_location",
+	"untagging_confirmed_by_technician",
+	"seal_return_confirmed_by_technician",
+	"seal_return_condition",
+	"retrieval_card_number",
+	"return_warehouse",
+];
+
+// One line per vehicle in the Actual Tagging section, since its own tagging details
+// no longer have shared form fields on a multi-vehicle request.
+function _journey_request_render_vehicle_summary(frm) {
+	const field = frm.fields_dict.vehicle_stage_summary;
+	if (!field) return;
+	const multi = _jr_is_multi_vehicle(frm);
+	frm.toggle_display("vehicle_stage_summary", multi);
+	if (!multi) return;
+
+	const esc = frappe.utils.escape_html;
+	const dt = (value) => (value ? esc(frappe.datetime.str_to_user(value)) : "—");
+	const rows = (frm.doc.vehicles || [])
+		.filter((row) => row.status !== "Cancelled")
+		.map(
+			(row) => `<tr>
+				<td>${esc(_jr_vehicle_label(row))}</td>
+				<td>${esc(__(row.status || ""))}</td>
+				<td>${dt(row.actual_tagging_date_time)}</td>
+				<td>${esc(row.tagging_location || "—")}</td>
+			</tr>`
+		)
+		.join("");
+	field.$wrapper.html(`
+		<div>
+			<table class="table table-bordered table-sm" style="width: 100%; white-space: nowrap; margin-bottom: 0;">
+				<thead><tr>
+					<th>${__("Vehicle")}</th><th>${__("Status")}</th><th>${__("Tagged At")}</th>
+					<th>${__("Tagging Location")}</th>
+				</tr></thead>
+				<tbody>${rows}</tbody>
+			</table>
+		</div>`);
+}
+
+function _journey_request_configure_per_vehicle_fields(frm) {
+	_journey_request_render_vehicle_summary(frm);
+	if (!_jr_is_multi_vehicle(frm)) return;
+	JR_PER_VEHICLE_FIELDS.forEach((fieldname) => {
+		frm.toggle_display(fieldname, false);
+		frm.set_df_property(fieldname, "mandatory_depends_on", "");
+	});
+}
+
+function _journey_request_configure_seal_vehicles(frm) {
+	const grid = frm.fields_dict.seals?.grid;
+	if (!grid) return;
+	const labels = (frm.doc.vehicles || []).map(_jr_vehicle_label);
+	grid.update_docfield_property("vehicle", "options", ["", ...labels].join("\n"));
+	grid.update_docfield_property("vehicle", "hidden", labels.length < 2 ? 1 : 0);
+	grid.refresh();
+}
+
+// Suggest Number of Seals from the vehicle count (one seal per vehicle) on a
+// request that has no seal rows yet. It is only a starting point: once seal rows
+// exist, or the user changes the number, it is left alone.
+function _journey_request_sync_number_of_seals(frm) {
+	if ((frm.doc.seals || []).length) return;
+	const count = (frm.doc.vehicles || []).filter((row) => row.status !== "Cancelled").length;
+	if (!count) return;
+	if (cint(frm.doc.number_of_seals) !== count) frm.set_value("number_of_seals", count);
+}
+
+// With two or more vehicles the seals grid shows a Vehicle column; give each
+// seal row that has none the first vehicle not yet holding a seal, in order.
+// Rows the user already assigned are left alone, and once every vehicle has a
+// seal any further row is left blank for the user to pick.
+function _journey_request_autofill_seal_vehicles(frm) {
+	const labels = (frm.doc.vehicles || []).map(_jr_vehicle_label);
+	if (labels.length < 2) return;
+
+	const seals = frm.doc.seals || [];
+	const used = new Set(seals.map((row) => row.vehicle).filter(Boolean));
+	let changed = false;
+	seals.forEach((row) => {
+		if (row.vehicle) return;
+		const next = labels.find((label) => !used.has(label));
+		if (!next) return;
+		used.add(next);
+		frappe.model.set_value(row.doctype, row.name, "vehicle", next);
+		changed = true;
+	});
+	if (changed) frm.refresh_field("seals");
+}
+
 function _journey_request_add_buttons(frm) {
 	const status = frm.doc.journey_request_status;
 	// System Manager / Administrator may act at any stage of the workflow.
@@ -136,20 +331,27 @@ function _journey_request_add_buttons(frm) {
 	// "Submit to Control Room" lives on the Seals grid toolbar instead — see
 	// _journey_request_add_seals_grid_button.
 
-	if (status === "Pending Control Room Approval" && isControlRoom) {
+	if (_jr_has_stage(frm, "Pending Control Room Approval") && isControlRoom) {
 		frm.add_custom_button(__("Refresh Seal Status"), () => _jr_refresh_seals(frm), __("Seals"));
 		frm.add_custom_button(__("Swap Seal"), () => _jr_swap_seal(frm), __("Seals"));
 
 		frm.add_custom_button(__("Approve"), () =>
-			_jr_call(frm, "approve_by_control_room", { remarks: frm.doc.control_room_remarks })
+			_jr_with_vehicle(frm, "Pending Control Room Approval", (vehicleRow) =>
+				_jr_call(frm, "approve_by_control_room", {
+					remarks: frm.doc.control_room_remarks,
+					vehicle_row: vehicleRow,
+				})
+			)
 		).addClass("btn-primary");
 
 		frm.add_custom_button(__("Return for Amendment"), () =>
-			_jr_prompt_return_for_amendment(frm, "return_for_amendment_by_control_room")
+			_jr_with_vehicle(frm, "Pending Control Room Approval", (vehicleRow) =>
+				_jr_prompt_return_for_amendment(frm, "return_for_amendment_by_control_room", vehicleRow)
+			)
 		);
 	}
 
-	if (status === "Tagging" && isTech) {
+	if (_jr_has_stage(frm, "Tagging") && isTech) {
 		frm.add_custom_button(__("Complete Tagging"), () => {
 			frappe.warn(
 				__("Complete Tagging"),
@@ -160,7 +362,10 @@ function _journey_request_add_buttons(frm) {
 					// complete_tagging() re-reads the doc from the database, so any
 					// unsaved checkbox/photo edits on the form must be saved first
 					// or the server still sees the pre-edit values.
-					const proceed = () => _jr_call(frm, "complete_tagging");
+					const proceed = () =>
+						_jr_with_vehicle(frm, "Tagging", (vehicleRow) =>
+							_jr_prompt_tagging_details(frm, vehicleRow)
+						);
 					frm.is_dirty() ? frm.save().then(proceed) : proceed();
 				},
 				__("Confirm")
@@ -168,8 +373,10 @@ function _journey_request_add_buttons(frm) {
 		}).addClass("btn-primary");
 	}
 
-	if (status === "Untagging" && isTech) {
-		frm.add_custom_button(__("Confirm Untagging"), () => _jr_prompt_confirm_untagging(frm)).addClass(
+	if (_jr_has_stage(frm, "Untagging") && isTech) {
+		frm.add_custom_button(__("Confirm Untagging"), () =>
+			_jr_with_vehicle(frm, "Untagging", (vehicleRow) => _jr_prompt_confirm_untagging(frm, vehicleRow))
+		).addClass(
 			"btn-primary"
 		);
 	}
@@ -177,21 +384,73 @@ function _journey_request_add_buttons(frm) {
 	// "Awaiting Seal Return" is the seal-return work window. The assigned FT
 	// captures evidence and confirms the return, which sends it to the PCB Team
 	// Leader for approval.
-	if (status === "Awaiting Seal Return" && isTech) {
-		frm.add_custom_button(__("Confirm Seal Return"), () => _jr_prompt_confirm_seal_return(frm)).addClass(
+	if (_jr_has_stage(frm, "Awaiting Seal Return") && isTech) {
+		frm.add_custom_button(__("Confirm Seal Return"), () =>
+			_jr_with_vehicle(frm, "Awaiting Seal Return", (vehicleRow) => _jr_prompt_confirm_seal_return(frm, vehicleRow))
+		).addClass(
 			"btn-primary"
 		);
 	}
 
-	if (status === "Pending Seal Return Approval" && isTeamLead) {
-		frm.add_custom_button(__("Approve Seal Return"), () => _jr_prompt_approve_seal_return(frm)).addClass(
+	if (_jr_has_stage(frm, "Pending Seal Return Approval") && isTeamLead) {
+		frm.add_custom_button(__("Approve Seal Return"), () =>
+			_jr_with_vehicle(frm, "Pending Seal Return Approval", (vehicleRow) => _jr_prompt_approve_seal_return(frm, vehicleRow))
+		).addClass(
 			"btn-primary"
 		);
-		frm.add_custom_button(__("Return for Amendment"), () => _jr_prompt_return_seal_return_for_amendment(frm));
+		frm.add_custom_button(__("Return for Amendment"), () =>
+			_jr_with_vehicle(frm, "Pending Seal Return Approval", (vehicleRow) =>
+				_jr_prompt_return_seal_return_for_amendment(frm, vehicleRow)
+			)
+		);
 	}
 }
 
-function _jr_prompt_approve_seal_return(frm) {
+function _jr_is_multi_vehicle(frm) {
+	return (frm.doc.vehicles || []).filter((row) => row.status !== "Cancelled").length > 1;
+}
+
+function _jr_target_label(frm, stage, vehicleRow) {
+	if (!vehicleRow) return __("all vehicles at this stage");
+	const row = (frm.doc.vehicles || []).find((r) => r.name === vehicleRow);
+	return row ? _jr_vehicle_label(row) : "";
+}
+
+// Tagging details are per vehicle on a multi-vehicle request: each is confirmed
+// with its own time and remarks, rather than one shared set of form fields.
+function _jr_prompt_tagging_details(frm, vehicleRow) {
+	if (!_jr_is_multi_vehicle(frm)) {
+		return _jr_call(frm, "complete_tagging", { vehicle_row: vehicleRow });
+	}
+	frappe.prompt(
+		[
+			{
+				fieldname: "tagging_confirmed",
+				fieldtype: "Check",
+				label: __("Tagging completed for {0}", [_jr_target_label(frm, "Tagging", vehicleRow)]),
+				reqd: 1,
+			},
+			{
+				fieldname: "actual_tagging_date_time",
+				fieldtype: "Datetime",
+				label: __("Actual Tagging Date and Time"),
+				default: frappe.datetime.now_datetime(),
+			},
+			{ fieldname: "tagging_remarks", fieldtype: "Small Text", label: __("Tagging Remarks") },
+		],
+		(values) =>
+			_jr_call(frm, "complete_tagging", {
+				vehicle_row: vehicleRow,
+				tagging_confirmed: values.tagging_confirmed ? 1 : 0,
+				actual_tagging_date_time: values.actual_tagging_date_time,
+				tagging_remarks: values.tagging_remarks || "",
+			}),
+		__("Complete Tagging"),
+		__("Complete Tagging")
+	);
+}
+
+function _jr_prompt_approve_seal_return(frm, vehicleRow = null) {
 	frappe.warn(
 		__("Approve Seal Return"),
 		__(
@@ -200,7 +459,7 @@ function _jr_prompt_approve_seal_return(frm) {
 		() => {
 			frappe.prompt(
 				[{ fieldname: "remarks", fieldtype: "Small Text", label: __("Remarks (Optional)") }],
-				(values) => _jr_call(frm, "approve_seal_return", { remarks: values.remarks || "" }),
+				(values) => _jr_call(frm, "approve_seal_return", { remarks: values.remarks || "", vehicle_row: vehicleRow }),
 				__("Approve Seal Return"),
 				__("Approve")
 			);
@@ -209,10 +468,10 @@ function _jr_prompt_approve_seal_return(frm) {
 	);
 }
 
-function _jr_prompt_return_seal_return_for_amendment(frm) {
+function _jr_prompt_return_seal_return_for_amendment(frm, vehicleRow = null) {
 	frappe.prompt(
 		[{ fieldname: "remarks", fieldtype: "Small Text", label: __("What needs to be amended"), reqd: 1 }],
-		(values) => _jr_call(frm, "return_seal_return_for_amendment", { remarks: values.remarks }),
+		(values) => _jr_call(frm, "return_seal_return_for_amendment", { remarks: values.remarks, vehicle_row: vehicleRow }),
 		__("Return Seal Return for Amendment"),
 		__("Return")
 	);
@@ -227,7 +486,7 @@ function _jr_call(frm, method, extraArgs = {}) {
 	});
 }
 
-function _jr_prompt_confirm_untagging(frm) {
+function _jr_prompt_confirm_untagging(frm, vehicleRow = null) {
 	frappe.prompt(
 		[
 			{
@@ -237,7 +496,7 @@ function _jr_prompt_confirm_untagging(frm) {
 			},
 		],
 		(values) => {
-			const proceed = () => _jr_confirm_untagging(frm, null, values.remarks || "");
+			const proceed = () => _jr_confirm_untagging(frm, null, values.remarks || "", vehicleRow);
 			frm.is_dirty() ? frm.save().then(proceed) : proceed();
 		},
 		__("Confirm Untagging"),
@@ -245,10 +504,10 @@ function _jr_prompt_confirm_untagging(frm) {
 	);
 }
 
-function _jr_confirm_untagging(frm, manualLocation = null, remarks = "") {
+function _jr_confirm_untagging(frm, manualLocation = null, remarks = "", vehicleRow = null) {
 	frappe.call({
 		method: JR_METHOD("confirm_untagging"),
-		args: { docname: frm.doc.name, manual_location: manualLocation, remarks },
+		args: { docname: frm.doc.name, manual_location: manualLocation, remarks, vehicle_row: vehicleRow },
 		freeze: true,
 		freeze_message: __("Confirming untagging and capturing location…"),
 		callback(r) {
@@ -264,7 +523,7 @@ function _jr_confirm_untagging(frm, manualLocation = null, remarks = "") {
 							description: __("Live GPS was unavailable. Enter the untagging location manually."),
 						},
 					],
-					(values) => _jr_confirm_untagging(frm, values.manual_location, remarks),
+					(values) => _jr_confirm_untagging(frm, values.manual_location, remarks, vehicleRow),
 					__("GPS Location Unavailable"),
 					__("Confirm Untagging")
 				);
@@ -277,7 +536,46 @@ function _jr_confirm_untagging(frm, manualLocation = null, remarks = "") {
 	});
 }
 
-function _jr_prompt_confirm_seal_return(frm) {
+function _jr_prompt_confirm_seal_return(frm, vehicleRow = null) {
+	if (_jr_is_multi_vehicle(frm)) {
+		// Return details differ per vehicle, so they are entered here, not on the form.
+		frappe.prompt(
+			[
+				{
+					fieldname: "seal_return_confirmed",
+					fieldtype: "Check",
+					label: __("Confirmed: seal(s) for {0} physically returned", [
+						_jr_target_label(frm, "Awaiting Seal Return", vehicleRow),
+					]),
+					reqd: 1,
+				},
+				{
+					fieldname: "seal_return_condition",
+					fieldtype: "Select",
+					label: __("Seal Condition"),
+					options: "Good\nDamaged\nLost",
+					default: "Good",
+					reqd: 1,
+				},
+				{ fieldname: "retrieval_card_number", fieldtype: "Data", label: __("Retrieval Card Number"), reqd: 1 },
+				{ fieldname: "return_warehouse", fieldtype: "Link", options: "Warehouse", label: __("Warehouse"), reqd: 1 },
+				{ fieldname: "remarks", fieldtype: "Small Text", label: __("Remarks (Optional)") },
+			],
+			(values) => {
+				const extra = {
+					seal_return_confirmed: values.seal_return_confirmed ? 1 : 0,
+					seal_return_condition: values.seal_return_condition,
+					retrieval_card_number: values.retrieval_card_number,
+					return_warehouse: values.return_warehouse,
+				};
+				const proceed = () => _jr_confirm_seal_return(frm, null, values.remarks || "", vehicleRow, extra);
+				frm.is_dirty() ? frm.save().then(proceed) : proceed();
+			},
+			__("Confirm Seal Return"),
+			__("Confirm")
+		);
+		return;
+	}
 	if (!frm.doc.seal_return_confirmed_by_technician) {
 		frappe.msgprint({
 			message: __("Tick Confirmed by Technician to confirm the seal has been physically returned."),
@@ -295,7 +593,7 @@ function _jr_prompt_confirm_seal_return(frm) {
 			},
 		],
 		(values) => {
-			const proceed = () => _jr_confirm_seal_return(frm, null, values.remarks || "");
+			const proceed = () => _jr_confirm_seal_return(frm, null, values.remarks || "", vehicleRow);
 			frm.is_dirty() ? frm.save().then(proceed) : proceed();
 		},
 		__("Confirm Seal Return"),
@@ -303,10 +601,10 @@ function _jr_prompt_confirm_seal_return(frm) {
 	);
 }
 
-function _jr_confirm_seal_return(frm, manualLocation = null, remarks = "") {
+function _jr_confirm_seal_return(frm, manualLocation = null, remarks = "", vehicleRow = null, extra = {}) {
 	frappe.call({
 		method: JR_METHOD("confirm_seal_return"),
-		args: { docname: frm.doc.name, manual_location: manualLocation, remarks },
+		args: { docname: frm.doc.name, manual_location: manualLocation, remarks, vehicle_row: vehicleRow, ...extra },
 		freeze: true,
 		freeze_message: __("Confirming seal return and capturing location…"),
 		callback(r) {
@@ -322,7 +620,7 @@ function _jr_confirm_seal_return(frm, manualLocation = null, remarks = "") {
 							description: __("Live GPS and stored device location were unavailable. Enter the return location manually."),
 						},
 					],
-					(values) => _jr_confirm_seal_return(frm, values.manual_location, remarks),
+					(values) => _jr_confirm_seal_return(frm, values.manual_location, remarks, vehicleRow, extra),
 					__("GPS Location Unavailable"),
 					__("Confirm Seal Return")
 				);
@@ -341,10 +639,10 @@ function _jr_confirm_seal_return(frm, manualLocation = null, remarks = "") {
 	});
 }
 
-function _jr_prompt_return_for_amendment(frm, method) {
+function _jr_prompt_return_for_amendment(frm, method, vehicleRow = null) {
 	frappe.prompt(
 		[{ fieldname: "remarks", fieldtype: "Small Text", label: __("What needs to be amended"), reqd: 1 }],
-		(values) => _jr_call(frm, method, { remarks: values.remarks }),
+		(values) => _jr_call(frm, method, { remarks: values.remarks, vehicle_row: vehicleRow }),
 		__("Return Journey Request for Amendment"),
 		__("Return")
 	);
@@ -435,7 +733,7 @@ function _journey_request_add_seals_grid_button(frm) {
 	// over from a previous render before deciding whether to show it again.
 	grid.clear_custom_buttons();
 
-	if (frm.is_new() || frm.doc.journey_request_status !== "Draft") {
+	if (frm.is_new() || _jr_effective_status(frm) !== "Draft") {
 		return;
 	}
 
@@ -455,7 +753,10 @@ function _journey_request_add_seals_grid_button(frm) {
 			});
 			return;
 		}
-		const proceed = () => _jr_call(frm, "submit_to_control_room");
+		const proceed = () =>
+			_jr_choose_vehicles_to_submit(frm, (vehicleRows) =>
+				_jr_call(frm, "submit_to_control_room", { vehicle_rows: vehicleRows })
+			);
 		frm.is_dirty() ? frm.save().then(proceed) : proceed();
 	}).addClass("btn-primary");
 }
@@ -533,7 +834,7 @@ function _journey_request_apply_locks(frm) {
 		return;
 	}
 
-	const status = frm.doc.journey_request_status;
+	const status = _jr_effective_status(frm);
 	const isTech = frappe.user.has_role("Field Technician");
 	const isNew = frm.is_new();
 
