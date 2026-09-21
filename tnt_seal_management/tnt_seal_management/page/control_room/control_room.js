@@ -164,7 +164,7 @@ function _control_room_render(page) {
 				<div class="cr-toolbar" style="display: ${state.tab === "approve" ? "block" : "none"}">
 					<div class="cr-toolbar-top">
 						<label class="cr-field cr-search-inline">
-							<input class="cr-search" type="search" placeholder="${__("Journey request, client, entry, container or vehicle")}" value="${frappe.utils.escape_html(state.search || "")}">
+							<input class="cr-search" type="search" placeholder="${__("Journey, client, job order, entry, container, vehicle, seal or technician")}" value="${frappe.utils.escape_html(state.search || "")}">
 						</label>
 						<label class="cr-field">
 							<span>${__("From")}</span>
@@ -547,7 +547,8 @@ function _control_room_arrivals_section_html(state) {
 	if (state.arrivalsLoading) {
 		return `<div class="cr-loading"><div class="cr-spinner"></div>${__("Loading arrivals…")}</div>`;
 	}
-	if (!state.arrivals.length) return "";
+	const arrivals = _control_room_get_filtered_arrivals(state);
+	if (!arrivals.length) return "";
 
 	return `
 		<section class="cr-arrivals">
@@ -563,11 +564,23 @@ function _control_room_arrivals_section_html(state) {
 							<th class="cr-arrival-action-col">${__("Action")}</th>
 						</tr>
 					</thead>
-					<tbody>${state.arrivals.map(_control_room_arrival_row).join("")}</tbody>
+					<tbody>${arrivals.map(_control_room_arrival_row).join("")}</tbody>
 				</table>
 			</div>
 		</section>
 	`;
+}
+
+function _control_room_get_filtered_arrivals(state) {
+	const list = state.arrivals || [];
+	if (!state.search) return list;
+	const q = state.search.toLowerCase();
+	return list.filter((j) =>
+		[j.name, j.customer, j.vehicle_plate_number, j.container_number, j.assigned_seal, j.origin, j.destination, j.api_device_location]
+			.join(" ")
+			.toLowerCase()
+			.includes(q)
+	);
 }
 
 function _control_room_arrival_row(journey) {
@@ -686,12 +699,16 @@ function _control_room_get_filtered_requests(page) {
 	if (state.search) {
 		const q = state.search.toLowerCase();
 		list = list.filter((r) => {
-			const name = (r.name || "").toLowerCase();
-			const client = (r.client_name || "").toLowerCase();
-			const entry = (r.entry_number || "").toLowerCase();
-			const container = (r.container_number || "").toLowerCase();
-			const vehicle = (r.vehicle || "").toLowerCase();
-			return name.includes(q) || client.includes(q) || entry.includes(q) || container.includes(q) || vehicle.includes(q);
+			const seals = (r.seals || [])
+				.map((s) => `${s.seal_number || ""} ${s.serial_number || ""} ${s.seal_device || ""}`)
+				.join(" ");
+			const haystack = [
+				r.name, r.client_name, r.job_order, r.entry_number, r.container_number,
+				r.vehicle, r.assigned_technician_name, r.assigned_technician, seals,
+			]
+				.join(" ")
+				.toLowerCase();
+			return haystack.includes(q);
 		});
 	}
 
