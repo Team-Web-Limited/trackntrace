@@ -691,6 +691,9 @@ function _control_room_arrival_card(journey) {
 					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--retained" data-name="${frappe.utils.escape_html(journey.name)}" data-method="remote_retained">
 						${__("Remote Unlock — Seal Stays on Vehicle")}
 					</button>
+					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--end" data-name="${frappe.utils.escape_html(journey.name)}" data-method="end_journey">
+						${__("End Journey")}
+					</button>
 				</div>
 			</footer>
 		</article>
@@ -698,7 +701,7 @@ function _control_room_arrival_card(journey) {
 }
 
 function _control_room_confirm_arrival(page, docname, method, $btn) {
-	// Three ways an arrival closes out, picked by the Control Room on the call:
+	// Four ways an arrival closes out, picked by the Control Room on the call:
 	// physical untagging, remote unlock with the seal collected from the client,
 	// or remote unlock at a destination too far to collect from — where the seal
 	// rides home on the vehicle and the journey ends right here.
@@ -712,15 +715,20 @@ function _control_room_confirm_arrival(page, docname, method, $btn) {
 			[docname]
 		),
 		remote_retained: __(
-			"Confirm arrival for {0} with a REMOTE unlock and the seal LEFT ON THE VEHICLE? Use this when the destination is too far to collect from. There will be no untagging and no seal return: the journey is completed now, and the seal goes back into the pool so the vehicle's next tagging booking can use it. This cannot be undone.",
+			"Confirm arrival for {0} with a REMOTE unlock and the seal LEFT ON THE VEHICLE?",
 			[docname]
 		),
+		end_journey: __("End {0} now?", [docname]),
 	};
 	const notes = {
 		physical: __("{0}: arrival confirmed (physical unlock) — sent for untagging", [docname]),
 		remote: __("{0}: arrival confirmed (remote unlock) — sent for seal return", [docname]),
 		remote_retained: __(
 			"{0}: arrival confirmed (remote unlock, seal retained) — journey completed, seal released for re-tagging",
+			[docname]
+		),
+		end_journey: __(
+			"{0}: journey ended — no collection at destination, seal released, custody retained by customer",
 			[docname]
 		),
 	};
@@ -2208,6 +2216,12 @@ function _control_room_inject_styles() {
 			border-color: #fdba74;
 		}
 		.cr-arrival-unlock-btn--retained:hover:not(:disabled) { background: #fff7ed; }
+		.cr-arrival-unlock-btn--end {
+			background: #fff;
+			color: #991b1b;
+			border-color: #fca5a5;
+		}
+		.cr-arrival-unlock-btn--end:hover:not(:disabled) { background: #fef2f2; }
 
 		/* Cap tall lists at ~30 rows (row height x 30 + sticky header); the body scrolls. */
 		.cr-queue-scroll, .cr-alert-table-wrap { max-height: calc(30 * 52px + 44px); overflow-y: auto; }
@@ -2459,6 +2473,8 @@ function _control_room_inject_styles() {
 		[data-theme="dark"] .cr-arrival-table tbody tr:hover td { background: #0b3a52; }
 		[data-theme="dark"] .cr-arrival-journey { color: #f8fafc !important; }
 		[data-theme="dark"] .cr-arrival-open { background: #082f49; border-color: #0284c7; color: #bae6fd; }
+		[data-theme="dark"] .cr-arrival-unlock-btn--end { background: #1e293b; color: #fca5a5; border-color: #991b1b; }
+		[data-theme="dark"] .cr-arrival-unlock-btn--end:hover:not(:disabled) { background: #450a0a; }
 		[data-theme="dark"] .cr-section-title { color: #f8fafc; }
 		[data-theme="dark"] .cr-req-id, [data-theme="dark"] .cr-queue-head h3,
 		[data-theme="dark"] .cr-empty h3 { color: #f8fafc; }

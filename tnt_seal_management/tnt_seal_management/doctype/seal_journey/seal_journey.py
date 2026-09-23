@@ -513,10 +513,19 @@ def confirm_arrival(docname, unlock_method="physical"):
 	    is what picks the seal up again. Custody stays with the customer until
 	    then, and the normal warehouse flow resumes from that booking.
 
+	  • ``end_journey`` — there is nobody at the destination to unlock or collect
+	    anything at all (e.g. a vehicle crossing into Uganda with no local team).
+	    Distinct from ``remote_retained`` only in the reason recorded — no unlock
+	    call was made, the Control Room is simply declaring the journey over.
+	    Same outcome: no untagging, no collection, journey completed on the spot,
+	    seal released back to the pool with custody pinned to the customer until
+	    its next Tagging Booking — which can freely assign a different vehicle
+	    and owner at that point.
+
 	Captures location live from the seal's GPS and timestamps arrival, which also
 	makes Days Taken non-zero immediately (see SealJourney.set_days_taken)."""
 	_ensure_control_room_role()
-	if unlock_method not in ("physical", "remote", "remote_retained"):
+	if unlock_method not in ("physical", "remote", "remote_retained", "end_journey"):
 		frappe.throw(_("Invalid unlock method {0}.").format(unlock_method), title=_("Invalid Request"))
 
 	doc = _get_seal_journey(docname)
@@ -543,6 +552,8 @@ def confirm_arrival(docname, unlock_method="physical"):
 		_confirm_remote_unlock(doc)
 	elif unlock_method == "remote_retained":
 		_confirm_remote_unlock_seal_retained(doc)
+	elif unlock_method == "end_journey":
+		_confirm_end_journey_no_collection(doc)
 	else:
 		_confirm_physical_unlock(doc)
 
@@ -614,6 +625,38 @@ def _confirm_remote_unlock_seal_retained(doc):
 		close_for_retained_seal(
 			doc.name,
 			remarks=_("Seal retained on vehicle at {0} — remote unlock, no collection.").format(
+				doc.destination or _("destination")
+			),
+		)
+	except Exception as exc:
+		frappe.log_error(
+			f"Retained-seal closure failed for {doc.name}: {exc}",
+			"Retained Seal Closure",
+		)
+
+
+def _confirm_end_journey_no_collection(doc):
+	"""End the journey outright: nobody at the destination can unlock or collect
+	anything (typically a vehicle crossing into a neighbouring country with no
+	local team). No unlock call was made, so this is not a "remote unlock" —
+	the Control Room is just declaring the journey over. Same closure as
+	_confirm_remote_unlock_seal_retained (no untagging, no collection, seal
+	back into the pool with custody pinned to the customer), recorded under
+	its own unlock-method value so the audit trail reads accurately."""
+	doc.seal_unlock_method = "Ended - No Collection"
+	doc.untagging_status = "Not Required"
+	doc.journey_status = "Completed"
+	doc.completion_date_time = doc.arrival_date_time
+	doc.save()
+
+	try:
+		from tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request import (
+			close_for_retained_seal,
+		)
+
+		close_for_retained_seal(
+			doc.name,
+			remarks=_("Journey ended by Control Room — no one at {0} to untag or collect.").format(
 				doc.destination or _("destination")
 			),
 		)
