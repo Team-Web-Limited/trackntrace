@@ -14,6 +14,8 @@ Rules are resolved through a hierarchy: a customer-specific assignment overrides
 a customer-group assignment, which overrides the system-wide default rule.
 """
 
+import math
+
 import frappe
 from frappe import _
 from frappe.utils import cint, date_diff, flt, getdate, nowdate
@@ -324,10 +326,26 @@ def compute_billing_amount(rule, total_days, seal_count=1):
 	total_days = cint(total_days)
 	seal_count = max(cint(seal_count), 1)
 
+	# A Non-Flat Rate Subscription has no Extra Day Rate: running into another
+	# period extends the contract, so each started period past the first is
+	# billed as a full renewal (30 days = 3,000 → a 31-day journey is 6,000
+	# per seal). extra_days keeps the raw overrun; extra_day_amount carries
+	# the renewal periods' charge so Normal + Extra still sum to the total.
+	is_period_subscription = (
+		rule.get("billing_type") == "Subscription"
+		and rule.get("rate_type") == "Non-Flat Rate"
+		and first_period_days > 0
+	)
+
 	if total_days <= first_period_days:
 		extra_days = 0
 		extra_day_amount = 0.0
 		per_seal_amount = first_period_amount
+	elif is_period_subscription:
+		extra_days = total_days - first_period_days
+		extra_day_rate = 0.0
+		extra_day_amount = math.ceil(extra_days / first_period_days) * first_period_amount
+		per_seal_amount = first_period_amount + extra_day_amount
 	else:
 		extra_days = total_days - first_period_days
 		extra_day_amount = extra_days * extra_day_rate
@@ -379,6 +397,7 @@ def calculate_billing(customer, start_date, return_date=None, on_date=None, seal
 		[
 			"name",
 			"billing_type",
+			"rate_type",
 			"billing_period_type",
 			"currency",
 			"first_period_days",

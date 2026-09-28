@@ -180,6 +180,7 @@ class SealJourney(Document):
 			[
 				"name",
 				"billing_type",
+				"rate_type",
 				"billing_period_type",
 				"currency",
 				"first_period_days",
@@ -207,9 +208,9 @@ class SealJourney(Document):
 		# above and still run set_extra_billing below — Scenario 6's overflow
 		# charge is independent of the base being zeroed.
 		#
-		# Computation = Compound (Non-Flat Rate Subscription, Set Billing
-		# modal): a customer whose day-tiered rate is meant to be batched —
-		# total days summed across every journey billed together, divided by
+		# Computation = Compound (Leasing or Non-Flat Rate Subscription, Set
+		# Billing modal): a customer whose day-tiered rate is meant to be
+		# batched — total seal-days summed across every journey billed together, divided by
 		# first_period_days, rounded up to a whole period, times
 		# first_period_amount — rather than charged per journey (which would
 		# round up on *each* journey separately and overcharge). That batching

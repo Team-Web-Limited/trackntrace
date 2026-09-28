@@ -5,6 +5,7 @@
 // (first_period_amount, extra_day_rate) are always per-rule, never derived here.
 const PERIOD_TYPE_DAYS = {
 	Weekly: 7,
+	"Bi-Weekly": 14,
 	Monthly: 30,
 	Quarterly: 90,
 	"Semi-Annually": 180,
@@ -92,7 +93,7 @@ function _apply_period_type(frm) {
 		return;
 	}
 
-	if (period === "Days") {
+	if (period === "Days" || period === "Custom") {
 		frm.set_df_property("first_period_days", "read_only", 0);
 		frm.set_df_property(
 			"first_period_days",

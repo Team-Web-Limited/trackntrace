@@ -8,6 +8,7 @@
  "field_order": [
   "vehicle_identity_section",
   "registration_number",
+  "customer",
   "identity_column",
   "vehicle_make",
   "vehicle_model",
@@ -32,6 +33,16 @@
    "label": "Registration Number",
    "reqd": 1,
    "unique": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Customer (Owner)",
+   "options": "Customer",
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "identity_column",
@@ -92,7 +103,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-14 12:45:00.000000",
+ "modified": "2026-09-27 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Vehicle",

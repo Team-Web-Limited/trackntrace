@@ -184,7 +184,9 @@ function _build_skeleton(page) {
 		}, 350);
 	});
 
-	$(page.body).on("click", ".jm-row", function () {
+	$(page.body).on("click", ".jm-row", function (e) {
+		// The location link opens the map in a new tab — don't also open the form.
+		if ($(e.target).closest(".jm-location-link").length) return;
 		const name = $(this).data("name");
 		if (name) frappe.set_route("Form", "Seal Journey", name);
 	});
@@ -362,9 +364,17 @@ function _row_html(j, seal, idx, sealCount) {
 	const battery = seal && (seal.battery_level || seal.battery_level === 0)
 		? esc(String(seal.battery_level)) : dash;
 	const locationRaw = seal && seal.api_location ? String(seal.api_location) : null;
-	const location = locationRaw
-		? `<span class="jm-location-truncated" title="${esc(locationRaw)}">${esc(_truncate_words(locationRaw, 3))}</span>`
-		: dash;
+	const hasCoords = seal && seal.latitude != null && seal.longitude != null;
+	let location = dash;
+	if (hasCoords) {
+		const mapUrl = `https://www.google.com/maps?q=${encodeURIComponent(`${seal.latitude},${seal.longitude}`)}`;
+		const label = locationRaw ? _truncate_words(locationRaw, 3) : __("View on map");
+		const title = `${locationRaw ? locationRaw + " — " : ""}${seal.latitude}, ${seal.longitude}`;
+		location = `<a class="jm-location-truncated jm-location-link" href="${mapUrl}" target="_blank"
+			rel="noopener noreferrer" title="${esc(title)}">${esc(label)}</a>`;
+	} else if (locationRaw) {
+		location = `<span class="jm-location-truncated" title="${esc(locationRaw)}">${esc(_truncate_words(locationRaw, 3))}</span>`;
+	}
 	const alertsHtml = _alerts_html((seal && seal.alerts) || []);
 
 	return `
@@ -1044,6 +1054,13 @@ function _inject_styles() {
 			border-bottom: 1px dashed #94a3b8;
 			white-space: nowrap;
 		}
+		.jm-location-link {
+			cursor: pointer;
+			color: #0284c7;
+			border-bottom-color: #0284c7;
+		}
+		.jm-location-link:hover { color: #0369a1; text-decoration: none; }
+		[data-theme="dark"] .jm-location-link { color: #38bdf8; border-bottom-color: #38bdf8; }
 		}
 		.jm-cell-alerts {
 			min-width: 170px;

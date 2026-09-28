@@ -332,7 +332,7 @@ def _attach_seals(journeys):
 	for r in rows:
 		seals_by_journey.setdefault(r["parent"], []).append(r)
 
-	device_locks = _device_lock_map(rows, journeys)
+	devices = _device_map(rows, journeys)
 
 	for j in journeys:
 		seal_rows = seals_by_journey.get(j["name"], [])
@@ -350,10 +350,15 @@ def _attach_seals(journeys):
 
 		seals = []
 		for r in seal_rows:
-			lock = device_locks.get(r.get("seal_device") or "") or normalize_elock_status(
+			device = devices.get(r.get("seal_device") or "") or {}
+			lock = device.get("lock_status") or normalize_elock_status(
 				r.get("lock_status")
 			) or (r.get("lock_status") or "")
 			alerts = _derive_seal_alerts(j.get("journey_status"), r, lock)
+			# Prefer the device's own live fix; fall back to the journey-level one.
+			lat, lng = _coords(device.get("latitude"), device.get("longitude"))
+			if lat is None:
+				lat, lng = _coords(j.get("api_latitude"), j.get("api_longitude"))
 			seals.append({
 				"seal_device": r.get("seal_device"),
 				"seal_number": r.get("seal_number") or r.get("seal_device"),
@@ -361,6 +366,8 @@ def _attach_seals(journeys):
 				"battery_level": r.get("battery_level"),
 				"api_device_status": r.get("api_device_status"),
 				"api_location": r.get("api_location"),
+				"latitude": lat,
+				"longitude": lng,
 				"alerts": alerts,
 				"alert_level": _roll_up_level(alerts),
 			})
@@ -570,7 +577,8 @@ def _resolve_custodian(journey, user_names, seal_warehouse):
 	return "", ""
 
 
-def _device_lock_map(rows, journeys):
+def _device_map(rows, journeys):
+	"""Live lock status and last synced coordinates per Seal Device."""
 	seal_names = {r.get("seal_device") for r in rows if r.get("seal_device")}
 	seal_names |= {j.get("assigned_seal") for j in journeys if j.get("assigned_seal")}
 	seal_names.discard(None)
@@ -579,9 +587,18 @@ def _device_lock_map(rows, journeys):
 	device_rows = frappe.db.get_all(
 		"Seal Device",
 		filters={"name": ["in", list(seal_names)]},
-		fields=["name", "lock_status"],
+		fields=["name", "lock_status", "latitude", "longitude"],
 	)
-	return {d["name"]: d.get("lock_status") for d in device_rows}
+	return {d["name"]: d for d in device_rows}
+
+
+def _coords(lat, lng):
+	"""(lat, lng) if both are usable map coordinates, else (None, None).
+	0/0 is what a device reports before it has a GPS fix, so it is treated as missing."""
+	lat, lng = flt(lat), flt(lng)
+	if not (lat or lng) or not (-90 <= lat <= 90 and -180 <= lng <= 180):
+		return None, None
+	return lat, lng
 
 
 def _derive_seal_alerts(journey_status, seal, lock):

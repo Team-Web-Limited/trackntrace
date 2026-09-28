@@ -53,12 +53,11 @@ class SealBillingRate(Document):
 		For other period types, use the standard day count for that period.
 
 		Leasing rules skip all of this — they're a private contract with
-		first_period_days entered directly, no period type or date range. A
-		Non-Flat Rate Subscription rule (current_customers._upsert_customer_
-		subscription_rule) is day-tiered the same way and skips it too — its
-		First Period Days is entered directly in the Set Billing modal, not
-		derived from the cycle length."""
-		if self.billing_type == "Leasing" or self.rate_type == "Non-Flat Rate":
+		first_period_days entered directly, no period type or date range.
+		Every Subscription rule (Flat or Non-Flat Rate) derives it from the
+		period type, same as the Set Billing modal's Frequency; Custom, like
+		Days, keeps the entered value."""
+		if self.billing_type == "Leasing":
 			return
 
 		if self.billing_period_type == "Date Range":
@@ -69,7 +68,7 @@ class SealBillingRate(Document):
 			self.first_period_days = date_diff(self.period_to_date, self.period_from_date) + 1
 			return
 
-		if self.billing_period_type == "Days":
+		if self.billing_period_type in ("Days", "Custom"):
 			return
 
 		mapped = PERIOD_TYPE_DAYS.get(self.billing_period_type)

@@ -1,6 +1,7 @@
 import frappe
 from frappe import _
 from frappe.utils import cint, flt
+from tnt_seal_management.tnt_seal_management.doctype.seal_billing_rate.seal_billing_rate import PERIOD_TYPE_DAYS
 
 
 CUSTOMER_BILLING_TYPE_FIELD = "custom_billing_type"
@@ -681,15 +682,20 @@ def set_customer_billing(
 	anymore — both are private, per-customer contracts entered directly here
 	and saved onto the customer's own auto-named rule ("<Customer> BR"):
 
-	- Subscription: classified as ``rate_type`` (Flat Rate — a single fixed
-	  recurring charge, day-tiering fields ignored — or Non-Flat Rate — day-
-	  tiered like a per-journey rate) and billed on ``billing_period_type``
-	  (the modal's "Frequency", now entered directly instead of mirrored from
-	  a picked rule) — see ``_upsert_customer_subscription_rule``.
+	- Subscription: classified as ``rate_type`` (Flat Rate — a fixed charge
+	  per journey — or Non-Flat Rate — First Period Amount per started period)
+	  with ``billing_period_type`` (the modal's "Frequency") driving
+	  ``first_period_days`` — see ``_upsert_customer_subscription_rule``.
 	- Leasing has never had a rule to pick — its terms
 	  (``first_period_days``/``first_period_amount``/``extra_day_rate``/
 	  ``currency``) are entered directly here — see
 	  ``_upsert_customer_leasing_rule``.
+
+	``computation_method`` (Simple/Compound) applies to Leasing and to a
+	Non-Flat Rate Subscription. Compound never uses ``extra_day_rate`` (a
+	partial period bills a full one — see
+	completed_journeys._compute_compound_charge), so it isn't required then
+	and is stored as 0.
 
 	``period_from_date``/``period_to_date`` are the customer's own billing
 	window. ``outright_purchase``/``owned_seal_count`` (Set Billing modal's
@@ -740,20 +746,43 @@ def set_customer_billing(
 
 	customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
 
-	if billing_type == "Leasing":
-		if not first_period_days or first_period_amount in (None, "") or extra_day_rate in (None, ""):
-			frappe.throw(_("Enter First Period Days, First Period Amount and Extra Day Rate."))
+	if computation_method not in (None, "", "Simple", "Compound"):
+		frappe.throw(_("Invalid Computation."))
 
+	if billing_type == "Leasing":
+		# Billing Rule for Leasing: Non-Flat Rate (the default, and what every
+		# Leasing rule was before it had one) is day-tiered — First Period
+		# Amount + Extra Day Rate, Simple or Compound. Flat Rate is one fixed
+		# Rate per journey: no Extra Day Rate, always Simple.
+		rate_type = rate_type or "Non-Flat Rate"
+		if rate_type not in ("Flat Rate", "Non-Flat Rate"):
+			frappe.throw(_("Choose a Rate Type — Flat Rate or Non-Flat Rate."))
+		is_flat = rate_type == "Flat Rate"
+		is_compound = not is_flat and computation_method == "Compound"
+		uses_extra_day_rate = not is_flat and not is_compound
+		if not first_period_days or first_period_amount in (None, ""):
+			frappe.throw(_("Enter First Period Days and First Period Amount."))
+		if uses_extra_day_rate and extra_day_rate in (None, ""):
+			frappe.throw(_("Enter the Extra Day Rate."))
+
+		# Frequency drives First Period Days for Leasing too (Set Billing modal);
+		# derived here rather than in Seal Billing Rate.validate, which leaves
+		# every Leasing rule's days alone — the Extra Billing leasing rule
+		# carries no Frequency of its own, only the doctype's default.
+		first_period_days = PERIOD_TYPE_DAYS.get(billing_period_type) or first_period_days
 		rule_name = _upsert_customer_leasing_rule(
 			customer,
 			customer_name,
 			first_period_days,
 			first_period_amount,
-			extra_day_rate,
+			extra_day_rate if uses_extra_day_rate else 0,
 			currency,
 			journey_type=journey_type,
 			owned_rate_per_seal=owned_rate_per_seal,
 			lease_rate_per_seal=lease_rate_per_seal,
+			computation_method="Compound" if is_compound else "Simple",
+			billing_period_type=billing_period_type or "Custom",
+			rate_type=rate_type,
 		)
 		if is_primary_journey_type:
 			_upsert_customer_assignment(
@@ -794,13 +823,13 @@ def set_customer_billing(
 		frappe.throw(_("Choose a Frequency."))
 	if first_period_amount in (None, ""):
 		frappe.throw(_("Enter the Rate."))
-	if rate_type == "Non-Flat Rate" and (not first_period_days or extra_day_rate in (None, "")):
-		frappe.throw(_("Enter First Period Days and Extra Day Rate for a Non-Flat Rate."))
 	# Computation (Simple/Compound) only applies to Non-Flat Rate — Flat Rate
 	# has no per-journey day-tiering to batch, so it's always Simple.
-	if computation_method not in (None, "", "Simple", "Compound"):
-		frappe.throw(_("Invalid Computation."))
 	resolved_computation = computation_method if rate_type == "Non-Flat Rate" and computation_method else "Simple"
+	# Frequency drives First Period Days (Seal Billing Rate re-derives it for
+	# any standard Frequency); Custom/Days need it entered.
+	if cint(first_period_days) <= 0:
+		frappe.throw(_("Enter First Period Days."))
 
 	rule_name = _upsert_customer_subscription_rule(
 		customer,
@@ -808,9 +837,11 @@ def set_customer_billing(
 		rate_type,
 		resolved_computation,
 		billing_period_type,
-		first_period_days if rate_type == "Non-Flat Rate" else 0,
+		first_period_days,
 		first_period_amount,
-		extra_day_rate if rate_type == "Non-Flat Rate" else 0,
+		# Subscription never uses Extra Day Rate — past the first period each
+		# started period is a full renewal (billing.compute_billing_amount).
+		0,
 		currency,
 		journey_type=journey_type,
 		owned_rate_per_seal=owned_rate_per_seal,
@@ -904,6 +935,9 @@ def _upsert_customer_leasing_rule(
 	journey_type=None,
 	owned_rate_per_seal=None,
 	lease_rate_per_seal=None,
+	computation_method="Simple",
+	billing_period_type=None,
+	rate_type="Non-Flat Rate",
 ):
 	"""Create or update the customer's private Leasing rate, auto-named
 	"<Customer Name> BR". There is exactly one per customer — found via the
@@ -953,6 +987,9 @@ def _upsert_customer_leasing_rule(
 		"extra_day_rate": flt(extra_day_rate),
 		"owned_rate_per_seal": flt(owned_rate_per_seal),
 		"lease_rate_per_seal": flt(lease_rate_per_seal),
+		"computation_method": computation_method or "Simple",
+		"billing_period_type": billing_period_type or "Custom",
+		"rate_type": rate_type or "Non-Flat Rate",
 	}
 
 	frappe.flags.in_import = True
@@ -992,11 +1029,11 @@ def _upsert_customer_subscription_rule(
 	of the previously-picked, Managing-Director-approved cards other
 	customers may still reference) is never mutated in place.
 
-	rate_type classifies the private rule as Flat Rate (a single fixed
-	recurring charge — first_period_days/extra_day_rate are zeroed by the
-	caller) or Non-Flat Rate (day-tiered, same formula as a per-journey rate).
-	billing_period_type is the modal's "Frequency", entered directly rather
-	than mirrored from a picked rule.
+	rate_type classifies the private rule as Flat Rate (a fixed charge per
+	journey) or Non-Flat Rate (First Period Amount per started period of
+	first_period_days — see billing.compute_billing_amount). extra_day_rate
+	is always zeroed by the caller. billing_period_type is the modal's
+	"Frequency", which drives first_period_days (Custom/Days: entered).
 
 	computation_method (Non-Flat Rate only — caller forces "Simple" for Flat
 	Rate) is Simple (each journey billed on its own day count, the historical

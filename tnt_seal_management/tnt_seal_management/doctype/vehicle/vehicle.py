@@ -12,10 +12,21 @@ from frappe.utils import cint
 class Vehicle(Document):
 	def validate(self):
 		self.registration_number = _normalize_registration(self.registration_number)
+		self._sync_legacy_party()
 		if self.seating_capacity is not None and cint(self.seating_capacity) < 1:
 			frappe.throw(_("Seating Capacity must be at least 1."))
 		if self.year_of_manufacture is not None and cint(self.year_of_manufacture) < 1900:
 			frappe.throw(_("Year of Manufacture must be 1900 or later."))
+
+	def _sync_legacy_party(self):
+		"""Some sites carry ERPNext's party_type/party_name custom fields on
+		Vehicle. Customer (Owner) replaces them, so keep them in step rather
+		than asking for the owner twice."""
+		if not self.customer or not self.meta.has_field("party_name"):
+			return
+		if self.meta.has_field("party_type"):
+			self.party_type = "Customer"
+		self.party_name = self.customer
 
 
 def _normalize_registration(value):
@@ -37,6 +48,7 @@ def get_vehicle_list(search=None, status=None, page=1, page_length=25):
 		or_filters = [
 			["name", "like", search_text],
 			["registration_number", "like", search_text],
+			["customer", "like", search_text],
 			["vehicle_make", "like", search_text],
 			["vehicle_model", "like", search_text],
 			["color", "like", search_text],
@@ -47,6 +59,7 @@ def get_vehicle_list(search=None, status=None, page=1, page_length=25):
 		fields=[
 			"name",
 			"registration_number",
+			"customer",
 			"vehicle_make",
 			"vehicle_model",
 			"color",

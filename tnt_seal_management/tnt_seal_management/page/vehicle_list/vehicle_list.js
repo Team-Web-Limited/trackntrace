@@ -41,7 +41,7 @@ function _vehicle_build_page(page) {
 				<div class="vh-toolbar">
 					<div class="vh-toolbar-top">
 						<label class="vh-field vh-search-inline">
-							<input class="vh-search" type="search" placeholder="${__("Vehicle, registration, make, model or color")}">
+							<input class="vh-search" type="search" placeholder="${__("Vehicle, registration, customer, make, model or color")}">
 						</label>
 
 						<div class="vh-filter-dropdown">
@@ -204,6 +204,7 @@ function _vehicle_render_table(page, vehicles) {
 			<thead><tr>
 				<th>${__("Vehicle")}</th>
 				<th>${__("Registration")}</th>
+				<th>${__("Customer")}</th>
 				<th>${__("Make")}</th>
 				<th>${__("Model")}</th>
 				<th>${__("Color")}</th>
@@ -222,6 +223,7 @@ function _vehicle_row_html(vehicle) {
 		<tr class="vh-row" data-name="${frappe.utils.escape_html(vehicle.name)}">
 			<td><span class="vh-name">${frappe.utils.escape_html(vehicle.name)}</span></td>
 			<td>${frappe.utils.escape_html(vehicle.registration_number || "—")}</td>
+			<td>${frappe.utils.escape_html(vehicle.customer || "—")}</td>
 			<td>${frappe.utils.escape_html(vehicle.vehicle_make || "—")}</td>
 			<td>${frappe.utils.escape_html(vehicle.vehicle_model || "—")}</td>
 			<td>${frappe.utils.escape_html(vehicle.color || "—")}</td>

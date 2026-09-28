@@ -45,6 +45,7 @@ SUBSCRIPTION_COST_CENTER = "PCB Business - TD"
 # multi-month count.
 INTERVAL_MAP = {
 	"Week": ("Week", 1),
+	"Bi-Weekly": ("Week", 2),
 	"Month": ("Month", 1),
 	"Quarter": ("Month", 3),
 	"Semi-Annual": ("Month", 6),
@@ -52,11 +53,39 @@ INTERVAL_MAP = {
 }
 INTERVAL_REVERSE = {
 	("Week", 1): "Week",
+	("Week", 2): "Bi-Weekly",
 	("Month", 1): "Month",
 	("Month", 3): "Quarter",
 	("Month", 6): "Semi-Annual",
 	("Year", 1): "Year",
 }
+
+
+# A Custom Frequency (Set Billing modal) bills the seat fee every First
+# Period Days rather than on a calendar interval — passed as billing_interval
+# "Day" plus interval_days.
+CUSTOM_DAY_INTERVAL = "Day"
+
+
+def _resolve_interval(billing_interval, interval_days=None):
+	"""(Subscription Plan billing_interval, billing_interval_count) for a
+	modal billing_interval — a calendar one from INTERVAL_MAP, or every
+	``interval_days`` days for a Custom Frequency."""
+	if billing_interval == CUSTOM_DAY_INTERVAL:
+		if cint(interval_days) <= 0:
+			frappe.throw(_("Enter First Period Days for a Custom billing cycle."))
+		return "Day", cint(interval_days)
+	if billing_interval not in INTERVAL_MAP:
+		frappe.throw(
+			_("Billing Interval must be one of Week, Bi-Weekly, Month, Quarter, Semi-Annual, Year, or a Custom day count.")
+		)
+	return INTERVAL_MAP[billing_interval]
+
+
+def _interval_label(interval, interval_count):
+	if interval == "Day":
+		return _("{0} days").format(cint(interval_count))
+	return INTERVAL_REVERSE.get((interval, cint(interval_count)), interval)
 
 
 # ---------------------------------------------------------------------------
@@ -91,13 +120,13 @@ def _find_plan_row_for_item(sub, item_code):
 
 
 def _upsert_subscription_line(
-	customer, item_code, plan_label, qty, rate, billing_interval, currency, start_date
+	customer, item_code, plan_label, qty, rate, billing_interval, currency, start_date, interval_days=None
 ):
 	"""Idempotent upsert of one plan row (identified by ``item_code``) on the
 	customer's single Subscription. Creates the Subscription on first use for
 	either plan kind; a second plan kind added later is appended as a new row
 	on the SAME Subscription rather than creating a second one."""
-	interval, interval_count = INTERVAL_MAP[billing_interval]
+	interval, interval_count = _resolve_interval(billing_interval, interval_days)
 	customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
 
 	# ERPNext's Subscription.validate_party_billing_currency requires every
@@ -128,7 +157,7 @@ def _upsert_subscription_line(
 			)
 			other_cycle = (other_plan.billing_interval, cint(other_plan.billing_interval_count))
 			if other_cycle != (interval, interval_count):
-				other_label = INTERVAL_REVERSE.get(other_cycle, other_plan.billing_interval)
+				other_label = _interval_label(*other_cycle)
 				frappe.throw(
 					_(
 						"{0} already has a recurring fee billed every {1}. A second recurring fee on the "
@@ -192,15 +221,18 @@ def _get_subscription_line_info(customer, item_code):
 			"seal_count": None,
 			"rate_per_seal": None,
 			"billing_interval": "Month",
+			"interval_days": None,
 			"currency": None,
 		}
+	is_day_cycle = plan.billing_interval == "Day"
 	return {
 		"status": sub.status,
 		"seal_count": row.qty,
 		"rate_per_seal": plan.cost,
-		"billing_interval": INTERVAL_REVERSE.get(
+		"billing_interval": CUSTOM_DAY_INTERVAL if is_day_cycle else INTERVAL_REVERSE.get(
 			(plan.billing_interval, cint(plan.billing_interval_count)), "Month"
 		),
+		"interval_days": cint(plan.billing_interval_count) if is_day_cycle else None,
 		"currency": plan.currency,
 	}
 
@@ -274,7 +306,7 @@ def get_customer_lease_subscription(customer):
 
 @frappe.whitelist()
 def set_customer_lease_subscription(
-	customer, seal_count, rate_per_seal, billing_interval, currency=None, start_date=None
+	customer, seal_count, rate_per_seal, billing_interval, currency=None, start_date=None, interval_days=None
 ):
 	"""Idempotent upsert of the customer's recurring Seal Lease Fee line."""
 	if not frappe.has_permission("Customer", "write"):
@@ -285,11 +317,10 @@ def set_customer_lease_subscription(
 		frappe.throw(_("Enter the Number of Seals Leased."))
 	if rate_per_seal in (None, "") or flt(rate_per_seal) < 0:
 		frappe.throw(_("Enter the Rate per Seal."))
-	if billing_interval not in INTERVAL_MAP:
-		frappe.throw(_("Billing Interval must be one of Week, Month, Quarter, Semi-Annual, Year."))
 
 	sub, plan = _upsert_subscription_line(
-		customer, LEASE_ITEM, "Seal Lease Fee", seal_count, rate_per_seal, billing_interval, currency, start_date
+		customer, LEASE_ITEM, "Seal Lease Fee", seal_count, rate_per_seal, billing_interval, currency, start_date,
+		interval_days=interval_days,
 	)
 
 	frappe.db.commit()
@@ -332,7 +363,7 @@ def get_customer_ownership_subscription(customer):
 
 @frappe.whitelist()
 def set_customer_ownership_subscription(
-	customer, seal_count, rate_per_seal, billing_interval, currency=None, start_date=None
+	customer, seal_count, rate_per_seal, billing_interval, currency=None, start_date=None, interval_days=None
 ):
 	"""Idempotent upsert of the customer's recurring Seal Ownership Service Fee
 	line — applies to the whole owned pool regardless of utilization
@@ -347,12 +378,10 @@ def set_customer_ownership_subscription(
 		frappe.throw(_("Enter the Number of Seals Owned."))
 	if rate_per_seal in (None, "") or flt(rate_per_seal) < 0:
 		frappe.throw(_("Enter the Service Fee Rate."))
-	if billing_interval not in INTERVAL_MAP:
-		frappe.throw(_("Billing Interval must be one of Month, Quarter, Semi-Annual, Year."))
 
 	sub, plan = _upsert_subscription_line(
 		customer, OWNERSHIP_ITEM, "Seal Ownership Service Fee", seal_count, rate_per_seal,
-		billing_interval, currency, start_date,
+		billing_interval, currency, start_date, interval_days=interval_days,
 	)
 
 	frappe.db.commit()

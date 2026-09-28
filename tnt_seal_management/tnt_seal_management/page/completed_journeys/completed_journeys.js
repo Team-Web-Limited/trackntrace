@@ -413,7 +413,7 @@ function _summary_html(s) {
 	const hasCompound = (s.compound_charges || 0) !== 0;
 	const compoundRow = hasCompound ? `
 		<div class="cj-summary-row">
-			<span>${__("Compound Billing ({0} days)", [cint(s.compound_days)])}</span>
+			<span>${__("Compound Billing ({0} seal-days)", [cint(s.compound_days)])}</span>
 			<span>${format_currency(s.compound_charges, cur)}</span>
 		</div>
 	` : "";

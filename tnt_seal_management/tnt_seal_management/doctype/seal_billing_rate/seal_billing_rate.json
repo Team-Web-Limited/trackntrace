@@ -68,8 +68,7 @@
    "options": "Local\nImport/Export"
   },
   {
-   "depends_on": "eval:doc.billing_type=='Subscription'",
-   "description": "Flat Rate: one fixed recurring charge per cycle, day-tiering fields hidden. Non-Flat Rate: day-tiered like a per-journey rate (First Period Days/Amount + Extra Day Rate). Set from Current Customer List → Set Billing.",
+   "description": "Flat Rate: one fixed charge per journey (per seal), whatever its length. Non-Flat Rate: day-tiered — a Subscription bills First Period Amount per started period; a Leasing rule First Period Amount + Extra Day Rate per extra day. A Leasing rule with no Rate Type is Non-Flat Rate. Set from Current Customer List → Set Billing.",
    "fieldname": "rate_type",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -78,8 +77,8 @@
   },
   {
    "default": "Simple",
-   "depends_on": "eval:doc.rate_type=='Non-Flat Rate'",
-   "description": "Simple: each journey is billed on its own day count. Compound: total days across every journey billed together are summed, divided by First Period Days, rounded up to a whole period, and multiplied by First Period Amount — computed once at Sales Order generation, not per journey. Set from Current Customer List → Set Billing.",
+   "depends_on": "eval:doc.rate_type=='Non-Flat Rate' || (doc.billing_type=='Leasing' && !doc.rate_type)",
+   "description": "Simple: each journey is billed on its own day count. Compound: total seal-days (days × seals) across every journey billed together are summed, divided by First Period Days, rounded up to a whole period, and multiplied by First Period Amount — computed once at Sales Order generation, not per journey. Extra Day Rate is not used. Set from Current Customer List → Set Billing.",
    "fieldname": "computation_method",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -111,7 +110,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Billing Period Type",
-   "options": "Weekly\nBi-Weekly\nMonthly\nQuarterly\nSemi-Annually\nAnnually\nDate Range\nDays"
+   "options": "Weekly\nBi-Weekly\nMonthly\nQuarterly\nSemi-Annually\nAnnually\nDate Range\nDays\nCustom"
   },
   {
    "default": "0",
@@ -232,7 +231,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-15 00:00:00.000000",
+ "modified": "2026-09-27 17:01:24.613134",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Billing Rate",

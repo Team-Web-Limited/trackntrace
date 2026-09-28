@@ -37,6 +37,7 @@ class TaggingBooking(Document):
 
 	def validate(self):
 		self._validate_booking_date_time_not_past()
+		self._validate_vehicles_belong_to_client()
 		self._enforce_finance_only_approval_controls()
 		self._sync_approval_status()
 
@@ -56,6 +57,39 @@ class TaggingBooking(Document):
 			frappe.throw(
 				_("Date and Time cannot be in the past."),
 				title=_("Invalid Date and Time"),
+			)
+
+	def _validate_vehicles_belong_to_client(self):
+		"""Every booked vehicle must be owned by the booking's client. Only
+		checked for newly added vehicles (or all of them when the client
+		changes), so older bookings made before vehicles had an owner can still
+		be approved, amended or reopened."""
+		vehicles = [row.vehicle for row in (self.vehicles or []) if row.vehicle]
+		if not vehicles:
+			return
+
+		if not self.is_new() and not self.has_value_changed("client_name"):
+			before = self.get_doc_before_save()
+			previous = {row.vehicle for row in (before.vehicles or [])} if before else set()
+			vehicles = [v for v in vehicles if v not in previous]
+			if not vehicles:
+				return
+
+		owners = dict(
+			frappe.get_all(
+				"Vehicle",
+				filters={"name": ["in", vehicles]},
+				fields=["name", "customer"],
+				as_list=True,
+			)
+		)
+		wrong = [v for v in vehicles if owners.get(v) != self.client_name]
+		if wrong:
+			frappe.throw(
+				_("These vehicles are not registered to {0}: {1}").format(
+					frappe.bold(self.client_name), ", ".join(frappe.bold(v) for v in wrong)
+				),
+				title=_("Vehicle Owner Mismatch"),
 			)
 
 	def after_insert(self):

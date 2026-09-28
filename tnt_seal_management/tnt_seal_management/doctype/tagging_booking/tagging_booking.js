@@ -8,6 +8,12 @@ frappe.ui.form.on("Tagging Booking", {
 			frappe.set_route("tagging-booking-list");
 		}
 	},
+	setup(frm) {
+		setup_vehicle_query(frm);
+	},
+	client_name(frm) {
+		drop_other_clients_vehicles(frm);
+	},
 	vehicles(frm) {
 		sync_selected_vehicles(frm);
 	},
@@ -202,6 +208,49 @@ frappe.ui.form.on("Tagging Booking", {
 	},
 });
 
+
+// A vehicle belongs to one client (Vehicle.customer), so the picker only offers
+// the selected client's vehicles, and "Create a new Vehicle" from it pre-fills
+// that client as the owner.
+function setup_vehicle_query(frm) {
+	frm.set_query("vehicles", () => {
+		if (!frm.doc.client_name) {
+			frappe.show_alert({ message: __("Select Client Name first"), indicator: "orange" }, 4);
+		}
+		return { filters: { customer: frm.doc.client_name || "" } };
+	});
+	frm.fields_dict.vehicles.df.get_route_options_for_new_doc = () =>
+		frm.doc.client_name ? { customer: frm.doc.client_name } : {};
+}
+
+// On a client change, remove vehicles that belong to another client.
+function drop_other_clients_vehicles(frm) {
+	const vehicles = (frm.doc.vehicles || []).map((row) => row.vehicle).filter(Boolean);
+	if (!vehicles.length) return;
+
+	frappe.db
+		.get_list("Vehicle", {
+			filters: { name: ["in", vehicles], customer: frm.doc.client_name || "" },
+			fields: ["name"],
+			limit: vehicles.length,
+		})
+		.then((owned) => {
+			const keep = new Set(owned.map((v) => v.name));
+			const rows = (frm.doc.vehicles || []).filter((row) => keep.has(row.vehicle));
+			if (rows.length === (frm.doc.vehicles || []).length) return;
+
+			frm.set_value("vehicles", rows);
+			frappe.show_alert(
+				{
+					message: __("Removed vehicles that do not belong to {0}", [
+						frm.doc.client_name || __("the selected client"),
+					]),
+					indicator: "orange",
+				},
+				5
+			);
+		});
+}
 
 function sync_selected_vehicles(frm) {
 	const selected_vehicles = (frm.doc.vehicles || [])

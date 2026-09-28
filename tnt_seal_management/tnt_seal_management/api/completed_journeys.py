@@ -19,7 +19,8 @@ from frappe.utils import cint, flt
 from tnt_seal_management.tnt_seal_management.api.seal_lease_billing import (
 	LEASE_ITEM,
 	OWNERSHIP_ITEM,
-	INTERVAL_REVERSE,
+	_interval_label,
+	customer_has_seat_subscription,
 )
 from tnt_seal_management.tnt_seal_management.api.current_customers import (
 	TAX_CATEGORY_NORMAL,
@@ -341,8 +342,8 @@ def _get_customer_compound_rules(customer, journeys=None):
 	"""The Compound-computation rules these journeys were billed on, keyed by
 	rule name — ``{}`` when none of them are Compound.
 
-	Computation = Compound (Set Billing modal, Non-Flat Rate Subscription
-	only) zeroes each journey's own charge at billing time
+	Computation = Compound (Set Billing modal — Leasing, or a Non-Flat Rate
+	Subscription) zeroes each journey's own charge at billing time
 	(Seal Journey.set_billing); the real charge only exists in aggregate, so
 	it's rebuilt here from the rules the journeys were actually billed on
 	(Seal Journey.billing_rule) rather than by re-resolving the customer's
@@ -383,10 +384,13 @@ def _get_customer_compound_rules(customer, journeys=None):
 
 def _compute_compound_charge(compound_rules, group):
 	"""Batch the journeys in ``group`` per rate set: for each Compound rule,
-	sum the billable_days of the journeys billed on it, divide by that rule's
-	first_period_days, round UP to a whole period (any partial period bills a
-	full one — Set Billing modal's Computation = Compound spec), times its
-	first_period_amount. Returns (total charge, total batched days).
+	sum the seal-days (billable_days × seal_count) of the journeys billed on
+	it, divide by that rule's first_period_days, round UP to a whole period
+	(any partial period bills a full one — Set Billing modal's Computation =
+	Compound spec), times its first_period_amount. Rates are per seal, so a
+	5-seal journey contributes five times the days a 1-seal one does — the
+	same per-seal scaling Simple applies via seal_count. Returns (total
+	charge, total batched seal-days).
 
 	Batching is per rule rather than across the whole group because a
 	customer's Local and Import/Export rate sets price differently — pooling
@@ -404,7 +408,8 @@ def _compute_compound_charge(compound_rules, group):
 		key = j.get("billing_rule") or None
 		if key not in compound_rules:
 			continue
-		days_by_rule[key] = days_by_rule.get(key, 0) + cint(j.get("billable_days"))
+		seal_days = cint(j.get("billable_days")) * max(cint(j.get("seal_count")), 1)
+		days_by_rule[key] = days_by_rule.get(key, 0) + seal_days
 
 	total_charge = 0
 	total_days = 0
@@ -448,7 +453,10 @@ def _build_customer_groups(journeys, customer_filter=None):
 		group = groups[c]
 		recurring = recurring_by_customer.get(c, [])
 		tax_category = tax_category_by_customer.get(c, TAX_CATEGORY_NORMAL)
-		compound_rules = _get_customer_compound_rules(c, group)
+		# A seat-subscription customer's journeys are zeroed in favour of the
+		# recurring seat fee (Seal Journey.set_billing) — batching their days
+		# as Compound too would bill them twice.
+		compound_rules = {} if customer_has_seat_subscription(c) else _get_customer_compound_rules(c, group)
 		customers.append({
 			"customer": c,
 			"journeys": group,
@@ -584,7 +592,19 @@ def generate_sales_order(customer, from_date=None, to_date=None):
 		rate = flt(summary["normal_charges"]) / seal_total
 		add_item(rental_item, seal_total, rate, "Completed Journeys - Normal Charges")
 	
-	if flt(summary["extra_charges"]) > 0:
+	if flt(summary["extra_charges"]) > 0 and billing_type == "Subscription":
+		# A Subscription journey's extra charge is whole renewal periods, not
+		# day-rated (billing.compute_billing_amount) — quantity is the
+		# additional periods across all journeys' seals, rate the period amount.
+		extra_periods = sum(
+			math.ceil(cint(j.get("extra_days")) / cint(j.get("first_period_days"))) * max(cint(j.get("seal_count")), 1)
+			for j in journeys
+			if flt(j.get("extra_day_amount")) > 0 and cint(j.get("first_period_days")) > 0
+		)
+		if extra_periods > 0:
+			rate = flt(summary["extra_charges"]) / extra_periods
+			add_item(extra_item, extra_periods, rate, "Completed Journeys - Additional Subscription Periods")
+	elif flt(summary["extra_charges"]) > 0:
 		# Quantity is the total extra days across all journeys, and rate is the extra day rate
 		extra_days = sum(cint(j.get("extra_days")) * max(cint(j.get("seal_count")), 1) for j in journeys)
 		if extra_days > 0:
@@ -626,14 +646,15 @@ def generate_sales_order(customer, from_date=None, to_date=None):
 			add_item(ITEM_LEASING, 1, summary["extra_billing_total"], "Completed Journeys - Extra Billing (leased seals)")
 
 	if flt(summary.get("compound_charges")) > 0:
-		# Computation = Compound (Set Billing modal, Non-Flat Rate Subscription):
+		# Computation = Compound (Set Billing modal, Leasing or Non-Flat Rate
+		# Subscription):
 		# each journey's own charge was already zeroed at billing time — this is
 		# the one batched line for the whole period (see _compute_compound_charge),
 		# a single quantity-1 line rather than per-journey/per-seal, since the
 		# amount only exists in aggregate.
 		add_item(
 			rental_item, 1, summary["compound_charges"],
-			_("Completed Journeys - Compound Billing ({0} days)").format(cint(summary.get("compound_days"))),
+			_("Completed Journeys - Compound Billing ({0} seal-days)").format(cint(summary.get("compound_days"))),
 		)
 
 	for r in recurring_fees:
@@ -737,9 +758,7 @@ def _get_recurring_fees_by_customer(customer_filter=None):
 			continue
 		seal_count = cint(row.qty)
 		rate = flt(plan.cost)
-		interval_label = INTERVAL_REVERSE.get(
-			(plan.billing_interval, cint(plan.billing_interval_count)), plan.billing_interval
-		)
+		interval_label = _interval_label(plan.billing_interval, plan.billing_interval_count)
 		fees_by_customer.setdefault(party_by_sub[row.parent], []).append({
 			"item": plan.item,
 			"label": _RECURRING_ITEM_LABELS[plan.item],
@@ -764,8 +783,8 @@ def _billing_summary(group, recurring=None, tax_category=None, compound_rules=No
 	total, not per-seal, so it's summed as-is. Tax Exempt / Zero Rated
 	customers owe no VAT — see ``_vat_rate_for_category``.
 
-	``compound_rules`` (Set Billing modal's Computation = Compound, Non-Flat
-	Rate Subscription only — see _get_customer_compound_rules) means
+	``compound_rules`` (Set Billing modal's Computation = Compound, Leasing or
+	Non-Flat Rate Subscription — see _get_customer_compound_rules) means
 	normal_charges/journey_total are already zero for the journeys billed on
 	those rules (each such journey's own charge was zeroed at billing time);
 	the real charge is compound_charges, batched per rate set across the

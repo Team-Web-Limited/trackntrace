@@ -1,17 +1,49 @@
-// Maps Billing Period Type (Seal Billing Rate's own vocabulary — Weekly,
-// Monthly, Quarterly, Semi-Annually, Annually, Date Range, Days) to the
-// billing_interval values the Recurring Lease Fee Subscription understands
-// (see INTERVAL_MAP in api/seal_lease_billing.py). Date Range/Days describe a
-// per-journey period, not a recurring cadence, so they have no entry here —
-// _customer_collect_lease_args treats that as "can't activate the recurring
-// fee on this cycle" rather than guessing one.
+// Maps Billing Period Type (Seal Billing Rate's own vocabulary) to the
+// billing_interval values the recurring seat-fee Subscription understands
+// (see INTERVAL_MAP in api/seal_lease_billing.py). Frequencies not listed
+// here (Custom) bill every First Period Days instead — see
+// _customer_seat_fee_interval.
 const BILLING_PERIOD_TO_LEASE_INTERVAL = {
 	Weekly: "Week",
+	"Bi-Weekly": "Bi-Weekly",
 	Monthly: "Month",
 	Quarterly: "Quarter",
 	"Semi-Annually": "Semi-Annual",
 	Annually: "Year",
 };
+
+// Day count each standard Frequency fixes First Period Days to — mirrors
+// PERIOD_TYPE_DAYS in doctype/seal_billing_rate/seal_billing_rate.py.
+// Custom isn't listed: First Period Days is typed in instead.
+const FREQUENCY_PERIOD_DAYS = {
+	Weekly: 7,
+	"Bi-Weekly": 14,
+	Monthly: 30,
+	Quarterly: 90,
+	"Semi-Annually": 180,
+	Annually: 365,
+};
+const FREQUENCY_OPTIONS = ["Weekly", "Bi-Weekly", "Monthly", "Quarterly", "Semi-Annually", "Annually", "Custom"];
+
+// A saved Frequency outside the dropdown (the retired "Days" option, Date
+// Range, or free text from when this field was an Autocomplete) is shown as
+// Custom, keeping the rule's own First Period Days.
+function _customer_normalize_frequency(value) {
+	if (!value) return "Monthly";
+	return FREQUENCY_OPTIONS.includes(value) ? value : "Custom";
+}
+
+// Frequency to show for a saved rule's terms. A standard Frequency whose day
+// count disagrees with the rule's saved First Period Days is shown as Custom
+// instead, so opening the modal never silently rewrites the saved days —
+// e.g. a Leasing rule saved before Leasing had a Frequency carries the
+// doctype's "Monthly" default alongside whatever days were typed in.
+function _customer_frequency_for_terms(terms) {
+	const frequency = _customer_normalize_frequency(terms.billing_period_type);
+	const mapped = FREQUENCY_PERIOD_DAYS[frequency];
+	const savedDays = cint(terms.first_period_days);
+	return mapped && savedDays && savedDays !== mapped ? "Custom" : frequency;
+}
 
 frappe.pages["current-customer-list"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
@@ -470,7 +502,7 @@ function _customer_show_billing_dialog(page, data) {
 		{ value: "Simple", label: __("Simple") },
 		{ value: "Compound", label: __("Compound") },
 	];
-	const currentComputationMethod = currentSubscriptionTerms.computation_method || "Simple";
+	const currentComputationMethod = (cur.rule || {}).computation_method || "Simple";
 
 	// Frappe's "Tab Break" fieldtype (frappe/public/js/frappe/form/tab.js)
 	// requires a real frm/doctype to build its DOM id — a plain frappe.ui.Dialog
@@ -515,32 +547,36 @@ function _customer_show_billing_dialog(page, data) {
 			},
 			{ fieldtype: "Column Break" },
 			{
-				// Flat Rate: one fixed recurring charge per cycle (day-tiering
-				// fields hidden below). Non-Flat Rate: day-tiered, same formula
-				// as a per-journey rate (First Period Days/Amount + Extra Day
-				// Rate) — see applyFieldModeForType.
+				// Both billing types. Flat Rate: one fixed Rate per journey
+				// (per seal), whatever its length — no Extra Day Rate, no
+				// Computation. Non-Flat Rate: day-tiered — a Subscription bills
+				// First Period Amount per started period, a Leasing rule First
+				// Period Amount + Extra Day Rate per extra day (Simple) or
+				// pooled (Compound). See applyFieldModeForType. A Leasing rule
+				// saved before it had a Billing Rule is Non-Flat Rate.
 				fieldtype: "Select",
 				fieldname: "billing_rule_label",
 				label: __("Billing Rule"),
 				options: ["Flat Rate", "Non-Flat Rate"],
-				default: currentSubscriptionTerms.rate_type || "Non-Flat Rate",
-				depends_on: 'eval:doc.billing_type=="Subscription"',
-				mandatory_depends_on: 'eval:doc.billing_type=="Subscription"',
+				default: (cur.rule || {}).rate_type || "Non-Flat Rate",
+				reqd: 1,
 			},
 			{ fieldtype: "Column Break" },
 			{
 				// Simple: each journey billed on its own day count (the
 				// historical behavior). Compound: the per-journey charge is
 				// zeroed and instead batched across every journey billed
-				// together at Sales Order generation time — total days summed,
-				// divided by First Period Days, rounded up to a whole period,
-				// times First Period Amount (see completed_journeys.py's
-				// _compute_compound_charge). Only meaningful for a day-tiered
-				// rate, so shown for Non-Flat Rate Subscription only.
+				// together at Sales Order generation time — total seal-days
+				// (days × seals) summed, divided by First Period Days, rounded
+				// up to a whole period, times First Period Amount (see
+				// completed_journeys.py's _compute_compound_charge). Only
+				// meaningful for a day-tiered, per-journey rate — Leasing, or a
+				// Non-Flat Rate Subscription that isn't seat-based. Visibility
+				// is driven by applyComputationMode, not depends_on, since the
+				// seat-based check isn't expressible as a doc eval.
 				fieldtype: "HTML",
 				fieldname: "computation_html",
 				label: __("Computation"),
-				depends_on: 'eval:doc.billing_type=="Subscription" && doc.billing_rule_label=="Non-Flat Rate"',
 			},
 			{ fieldtype: "Column Break" },
 			{
@@ -591,6 +627,7 @@ function _customer_show_billing_dialog(page, data) {
 				// applySeatBasedRateOverride. Loaded eagerly at dialog open by
 				// _customer_load_seat_data.
 				fieldtype: "Currency",
+				precision: 2,
 				fieldname: "owned_rate_per_seal",
 				label: __("Rate per Seal (Owned)"),
 				options: "leasing_currency",
@@ -617,6 +654,7 @@ function _customer_show_billing_dialog(page, data) {
 				// Billing Period Type says (e.g. its default Monthly); only
 				// the amount is overridden, not the cycle.
 				fieldtype: "Currency",
+				precision: 2,
 				fieldname: "lease_rate_per_seal",
 				label: __("Rate per Seal"),
 				options: "leasing_currency",
@@ -638,17 +676,17 @@ function _customer_show_billing_dialog(page, data) {
 				label: __("Rate Terms"),
 			},
 			{
-				// Editable dropdown (Autocomplete: suggests these options but
-				// doesn't lock the value to them) — the customer's own billing
-				// cycle, entered directly instead of mirrored from a picked
-				// rule. For a leased-seat rate this doubles as the leasing
-				// billing cycle (see BILLING_PERIOD_TO_LEASE_INTERVAL).
-				fieldtype: "Autocomplete",
+				// The customer's billing cycle, for both billing types. Drives
+				// First Period Days: a standard option fixes it
+				// (FREQUENCY_PERIOD_DAYS) and locks the field; Custom leaves it
+				// to be typed in — see applyFrequencyDays. For a seat-based
+				// Subscription customer this is also the recurring fee's cycle
+				// (see _customer_seat_fee_interval).
+				fieldtype: "Select",
 				fieldname: "billing_period_type",
 				label: __("Frequency"),
-				options: "\nWeekly\nBi-Weekly\nMonthly\nQuarterly\nSemi-Annually\nAnnually\nDays",
-				default: currentSubscriptionTerms.billing_period_type || "Monthly",
-				depends_on: 'eval:doc.billing_type=="Subscription"',
+				options: FREQUENCY_OPTIONS,
+				default: _customer_frequency_for_terms(cur.rule || {}),
 			},
 			{ fieldtype: "Column Break" },
 			{
@@ -674,6 +712,7 @@ function _customer_show_billing_dialog(page, data) {
 				// formatting here (Sh vs $) follows it live instead of always
 				// showing the company's default currency.
 				fieldtype: "Currency",
+				precision: 2,
 				fieldname: "first_period_amount",
 				label: __("First Period Amount"),
 				options: "leasing_currency",
@@ -682,6 +721,7 @@ function _customer_show_billing_dialog(page, data) {
 			{ fieldtype: "Column Break" },
 			{
 				fieldtype: "Currency",
+				precision: 2,
 				fieldname: "extra_day_rate",
 				label: __("Extra Day Rate (per day)"),
 				options: "leasing_currency",
@@ -761,6 +801,7 @@ function _customer_show_billing_dialog(page, data) {
 			{ fieldtype: "Column Break", fieldname: "extra_col_2", hidden: 1 },
 			{
 				fieldtype: "Currency",
+				precision: 2,
 				fieldname: "extra_first_period_amount",
 				label: __("First Period Amount"),
 				options: "extra_currency",
@@ -769,6 +810,7 @@ function _customer_show_billing_dialog(page, data) {
 			{ fieldtype: "Column Break", fieldname: "extra_col_3", hidden: 1 },
 			{
 				fieldtype: "Currency",
+				precision: 2,
 				fieldname: "extra_extra_day_rate",
 				label: __("Extra Day Rate (per day)"),
 				options: "extra_currency",
@@ -855,11 +897,28 @@ function _customer_show_billing_dialog(page, data) {
 				const days = dialog.get_value("first_period_days");
 				const amount = dialog.get_value("first_period_amount");
 				const extraRate = dialog.get_value("extra_day_rate");
-				if (!days || amount === "" || amount === null || extraRate === "" || extraRate === null) {
+				const leasingRateType = dialog.get_value("billing_rule_label") || "Non-Flat Rate";
+				const isLeasingFlat = leasingRateType === "Flat Rate";
+				// Flat Rate has no day-tiering, so it's always Simple. Neither
+				// Flat Rate nor Compound uses Extra Day Rate (a partial period
+				// bills a full one), so it's hidden and not required — saved as 0.
+				const leasingComputation = isLeasingFlat ? "Simple" : _customer_get_computation_method(dialog);
+				const isCompound = leasingComputation === "Compound";
+				const usesExtraDayRate = !isLeasingFlat && !isCompound;
+				if (!days || amount === "" || amount === null) {
 					frappe.show_alert(
-						{ message: __("Enter First Period Days, First Period Amount and Extra Day Rate."), indicator: "red" },
+						{
+							message: isLeasingFlat
+								? __("Enter First Period Days and Rate.")
+								: __("Enter First Period Days and First Period Amount."),
+							indicator: "red",
+						},
 						5
 					);
+					return;
+				}
+				if (usesExtraDayRate && (extraRate === "" || extraRate === null)) {
+					frappe.show_alert({ message: __("Enter the Extra Day Rate."), indicator: "red" }, 5);
 					return;
 				}
 				if (!_customer_validate_period_bounds(dialog)) return;
@@ -867,9 +926,12 @@ function _customer_show_billing_dialog(page, data) {
 					page,
 					data.customer,
 					{
+						rate_type: leasingRateType,
+						computation_method: leasingComputation,
+						billing_period_type: dialog.get_value("billing_period_type"),
 						first_period_days: days,
 						first_period_amount: amount,
-						extra_day_rate: extraRate,
+						extra_day_rate: usesExtraDayRate ? extraRate : 0,
 						currency: dialog.get_value("leasing_currency") || "KES",
 						period_from_date: dialog.get_value("period_from_date"),
 						period_to_date: dialog.get_value("period_to_date"),
@@ -900,18 +962,17 @@ function _customer_show_billing_dialog(page, data) {
 				return;
 			}
 			const subDays = dialog.get_value("first_period_days");
-			const subExtraRate = dialog.get_value("extra_day_rate");
-			if (rateType === "Non-Flat Rate" && (!subDays || subExtraRate === "" || subExtraRate === null)) {
-				frappe.show_alert(
-					{ message: __("Enter First Period Days and Extra Day Rate for a Non-Flat Rate."), indicator: "red" },
-					5
-				);
+			// Computation only applies where applyComputationMode shows it —
+			// Flat Rate has no per-journey day-tiering to batch, and a
+			// seat-based customer's journeys aren't billed per journey at all
+			// (Compound there would bill on top of the seat fee) — so
+			// everything else is forced to Simple.
+			const computationMethod = isComputationApplicable() ? _customer_get_computation_method(dialog) : "Simple";
+			if (!cint(subDays)) {
+				frappe.show_alert({ message: __("Enter First Period Days."), indicator: "red" }, 5);
 				return;
 			}
 			if (!_customer_validate_period_bounds(dialog)) return;
-			// Computation only applies to Non-Flat Rate — Flat Rate has no
-			// per-journey day-tiering to batch, so it's always Simple.
-			const computationMethod = rateType === "Non-Flat Rate" ? _customer_get_computation_method(dialog) : "Simple";
 			_customer_submit_billing(
 				page,
 				data.customer,
@@ -919,9 +980,12 @@ function _customer_show_billing_dialog(page, data) {
 					rate_type: rateType,
 					computation_method: computationMethod,
 					billing_period_type: frequency,
-					first_period_days: rateType === "Non-Flat Rate" ? subDays : 0,
+					first_period_days: subDays,
 					first_period_amount: subAmount,
-					extra_day_rate: rateType === "Non-Flat Rate" ? subExtraRate : 0,
+					// Subscription never uses Extra Day Rate: past the first
+					// period, each started period is a renewal billed in full
+					// (billing.compute_billing_amount).
+					extra_day_rate: 0,
 					currency: dialog.get_value("leasing_currency") || "KES",
 					period_from_date: dialog.get_value("period_from_date"),
 					period_to_date: dialog.get_value("period_to_date"),
@@ -970,35 +1034,78 @@ function _customer_show_billing_dialog(page, data) {
 	// switch to Subscription (or on initial dialog show), not on every Rate
 	// Type change (see applyFieldModeForType).
 	const applySubscriptionTermsPrefill = () => {
-		dialog.set_value("billing_period_type", currentSubscriptionTerms.billing_period_type || "Monthly");
+		dialog.set_value("billing_rule_label", currentSubscriptionTerms.rate_type || "Non-Flat Rate");
+		dialog.set_value("billing_period_type", _customer_frequency_for_terms(currentSubscriptionTerms));
 		dialog.set_value("leasing_currency", currentSubscriptionTerms.currency || "KES");
 		dialog.set_value("first_period_days", currentSubscriptionTerms.first_period_days || "");
 		dialog.set_value("first_period_amount", currentSubscriptionTerms.first_period_amount || "");
 		dialog.set_value("extra_day_rate", currentSubscriptionTerms.extra_day_rate || "");
+		setComputationMethod(currentSubscriptionTerms.computation_method);
 
 		applySeatBasedRateOverride();
 	};
 
+	const setComputationMethod = (value) => {
+		dialog.$wrapper
+			.find(`input[name="${COMPUTATION_RADIO_NAME}"][value="${value || "Simple"}"]`)
+			.prop("checked", true);
+	};
+
+	// Simple/Compound only means something for a per-journey, day-tiered
+	// rate: Leasing, or a Non-Flat Rate Subscription that isn't seat-based
+	// (a seat-based customer's journeys are zeroed in favour of the
+	// recurring seat fee — see seal_journey.py::set_billing).
+	const isComputationApplicable = () => {
+		const billingType = dialog.get_value("billing_type");
+		if (dialog.get_value("billing_rule_label") !== "Non-Flat Rate") return false;
+		if (billingType === "Leasing") return true;
+		return billingType === "Subscription" && !isLeaseSeatBased();
+	};
+
+	// Shows/hides the Computation radios, and Extra Day Rate with them:
+	// Extra Day Rate is only used by Leasing + Non-Flat Rate + Simple. Flat
+	// Rate never uses it (one fixed charge per journey), Subscription never
+	// uses it (a started period past the first is billed as a full renewal —
+	// billing.compute_billing_amount), and neither does Compound (a partial
+	// period bills a full one — _compute_compound_charge). Re-run on any
+	// change that can flip either: billing type, rule label, seat fields,
+	// ownership, or the radio itself.
+	const applyComputationMode = () => {
+		const applicable = isComputationApplicable();
+		dialog.set_df_property("computation_html", "hidden", applicable ? 0 : 1);
+
+		const isSubscription = dialog.get_value("billing_type") === "Subscription";
+		const isFlatRate = dialog.get_value("billing_rule_label") !== "Non-Flat Rate";
+		const isCompound = applicable && _customer_get_computation_method(dialog) === "Compound";
+		dialog.set_df_property("extra_day_rate", "hidden", isSubscription || isFlatRate || isCompound ? 1 : 0);
+	};
+
+	// Frequency drives First Period Days on a Subscription: a standard
+	// option fixes the day count and locks the field; Custom unlocks it
+	// for a typed-in value (kept as-is when switching to it). Same for
+	// Subscription and Leasing.
+	const applyFrequencyDays = () => {
+		const mapped = FREQUENCY_PERIOD_DAYS[dialog.get_value("billing_period_type")];
+		dialog.set_df_property("first_period_days", "read_only", mapped ? 1 : 0);
+		if (mapped && cint(dialog.get_value("first_period_days")) !== mapped) {
+			dialog.set_value("first_period_days", mapped);
+		}
+	};
+
 	const applyFieldModeForType = () => {
 		const isSubscription = dialog.get_value("billing_type") === "Subscription";
-		const isNonFlatRate = isSubscription && dialog.get_value("billing_rule_label") === "Non-Flat Rate";
 
-		// Flat Rate (the Subscription default) is a single fixed recurring
-		// charge — the per-journey day-count fields don't apply, so hide First
-		// Period Days and Extra Day Rate and relabel the amount to just "Rate".
-		// Non-Flat Rate (Subscription) and Leasing both keep the full
-		// per-journey terms (First Period Days / Amount / Extra Day Rate).
-		const hideDayTieredFields = isSubscription && !isNonFlatRate;
-		dialog.set_df_property("first_period_days", "hidden", hideDayTieredFields ? 1 : 0);
-		dialog.set_df_property("extra_day_rate", "hidden", hideDayTieredFields ? 1 : 0);
-		dialog.set_df_property("billing_rule_label", "hidden", isSubscription ? 0 : 1);
-		dialog.set_df_property(
-			"first_period_amount",
-			"label",
-			hideDayTieredFields ? __("Rate") : __("First Period Amount")
-		);
+		// Flat Rate (either billing type) is a single fixed charge per
+		// journey, so the amount is relabelled to just "Rate". First Period
+		// Days stays visible for every type — Frequency drives it
+		// (applyFrequencyDays), and it's the seat fee's cycle under a Custom
+		// Frequency. Extra Day Rate's visibility is owned by
+		// applyComputationMode.
+		const isFlatRate = dialog.get_value("billing_rule_label") !== "Non-Flat Rate";
+		dialog.set_df_property("first_period_amount", "label", isFlatRate ? __("Rate") : __("First Period Amount"));
 
 		if (isSubscription) {
+			dialog.ccl_leasing_prefilled = false;
 			// Re-hiding/showing the day-tiered fields (Rate Type toggle) should
 			// not stomp on values the user already typed — only prefill from
 			// the customer's saved rule the first time we land on Subscription.
@@ -1011,13 +1118,23 @@ function _customer_show_billing_dialog(page, data) {
 		} else {
 			dialog.ccl_subscription_prefilled = false;
 			// Leasing: restore this customer's own saved terms rather than
-			// whatever Subscription entry left behind.
-			dialog.set_value("first_period_days", currentLeasingTerms.first_period_days || "");
-			dialog.set_value("first_period_amount", currentLeasingTerms.first_period_amount || "");
-			dialog.set_value("extra_day_rate", currentLeasingTerms.extra_day_rate || "");
-			dialog.set_value("leasing_currency", currentLeasingTerms.currency || "KES");
+			// whatever Subscription entry left behind — once per switch to
+			// Leasing, so a Billing Rule toggle doesn't stomp on typed values.
+			if (!dialog.ccl_leasing_prefilled) {
+				dialog.ccl_leasing_prefilled = true;
+				dialog.set_value("billing_rule_label", currentLeasingTerms.rate_type || "Non-Flat Rate");
+				dialog.set_value("billing_period_type", _customer_frequency_for_terms(currentLeasingTerms));
+				dialog.set_value("first_period_days", currentLeasingTerms.first_period_days || "");
+				dialog.set_value("first_period_amount", currentLeasingTerms.first_period_amount || "");
+				dialog.set_value("extra_day_rate", currentLeasingTerms.extra_day_rate || "");
+				dialog.set_value("leasing_currency", currentLeasingTerms.currency || "KES");
+				setComputationMethod(currentLeasingTerms.computation_method);
+			}
 			applySeatBasedRateOverride();
 		}
+
+		applyFrequencyDays();
+		applyComputationMode();
 
 		// Extra Billing tab is Subscription-only — re-evaluate on billing type change.
 		dialog.ccl_apply_extra_tab_visibility && dialog.ccl_apply_extra_tab_visibility();
@@ -1073,6 +1190,7 @@ function _customer_show_billing_dialog(page, data) {
 			if (dialog.get_value("owned_rate_per_seal")) dialog.set_value("owned_rate_per_seal", null);
 		}
 		applySeatBasedRateOverride();
+		applyComputationMode();
 		// Extra Billing (Scenario 6) is gated to outright-purchase Subscription
 		// customers — re-evaluate the tab when ownership changes.
 		dialog.ccl_apply_extra_tab_visibility && dialog.ccl_apply_extra_tab_visibility();
@@ -1159,6 +1277,9 @@ function _customer_show_billing_dialog(page, data) {
 		// The seat-based override derives Rate from count x rate-per-seal, so it
 		// has to re-run against the newly loaded (or blanked) per-seal rates.
 		applySeatBasedRateOverride();
+		// Frequency is contract-level — re-fix the incoming set's First Period
+		// Days to it rather than showing a stale/blank stored value.
+		applyFrequencyDays();
 	};
 	// Read by _customer_load_seat_data so the live Subscription rates (which are
 	// the Local set) never overwrite the Import/Export fields on late arrival.
@@ -1172,6 +1293,7 @@ function _customer_show_billing_dialog(page, data) {
 	dialog.fields_dict.journey_type.df.onchange = applyJourneyTypeRates;
 	dialog.fields_dict.billing_type.df.onchange = applyFieldModeForType;
 	dialog.fields_dict.billing_rule_label.df.onchange = applyFieldModeForType;
+	dialog.fields_dict.billing_period_type.df.onchange = applyFrequencyDays;
 	dialog.fields_dict.outright_purchase.df.onchange = applyBillingTypeOptionsForOwnership;
 	// Number of Seals (Leased or Owned) / Rate per Seal drive both the
 	// seat-based Rate override (applySeatBasedRateOverride) and Extra Billing
@@ -1180,6 +1302,7 @@ function _customer_show_billing_dialog(page, data) {
 	// assigned).
 	const applySeatFieldChange = () => {
 		applySeatBasedRateOverride();
+		applyComputationMode();
 		dialog.ccl_apply_extra_tab_visibility && dialog.ccl_apply_extra_tab_visibility();
 	};
 	dialog.fields_dict.lease_seal_count.df.onchange = applySeatFieldChange;
@@ -1230,6 +1353,11 @@ function _customer_show_billing_dialog(page, data) {
 		.join("");
 	dialog.fields_dict.computation_html.$wrapper.html(
 		`<div class="ccl-tax-radio-group">${computationRadioHtml}</div>`
+	);
+	dialog.fields_dict.computation_html.$wrapper.on(
+		"change",
+		`input[name="${COMPUTATION_RADIO_NAME}"]`,
+		applyComputationMode
 	);
 
 	dialog.fields_dict.recurring_loading_html.$wrapper.html(
@@ -1469,6 +1597,25 @@ function _customer_load_extra_billing_data(dialog, customer, onComplete) {
 	});
 }
 
+// The recurring seat fee's billing cycle, from Frequency: a standard option
+// maps to its calendar interval (Monthly → every month); Custom bills
+// every First Period Days. Returns {billing_interval, interval_days}, or null
+// (message shown) when a Custom cycle has no First Period Days.
+function _customer_seat_fee_interval(dialog) {
+	const mapped = BILLING_PERIOD_TO_LEASE_INTERVAL[dialog.get_value("billing_period_type")];
+	if (mapped) return { billing_interval: mapped, interval_days: null };
+
+	const days = cint(dialog.get_value("first_period_days"));
+	if (days <= 0) {
+		frappe.show_alert(
+			{ message: __("Enter First Period Days — the recurring seat fee bills every that many days."), indicator: "red" },
+			6
+		);
+		return null;
+	}
+	return { billing_interval: "Day", interval_days: days };
+}
+
 // Reads the (possibly hidden) lease fields off the dialog. Returns null when
 // the section was never revealed or was left blank (nothing to save), a
 // terms object when filled in, or false on a validation failure (a message
@@ -1489,29 +1636,13 @@ function _customer_collect_lease_args(dialog) {
 		return false;
 	}
 
-	// The recurring Subscription bills on a cycle — Billing Period Type's
-	// per-journey options (Date Range/Days) don't map to one, so a customer
-	// on either can't activate it here. They still get the seat-based Rate
-	// Terms amount (applySeatBasedRateOverride); only the recurring line is
-	// blocked.
-	const billingInterval = BILLING_PERIOD_TO_LEASE_INTERVAL[dialog.get_value("billing_period_type")];
-	if (!billingInterval) {
-		frappe.show_alert(
-			{
-				message: __(
-					"Recurring Lease Fee needs a Billing Period Type of Weekly, Monthly, Quarterly, Semi-Annually or Annually to bill on a cycle — choose one under Rate Terms, or clear Number of Seals Leased / Rate per Seal."
-				),
-				indicator: "red",
-			},
-			8
-		);
-		return false;
-	}
+	const interval = _customer_seat_fee_interval(dialog);
+	if (!interval) return false;
 
 	return {
 		seal_count,
 		rate_per_seal,
-		billing_interval: billingInterval,
+		...interval,
 		currency: dialog.get_value("leasing_currency") || "KES",
 	};
 }
@@ -1537,24 +1668,13 @@ function _customer_collect_ownership_args(dialog) {
 		return false;
 	}
 
-	const billingInterval = BILLING_PERIOD_TO_LEASE_INTERVAL[dialog.get_value("billing_period_type")];
-	if (!billingInterval) {
-		frappe.show_alert(
-			{
-				message: __(
-					"Ownership Service Fee needs a Billing Period Type of Weekly, Monthly, Quarterly, Semi-Annually or Annually to bill on a cycle — choose one under Rate Terms, or clear Number of Seals Owned / Rate per Seal (Owned)."
-				),
-				indicator: "red",
-			},
-			8
-		);
-		return false;
-	}
+	const interval = _customer_seat_fee_interval(dialog);
+	if (!interval) return false;
 
 	return {
 		seal_count,
 		rate_per_seal,
-		billing_interval: billingInterval,
+		...interval,
 		currency: dialog.get_value("leasing_currency") || "KES",
 	};
 }
@@ -1619,6 +1739,7 @@ function _customer_finish_billing_save(page, dialog, customer, billingMessage, r
 					seal_count: leaseArgs.seal_count,
 					rate_per_seal: leaseArgs.rate_per_seal,
 					billing_interval: leaseArgs.billing_interval,
+					interval_days: leaseArgs.interval_days,
 					currency: leaseArgs.currency,
 				},
 				freeze: true,
@@ -1635,6 +1756,7 @@ function _customer_finish_billing_save(page, dialog, customer, billingMessage, r
 					seal_count: ownershipArgs.seal_count,
 					rate_per_seal: ownershipArgs.rate_per_seal,
 					billing_interval: ownershipArgs.billing_interval,
+					interval_days: ownershipArgs.interval_days,
 					currency: ownershipArgs.currency,
 				},
 				freeze: true,
@@ -1684,6 +1806,9 @@ function _customer_submit_leasing_billing(page, customer, terms, dialog, recurri
 		args: {
 			customer,
 			billing_type: "Leasing",
+			rate_type: terms.rate_type,
+			computation_method: terms.computation_method,
+			billing_period_type: terms.billing_period_type,
 			first_period_days: terms.first_period_days,
 			first_period_amount: terms.first_period_amount,
 			extra_day_rate: terms.extra_day_rate,
