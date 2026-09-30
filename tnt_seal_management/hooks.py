@@ -25,6 +25,8 @@ fixtures = [
 				"in",
 				[
 					"Customer-custom_tax_category",
+					"Customer-custom_division",
+					"Warehouse-custom_division",
 					"Sales Order-custom_customer_response",
 					"Sales Order-custom_customer_response_by",
 					"Sales Order-custom_customer_response_date",
