@@ -428,6 +428,66 @@ def _locked_fields_for(roles, status):
 
 
 # ----------------------------------------------------------------------
+# List view search
+# ----------------------------------------------------------------------
+@frappe.whitelist()
+def list_view_matches(search=None, status=None):
+	"""Names of the journey requests the list view's Search and Status filters
+	match. Search hits the request ID, any of its seals, or any of its Seal
+	Journeys; Status hits the request's own status or any vehicle's status, so
+	a multi-vehicle request shows under every stage its vehicles are at. The list
+	itself applies permissions — this only narrows by name."""
+	matches = None
+
+	search = cstr(search).strip()
+	if search:
+		like = f"%{search}%"
+		names = set(frappe.get_all("Journey Request", filters={"name": ["like", like]}, pluck="name"))
+		names.update(
+			frappe.get_all(
+				"Journey Request Seal",
+				filters={"parenttype": "Journey Request"},
+				or_filters=[
+					["seal_device", "like", like],
+					["seal_number", "like", like],
+					["serial_number", "like", like],
+					["parent_seal", "like", like],
+				],
+				pluck="parent",
+			)
+		)
+		names.update(
+			frappe.get_all(
+				"Journey Request Vehicle",
+				filters={"parenttype": "Journey Request", "seal_journey": ["like", like]},
+				pluck="parent",
+			)
+		)
+		names.update(
+			frappe.get_all(
+				"Seal Journey",
+				filters={"name": ["like", like], "journey_request": ["is", "set"]},
+				pluck="journey_request",
+			)
+		)
+		matches = names
+
+	status = cstr(status).strip()
+	if status:
+		names = set(frappe.get_all("Journey Request", filters={"journey_request_status": status}, pluck="name"))
+		names.update(
+			frappe.get_all(
+				"Journey Request Vehicle",
+				filters={"parenttype": "Journey Request", "status": status},
+				pluck="parent",
+			)
+		)
+		matches = names if matches is None else matches & names
+
+	return sorted(matches or [])
+
+
+# ----------------------------------------------------------------------
 # Permissions
 # ----------------------------------------------------------------------
 def get_permission_query_conditions(user=None):
