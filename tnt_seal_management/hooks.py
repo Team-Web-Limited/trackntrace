@@ -276,12 +276,12 @@ scheduler_events = {
 
 # Request Events
 # ----------------
-# before_request = ["tnt_seal_management.utils.before_request"]
+before_request = ["tnt_seal_management.print_link_titles.apply"]
 # after_request = ["tnt_seal_management.utils.after_request"]
 
 # Job Events
 # ----------
-# before_job = ["tnt_seal_management.utils.before_job"]
+before_job = ["tnt_seal_management.print_link_titles.apply"]
 # after_job = ["tnt_seal_management.utils.after_job"]
 
 # User Data Protection
