@@ -12,7 +12,10 @@ frappe.ready(() => {
 		'role-customer': 'Customer Portal User',
 		'role-agent': 'Field Tagging Agent',
 		'role-operator': 'Control Room Operator',
+		'role-account-manager': 'Account Manager',
+		'role-pcb-leader': 'PCB Team Leader',
 		'role-finance': 'Finance Manager',
+		'role-managing-director': 'Managing Director',
 		'role-admin': 'System Administrator'
 	};
 

@@ -9,7 +9,7 @@ customer_completed_journeys.get_customer_completed_journeys.
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import fmt_money, now_datetime
 
 from tnt_seal_management.tnt_seal_management.api.customer_tagging_bookings import (
 	get_customer_for_logged_in_user,
@@ -139,6 +139,7 @@ def set_sales_order_response(sales_order, response, remarks=None):
 		},
 	)
 	frappe.db.commit()
+	_notify_finance_customer_response(sales_order, response, remarks)
 
 	return {
 		"custom_customer_response": response,
@@ -146,3 +147,94 @@ def set_sales_order_response(sales_order, response, remarks=None):
 		"custom_customer_response_by": frappe.session.user,
 		"custom_customer_response_date": now_datetime(),
 	}
+
+
+def _customer_portal_users(customer):
+	"""(user, email) for every enabled portal user of ``customer`` — linked as a
+	Portal User on the Customer or through a Contact — the reverse of
+	customer_tagging_bookings.get_customer_for_logged_in_user."""
+	users = set(
+		frappe.get_all(
+			"Portal User", filters={"parenttype": "Customer", "parent": customer}, pluck="user"
+		)
+	)
+	contacts = frappe.get_all(
+		"Dynamic Link",
+		filters={"parenttype": "Contact", "link_doctype": "Customer", "link_name": customer},
+		pluck="parent",
+	)
+	if contacts:
+		emails = set(frappe.get_all("Contact", filters={"name": ["in", contacts]}, pluck="email_id"))
+		emails.update(
+			frappe.get_all("Contact Email", filters={"parent": ["in", contacts]}, pluck="email_id")
+		)
+		users.update(e for e in emails if e)
+	if not users:
+		return []
+
+	rows = frappe.get_all(
+		"User",
+		filters={"name": ["in", list(users)], "enabled": 1, "user_type": "Website User"},
+		fields=["name", "email"],
+	)
+	return [
+		(r.name, r.email or r.name)
+		for r in rows
+		if "Customer" in frappe.get_roles(r.name)
+	]
+
+
+def notify_customer_sales_order_ready(so):
+	"""Email the customer's portal users that a Sales Order for their completed
+	journeys is waiting for them to Accept or Reject on the Customer Portal."""
+	from tnt_seal_management.tnt_seal_management.api.notifications import notify_users
+
+	subject = _("Sales Order {0} Awaiting Your Response").format(so.name)
+	lines = [
+		_("A Sales Order has been raised for your completed seal journeys."),
+		_("Order: {0}").format(so.name),
+		_("Amount: {0}").format(fmt_money(so.grand_total, currency=so.currency)),
+		_("Please review it on the Customer Portal (Sales Orders tab) and Accept or Reject it."),
+		f'<a href="{frappe.utils.get_url("/customer-portal")}">{_("Open the Customer Portal")}</a>',
+	]
+	notify_users(
+		_customer_portal_users(so.customer),
+		subject,
+		"<br>".join(str(line) for line in lines),
+		document_type=DOCTYPE,
+		document_name=so.name,
+		desk=False,
+	)
+
+
+def _notify_finance_customer_response(sales_order, response, remarks=None):
+	"""Tell Finance PCB how the customer answered a Sales Order — a rejection
+	needs following up before the order can go any further."""
+	from tnt_seal_management.tnt_seal_management.api.notifications import (
+		get_users_with_role,
+		notify_users,
+	)
+
+	so = frappe.db.get_value(
+		DOCTYPE, sales_order, ["customer", "grand_total", "currency"], as_dict=True
+	)
+	subject = _("Customer {0} Sales Order {1}").format(_(response), sales_order)
+	lines = [
+		_("{0} {1} Sales Order {2} on the Customer Portal.").format(
+			so.customer, _(response).lower(), sales_order
+		),
+		_("Amount: {0}").format(fmt_money(so.grand_total, currency=so.currency)),
+	]
+	if (remarks or "").strip():
+		lines.append(_("Remarks: {0}").format(remarks.strip()))
+	if response == "Rejected":
+		lines.append(_("Follow up with the customer and amend or cancel the order."))
+
+	notify_users(
+		get_users_with_role("Finance PCB"),
+		subject,
+		"<br>".join(str(line) for line in lines),
+		document_type=DOCTYPE,
+		document_name=sales_order,
+		link=f"/app/sales-order/{sales_order}",
+	)

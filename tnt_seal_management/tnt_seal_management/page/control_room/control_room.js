@@ -823,14 +823,17 @@ function _control_room_request_card(req, kind = "tagging") {
 	seals.forEach((s) => {
 		if (s.seal_device) sealNumberByDevice[s.seal_device] = s.seal_number || s.seal_device;
 	});
-	const orderedSeals = _cr_order_seals_with_subseals(seals);
-	const sealRows = orderedSeals.length
-		? orderedSeals.map((s) => _control_room_seal_row(s, sealNumberByDevice)).join("")
-		: `<tr><td colspan="7" class="cr-seal-empty">${__("No seals on this request")}</td></tr>`;
 	const statusLabel = (CR_REQUEST_STATUS_LABEL[kind] || CR_REQUEST_STATUS_LABEL.tagging)();
 	const vehicles = req.vehicles || [];
 	const multiVehicle = vehicles.length > 1;
 	const vehicleBlock = vehicles.length ? _control_room_vehicle_block(vehicles) : "";
+	// On a multi-vehicle request each seal names the vehicle it is fitted to, so
+	// the Control Room can match seals to the vehicle they're approving.
+	const vehicleLabelFor = multiVehicle ? _cr_seal_vehicle_labels(vehicles) : null;
+	const orderedSeals = _cr_order_seals_with_subseals(seals);
+	const sealRows = orderedSeals.length
+		? orderedSeals.map((s) => _control_room_seal_row(s, sealNumberByDevice, vehicleLabelFor)).join("")
+		: `<tr><td colspan="${multiVehicle ? 8 : 7}" class="cr-seal-empty">${__("No seals on this request")}</td></tr>`;
 
 	return `
 		<article class="cr-req" data-req="${frappe.utils.escape_html(req.name)}" data-kind="${kind}">
@@ -857,6 +860,7 @@ function _control_room_request_card(req, kind = "tagging") {
 				<table class="cr-seal-table">
 					<thead>
 						<tr>
+							${multiVehicle ? `<th>${__("Vehicle")}</th>` : ""}
 							<th>${__("Seal")}</th>
 							<th>${__("Relationship")}</th>
 							<th>${__("Lock")}</th>
@@ -917,7 +921,18 @@ function _cr_meta(label, value, wide) {
 	`;
 }
 
-function _control_room_seal_row(seal, sealNumberByDevice = {}) {
+// A seal's `vehicle` holds whichever label the technician picked for it — the
+// plate, the Vehicle name or (rarely) the vehicle row name; show the plate.
+function _cr_seal_vehicle_labels(vehicles) {
+	const byKey = {};
+	vehicles.forEach((v) => {
+		const label = v.registration_number || v.vehicle || v.name;
+		[v.name, v.vehicle, v.registration_number].filter(Boolean).forEach((key) => (byKey[key] = label));
+	});
+	return (value) => (value ? byKey[value] || value : "");
+}
+
+function _control_room_seal_row(seal, sealNumberByDevice = {}, vehicleLabelFor = null) {
 	const lock = seal.lock_status || "—";
 	const lockClass =
 		lock === "Locked" ? "cr-pill--ok" : lock === "Unlocked" ? "cr-pill--warn" : "cr-pill--muted";
@@ -937,6 +952,7 @@ function _control_room_seal_row(seal, sealNumberByDevice = {}) {
 
 	return `
 		<tr class="${isSubSeal ? "cr-seal-row--sub" : ""}">
+			${vehicleLabelFor ? `<td>${frappe.utils.escape_html(vehicleLabelFor(seal.vehicle) || "—")}</td>` : ""}
 			<td>
 				<div class="cr-seal-no">${isSubSeal ? "↳ " : ""}${frappe.utils.escape_html(seal.seal_number || seal.seal_device || "—")}</div>
 				<div class="cr-seal-dev">${frappe.utils.escape_html(seal.seal_device || "")}</div>

@@ -28,9 +28,11 @@ def notify_users(
 	document_name=None,
 	link=None,
 	notification_type="Alert",
+	desk=True,
 ):
 	"""Push a desk Notification Log (bell icon) to each recipient, plus a
-	best-effort email via the site's default outgoing account.
+	best-effort email via the site's default outgoing account. ``desk=False``
+	sends the email only — for portal (Website) users, who have no Desk bell.
 
 	``recipients`` is a list of (user, email) tuples, e.g. from
 	``get_users_with_role``. Failures are logged, never raised, so a
@@ -39,7 +41,7 @@ def notify_users(
 	if not recipients:
 		return
 
-	for user, _email in recipients:
+	for user, _email in recipients if desk else []:
 		try:
 			frappe.get_doc(
 				{
@@ -54,11 +56,11 @@ def notify_users(
 				}
 			).insert(ignore_permissions=True)
 		except Exception as exc:
-			frappe.log_error(f"Desk notification failed for {user}: {exc}", "TNT Notify")
+			frappe.log_error(title="TNT Notify", message=f"Desk notification failed for {user}: {exc}")
 
 	emails = [email for _user, email in recipients if email and "@" in email]
 	if emails:
 		try:
 			frappe.sendmail(recipients=emails, subject=subject, message=message, now=False)
 		except Exception as exc:
-			frappe.log_error(f"Email notification failed: {exc}", "TNT Notify")
+			frappe.log_error(title="TNT Notify", message=f"Email notification failed: {exc}")

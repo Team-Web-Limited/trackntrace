@@ -535,6 +535,48 @@ def submit_to_finance(docname):
 	doc.save()
 	_set_booking_journeys_status(doc, "Pending Finance PCB Approval")
 	frappe.db.commit()
+	_notify_finance_approval_pending(doc)
+
+
+def _notify_finance_approval_pending(doc):
+	"""Notify every Finance PCB approver that a tagging booking is awaiting
+	their approval, via desk notification and email."""
+	from tnt_seal_management.tnt_seal_management.api.notifications import get_users_with_role
+
+	notify_booking_approvers(
+		doc,
+		get_users_with_role("Finance PCB"),
+		_("Tagging Booking Awaiting Approval: {0}").format(doc.name),
+		_("{0} submitted a tagging booking for Finance PCB approval.").format(
+			doc.account_manager or frappe.session.user
+		),
+	)
+
+
+def notify_booking_approvers(doc, recipients, subject, intro):
+	"""Send the booking's approvers a desk notification and email summarising
+	the booking. ``recipients`` is a list of (user, email) tuples."""
+	from tnt_seal_management.tnt_seal_management.api.notifications import notify_users
+
+	vehicles = ", ".join(row.vehicle for row in (doc.vehicles or []) if row.vehicle)
+	lines = [
+		intro,
+		_("Client: {0}").format(doc.client_name or "-"),
+		_("Location: {0}").format(doc.location or "-"),
+		_("Date and Time: {0}").format(doc.booking_date_time or "-"),
+		_("Contact: {0} ({1})").format(doc.contact_person_name or "-", doc.contact_person_phone or "-"),
+		_("Vehicles: {0}").format(vehicles or "-"),
+	]
+	message = "<br>".join(str(line) for line in lines)
+
+	notify_users(
+		recipients,
+		subject,
+		message,
+		document_type="Tagging Booking",
+		document_name=doc.name,
+		link=f"/app/tagging-booking/{doc.name}",
+	)
 
 
 @frappe.whitelist()
@@ -582,6 +624,7 @@ def reject_booking(docname, remarks=None):
 	doc.save()
 	_set_booking_journeys_status(doc, "Finance PCB Rejected")
 	frappe.db.commit()
+	_notify_account_manager_finance_decision(doc, "rejected", remarks)
 
 
 @frappe.whitelist()
@@ -614,6 +657,7 @@ def amend_booking(docname, reason=None):
 
 	_set_booking_journeys_status(doc, "Draft")
 	frappe.db.commit()
+	_notify_account_manager_finance_decision(doc, "amend", reason)
 
 
 # Seal Journey statuses up to (and including) the auto-assigned team leader
@@ -663,6 +707,36 @@ def reopen_booking(docname, reason=None):
 
 	_set_booking_journeys_status(doc, "Draft")
 	frappe.db.commit()
+	_notify_account_manager_finance_decision(doc, "reopened", reason)
+
+
+def _notify_account_manager_finance_decision(doc, decision, remarks=None):
+	"""Tell the booking's Account Manager (or the staff user who raised it) that
+	Finance rejected it or sent it back for correction, via desk notification and
+	email. A returned booking needs correcting and resubmitting; a rejected one
+	needs following up with the client."""
+	user = doc.account_manager or doc.requested_by
+	if not user or frappe.db.get_value("User", user, "user_type") != "System User":
+		return
+
+	titles = {
+		"rejected": _("Tagging Booking Rejected by Finance: {0}"),
+		"amend": _("Tagging Booking Returned for Amendment: {0}"),
+		"reopened": _("Approved Tagging Booking Reopened: {0}"),
+	}
+	intros = {
+		"rejected": _("Finance PCB rejected this booking. Follow up with the client."),
+		"amend": _("Finance PCB returned this booking for amendment. Correct it and submit it to Finance again."),
+		"reopened": _(
+			"Finance PCB reopened this approved booking for amendment. Its job order is on hold until it is corrected and approved again."
+		),
+	}
+	intro = intros[decision]
+	if cstr(remarks).strip():
+		intro = f"{intro}<br>{_('Remarks: {0}').format(cstr(remarks).strip())}"
+
+	email = frappe.db.get_value("User", user, "email")
+	notify_booking_approvers(doc, [(user, email or user)], titles[decision].format(doc.name), intro)
 
 
 def _guard_no_downstream_work(booking):

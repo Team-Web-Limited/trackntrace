@@ -678,6 +678,11 @@ def generate_sales_order(customer, from_date=None, to_date=None):
 
 	frappe.db.commit()
 
+	from tnt_seal_management.tnt_seal_management.api.customer_sales_orders import (
+		notify_customer_sales_order_ready,
+	)
+
+	notify_customer_sales_order_ready(so)
 	return so.name
 
 

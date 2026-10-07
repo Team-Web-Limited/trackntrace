@@ -45,6 +45,10 @@ class SealBillingRate(Document):
 		self.validate_single_global_default()
 		self.validate_approval_status()
 
+	def on_update(self):
+		if self.approval_status == "Pending Approval" and self.has_value_changed("approval_status"):
+			_notify_managing_director_pending(self)
+
 	def set_period_days_from_range(self):
 		"""Derive first_period_days from the period type. For Date Range, use the
 		inclusive span between the two dates — the dates are only a calculator for
@@ -177,7 +181,67 @@ def approve_seal_billing_rate(name):
 		frappe.flags.in_import = False
 	_reenable_customers_pending_on_rule(doc.name)
 	frappe.db.commit()
+	_notify_rule_owner_decision(doc, approved=True)
 	return doc.as_dict()
+
+
+def _rule_summary_lines(doc):
+	return [
+		_("Billing Rule: {0}").format(doc.billing_rule_name or doc.name),
+		_("Billing Type: {0}").format(doc.billing_type or "-"),
+		_("First Period: {0} for {1} days").format(
+			frappe.utils.fmt_money(doc.first_period_amount, currency=doc.currency), doc.first_period_days or "-"
+		),
+		_("Extra Day Rate: {0}").format(frappe.utils.fmt_money(doc.extra_day_rate, currency=doc.currency)),
+	]
+
+
+def _notify_managing_director_pending(doc):
+	"""Ask the Managing Director to sign off on a new billing rule, or on an
+	approved one whose terms just changed, via desk notification and email."""
+	from tnt_seal_management.tnt_seal_management.api.notifications import (
+		get_users_with_role,
+		notify_users,
+	)
+
+	lines = [
+		_("A billing rule is awaiting your approval. Customers assigned to it stay disabled until it is approved."),
+		*_rule_summary_lines(doc),
+	]
+	notify_users(
+		get_users_with_role("Managing Director"),
+		_("Billing Rule Awaiting Approval: {0}").format(doc.billing_rule_name or doc.name),
+		"<br>".join(str(line) for line in lines),
+		document_type="Seal Billing Rate",
+		document_name=doc.name,
+		link=f"/app/seal-billing-rate/{doc.name}",
+	)
+
+
+def _notify_rule_owner_decision(doc, approved, remarks=None):
+	"""Tell whoever created the billing rule how the Managing Director ruled."""
+	from tnt_seal_management.tnt_seal_management.api.notifications import notify_users
+
+	user = doc.owner
+	if not user or user == frappe.session.user or not frappe.db.get_value("User", user, "enabled"):
+		return
+
+	verdict = _("approved") if approved else _("rejected")
+	lines = [_("The Managing Director {0} this billing rule.").format(verdict), *_rule_summary_lines(doc)]
+	if (remarks or "").strip():
+		lines.append(_("Remarks: {0}").format(remarks.strip()))
+	if not approved:
+		lines.append(_("Revise the rule's terms to send it for approval again."))
+
+	email = frappe.db.get_value("User", user, "email")
+	notify_users(
+		[(user, email or user)],
+		_("Billing Rule {0}: {1}").format(_("Approved") if approved else _("Rejected"), doc.billing_rule_name or doc.name),
+		"<br>".join(str(line) for line in lines),
+		document_type="Seal Billing Rate",
+		document_name=doc.name,
+		link=f"/app/seal-billing-rate/{doc.name}",
+	)
 
 
 def _reenable_customers_pending_on_rule(rule_name):
@@ -274,4 +338,5 @@ def reject_seal_billing_rate(name, remarks=None):
 	finally:
 		frappe.flags.in_import = False
 	frappe.db.commit()
+	_notify_rule_owner_decision(doc, approved=False, remarks=remarks)
 	return doc.as_dict()

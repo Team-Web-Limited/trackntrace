@@ -63,6 +63,9 @@
 					<a href="#control-room" class="nav-link">Control Room & Tracking</a>
 				</li>
 				<li class="nav-item">
+					<a href="#notifications" class="nav-link">Notifications</a>
+				</li>
+				<li class="nav-item">
 					<a href="#billing-finance" class="nav-link">Billing & Finance</a>
 				</li>
 			</ul>
@@ -88,11 +91,11 @@
 
 				<h3 class="h4 mt-5 text-light font-weight-normal" id="navigation">System Workspaces & Navigation</h3>
 				<p class="docs-paragraph small text-light-muted">
-					All management tasks are performed inside the Frappe Desk. Users with designated roles (System Manager, Operations Control Room, Field Technician) can access the system.
+					All management tasks are performed inside the Frappe Desk. Each user sees what their role allows (Account Manager, Finance PCB, PCB Team Leader, Field Technician, Operations Control Room, Managing Director, System Manager). Customers use the separate Customer Portal.
 				</p>
 				<ul class="text-light-muted pl-4 small">
 					<li class="mb-2"><strong>Global Search (Ctrl + G):</strong> Use this shortcut to quickly find doctypes like <code>Vehicle</code>, <code>Seal Device</code>, or <code>Custody Point</code>.</li>
-					<li class="mb-2"><strong>Sidebar Modules:</strong> Jump directly to the custom dashboard modules like <strong>Control Room</strong> or <strong>Billing Manage</strong>.</li>
+					<li class="mb-2"><strong>Sidebar Modules:</strong> The TNT Seal Management workspace links to the main pages: Control Room, Tagging Bookings, PCB Job Orders, Assignments, Journey Requests, Seal Journeys, Completed Journeys, Current Customers, Seal Billing Rates, Vehicles and the dashboards.</li>
 				</ul>
 
 				<h3 class="h4 mt-5 mb-4 text-light font-weight-normal" id="master-data">Master Data Setup Checklist</h3>
@@ -123,7 +126,7 @@
 							<div class="card-body">
 								<h5 class="text-info font-weight-normal"><i class="fa fa-truck mr-2"></i>2. Vehicles</h5>
 								<p class="small text-light-muted mt-2">
-									Register all transit trucks or fleet assets that carry cargo requiring seal tracking.
+									Register all transit trucks or fleet assets that carry cargo requiring seal tracking. Each vehicle belongs to a <strong>Customer</strong>; a booking can only include vehicles registered to its client.
 								</p>
 								<ul class="small text-light-muted pl-3">
 									<li><strong>Naming Expression:</strong> Naming follows the automated format <code>VEH-YYYY-MM-#####</code>.</li>
@@ -143,7 +146,7 @@
 								</p>
 								<ul class="small text-light-muted pl-3">
 									<li><strong>Location Types:</strong> Support for Ports, Inland Container Depots, Border Posts, Weighbridges, and Cities/Towns.</li>
-									<li><strong>Country Limits:</strong> Map locations across standard East African jurisdictions (Kenya, Uganda, Tanzania, Rwanda, Burundi, DR Congo).</li>
+									<li><strong>Country Limits:</strong> Map locations across standard East African jurisdictions (Kenya, Uganda, Tanzania, Rwanda, Burundi, DR Congo, Ethiopia, South Sudan).</li>
 								</ul>
 							</div>
 						</div>
@@ -155,10 +158,10 @@
 							<div class="card-body">
 								<h5 class="text-info font-weight-normal"><i class="fa fa-microchip mr-2"></i>4. Seal Devices</h5>
 								<p class="small text-light-muted mt-2">
-									Establish tracking units by entering physical seal serial keys and registering hardware IDs.
+									Establish tracking units by entering the <strong>Seal Number</strong> (the record name) and the hardware <strong>Device ID</strong>, both required.
 								</p>
 								<ul class="small text-light-muted pl-3">
-									<li><strong>Hardware Mapping:</strong> Associate e-seals with unique <code>Device ID</code> and <code>IMEI Number</code> parameters for GPS API telemetry sync.</li>
+									<li><strong>Hardware Mapping:</strong> Associate e-seals with their <code>Device ID</code> and (optional) <code>IMEI Number</code> for GPS API telemetry sync.</li>
 									<li><strong>Status Tracking:</strong> Displays real-time device health: battery levels, lock status (Locked/Unlocked), and current custodian status.</li>
 								</ul>
 							</div>
@@ -204,7 +207,7 @@
 					Tagging requests can enter the system via two distinct sources:
 				</p>
 				<ul class="text-light-muted pl-4 small">
-					<li class="mb-2"><strong>Customer Web Portal:</strong> External clients log in directly and submit requests specifying the location, date/time, and on-site contact details. These bookings carry the <code>Customer Portal</code> source flag and are set to <code>Draft</code>.</li>
+					<li class="mb-2"><strong>Customer Web Portal:</strong> External clients log in directly and submit requests specifying the location, date/time, and on-site contact details. These bookings carry the <code>Customer Portal</code> source flag and are set to <code>Pending Account Manager Review</code>. The assigned Account Manager (or, if none is assigned, every Account Manager) is notified in the system and by email.</li>
 					<li class="mb-2"><strong>Account Managers:</strong> Internal account reps can log a booking manually on behalf of a customer in the Desk, entering client associations and scheduling details.</li>
 				</ul>
 
@@ -213,7 +216,7 @@
 					To prevent unauthorized dispatches, bookings require authorization before field technicians are mobilized:
 				</p>
 				<ul class="text-light-muted pl-4 small">
-					<li class="mb-2"><strong>Account Manager Review:</strong> The booking is reviewed internally to ensure details match the client contract.</li>
+					<li class="mb-2"><strong>Account Manager Review:</strong> The booking is reviewed internally to ensure details match the client contract, then submitted to Finance. Every <code>Finance PCB</code> user is notified in the system and by email that a booking awaits approval.</li>
 					<li class="mb-2"><strong>Finance PCB Approval:</strong> Users with the <code>Finance PCB</code> role review the billing rates and approve the request. Once confirmed, the booking status transitions to <code>Finance PCB Approved</code>.</li>
 				</ul>
 
@@ -231,13 +234,13 @@
 
 				<h3 class="h4 mt-5 text-light font-weight-normal" id="journey-requests">4. Journey Request Setup</h3>
 				<p class="docs-paragraph small text-light-muted">
-					The final step in the booking workflow is matching the Job Order to a physical vehicle and trip route to build the <strong>Journey Request</strong>:
+					The <strong>Journey Request</strong> is created automatically when the PCB Team Leader assigns a Tag Operator. One request covers every vehicle on the booking (the vehicles are carried over from the booking and are read-only). The Field Technician completes it:
 				</p>
 				<ul class="text-light-muted pl-4 small">
-					<li class="mb-2"><strong>Vehicle & Container Association:</strong> Link the specific tracking vehicle and enter the cargo container number (required).</li>
-					<li class="mb-2"><strong>Route Definition:</strong> Set the trip <code>Origin</code> and final <code>Destination</code>, and list any mandatory intermediate transit <code>Checkpoints</code>.</li>
-					<li class="mb-2"><strong>Driver Contact:</strong> Capture the active driver's phone number to maintain communication during tracking.</li>
-					<li class="mb-2"><strong>Seals Required:</strong> Input the quantity of electronic locks (seals) to be attached for this tracking journey.</li>
+					<li class="mb-2"><strong>Shipment details:</strong> <code>Entry Number</code> and <code>Container Number</code> (required), plus the <code>File Number</code> and <code>Departure Card Number</code> needed before submitting to the Control Room.</li>
+					<li class="mb-2"><strong>Route Definition:</strong> Set the trip <code>Origin</code> and final <code>Destination</code>, and list any intermediate transit <code>Checkpoints</code>.</li>
+					<li class="mb-2"><strong>Driver Contact:</strong> Capture the driver's phone number (required).</li>
+					<li class="mb-2"><strong>Seals:</strong> Enter the <code>Number of Seals</code> and select each seal; on a multi-vehicle request each seal names the vehicle it is fitted to.</li>
 				</ul>
 			</section>
 
@@ -252,7 +255,7 @@
 					Every tracking unit in the system is managed inside the <strong>Seal Device</strong> doctype. This directory logs the hardware attributes and live telematics:
 				</p>
 				<ul class="text-light-muted pl-4 small">
-					<li class="mb-2"><strong>Unique Identity:</strong> Managed via a primary `Device ID` and mapped to its cellular/telemetry `IMEI Number` (mandatory field).</li>
+					<li class="mb-2"><strong>Unique Identity:</strong> Identified by its <code>Seal Number</code> and <code>Device ID</code> (both required), optionally mapped to its telemetry <code>IMEI Number</code>.</li>
 					<li class="mb-2"><strong>State Management:</strong> Shows the lock/unlock states of physical latches and tracks real-time battery voltage percentages.</li>
 					<li class="mb-2"><strong>Custody Status:</strong> Keeps track of the device's physical custodian (e.g., whether it is held by an individual Field Technician, assigned to an active transit vehicle, or stored in a specific Custody Point).</li>
 				</ul>
@@ -307,17 +310,17 @@
 				</div>
 
 				<p class="docs-paragraph small text-light-muted">
-					All checklist lines are populated from pre-tagging templates and must be flagged as <code>Completed</code> in the Journey Request child table before the tagging transaction is submitted.
+					These are the default items; the list is copied from the <strong>Pre-Tagging Checklist Template</strong> in Seal API Settings. All checklist lines must be flagged as <code>Completed</code> in the Journey Request child table before the tagging transaction is submitted.
 				</p>
 
 				<h3 class="h4 mt-5 text-light font-weight-normal">3. Completing Physical Tagging</h3>
 				<p class="docs-paragraph small text-light-muted">
-					During the physical attachment process, the field technician must perform the following inputs:
+					After the Control Room approves a vehicle (the technician is notified), the technician fits the seals and completes tagging:
 				</p>
 				<ul class="text-light-muted pl-4 small">
-					<li class="mb-2"><strong>Document Uploads:</strong> Upload copies of customs declarations or shipping manifests to the <code>Entry Pictures</code> table, and attach high-resolution photo proof of the installed, locked seal under <code>Tagging Pictures</code>.</li>
-					<li class="mb-2"><strong>Actual Tagging Timestamp:</strong> Log the exact date and time the seal was secured.</li>
-					<li class="mb-2"><strong>GPS Coordinates Lock:</strong> Once the seal is locked, check off the <code>Tagging Completed</code> checkbox. The system will automatically query the seal device's GPS and pull the current coordinates into the <code>Tagging Location</code> field to serve as the geofence origin point.</li>
+					<li class="mb-2"><strong>Evidence:</strong> Upload customs or shipping documents to <strong>Entry Pictures</strong> and at least one photo of the installed seal to <strong>Tagging Pictures</strong>.</li>
+					<li class="mb-2"><strong>Complete Tagging:</strong> Click <strong>Complete Tagging</strong> and confirm. On a multi-vehicle request choose one vehicle or all approved vehicles; the confirmation, tagging time and remarks are entered in the dialog for each.</li>
+					<li class="mb-2"><strong>GPS Coordinates Lock:</strong> The system queries the seal's GPS and records the <strong>Tagging Location</strong>. That vehicle's Seal Journey goes <code>In Transit</code> and seal custody passes to the customer. This cannot be undone.</li>
 				</ul>
 			</section>
 
@@ -360,19 +363,55 @@
 					</div>
 				</div>
 
-				<h3 class="h4 mt-5 text-light font-weight-normal">3. Journey Completion & Untagging</h3>
+				<h3 class="h4 mt-5 text-light font-weight-normal">3. Arrival, Unlock & Untagging</h3>
 				<p class="docs-paragraph small text-light-muted">
-					When a vehicle arrives at its destination transport location, the final untagging checklist and return sequence are initiated:
+					Arrival is confirmed from the <strong>Control Room</strong> page, <strong>Approve</strong> tab, in the <strong>Arrivals — Confirm Seal Unlocked</strong> list (every journey <code>In Transit</code>). Click <strong>View</strong> on a journey and choose how the seal was unlocked. Each vehicle of a multi-vehicle booking has its own journey and is confirmed separately:
 				</p>
 				<ul class="text-light-muted pl-4 small">
-					<li class="mb-2"><strong>Unlocking Method:</strong>
-						<ul class="pl-3 mt-1">
-							<li><code>Physical</code>: The Field Technician physically unlocks the seal at the border/port, logging the untagging start and completion timestamps.</li>
-							<li><code>Remote</code>: Operators trigger a remote lock-release from the control room console, skipping the manual untagging steps and moving directly to custody return.</li>
-						</ul>
-					</li>
-					<li class="mb-2"><strong>Operator Sign-Off:</strong> Operators review arrival remarks, check off the <code>Untagging Confirmation</code> and <code>Seal Unlocked Confirmation</code> toggles (exclusive permissions), and advance the status to <code>Awaiting Seal Return</code>.</li>
+					<li class="mb-2"><strong>Physical Unlock — Send for Untagging:</strong> journey becomes <code>Arrived</code> and an Untagging assignment goes to the PCB Team Leader.</li>
+					<li class="mb-2"><strong>Remote Unlock — Skip to Seal Return:</strong> journey goes straight to <code>Awaiting Seal Return</code> and a Seal Return assignment goes to the PCB Team Leader.</li>
+					<li class="mb-2"><strong>Remote Unlock — Seal Stays on Vehicle:</strong> for destinations too far to collect from. The journey is <code>Completed</code> immediately and the seal returns to <code>Available</code>, staying in the customer's custody until its next booking.</li>
+					<li class="mb-2"><strong>End Journey:</strong> nobody at the destination to unlock or collect. Same outcome as the option above.</li>
 				</ul>
+				<p class="docs-paragraph small text-light-muted">
+					Each option asks for confirmation, captures the arrival time and the seal's live GPS location, and cannot be undone. The PCB Team Leader is notified for the first two options.
+				</p>
+			</section>
+
+			<section id="notifications" class="docs-section mt-5 pt-5 border-top border-secondary">
+				<h2 class="docs-title">Notifications</h2>
+				<p class="docs-paragraph text-muted">
+					Whenever a booking, job or seal moves to a stage that needs someone's approval or action, the system tells that person straight away.
+				</p>
+				<p class="docs-paragraph small text-light-muted">
+					Every notification to staff is delivered two ways: a <strong>Desk notification</strong> (the bell icon, top right; clicking it opens the record) and an <strong>email</strong> sent from the site's default outgoing email account. Users need an email address on their user record to receive the email. Customers (portal users) have no Desk, so they get the email only. A failed notification is logged and never blocks the action that triggered it.
+				</p>
+				<div class="table-responsive my-4">
+					<table class="table table-sm table-dark small text-light-muted mb-0" style="background-color: #2b2b2b;">
+						<thead>
+							<tr><th>When this happens</th><th>Who is notified</th><th>What they need to do</th></tr>
+						</thead>
+						<tbody>
+							<tr><td>A customer books on the Customer Portal</td><td>The assigned Account Manager (or every Account Manager if it is in the shared queue)</td><td>Review the booking (claim it with <strong>Assign to Me</strong> if unassigned) and submit it to Finance</td></tr>
+							<tr><td>An Account Manager submits a booking to Finance</td><td>Every Finance PCB user</td><td>Approve or amend the booking</td></tr>
+							<tr><td>Finance amends, reopens or rejects a booking</td><td>The booking's Account Manager</td><td>Correct and resubmit it, or follow up with the client</td></tr>
+							<tr><td>Finance approves a booking (PCB Job Order created)</td><td>The PCB Team Leader on the job order</td><td>Assign a Tag Operator</td></tr>
+							<tr><td>A Tag Operator is assigned (Tagging, Untagging or Seal Return)</td><td>That Field Technician</td><td>Carry out the job on the Journey Request</td></tr>
+							<tr><td>A Journey Request is submitted to the Control Room</td><td>Control Room users</td><td>Approve or return each vehicle</td></tr>
+							<tr><td>The Control Room approves a vehicle</td><td>The Field Technician</td><td>Fit the seals and <strong>Complete Tagging</strong></td></tr>
+							<tr><td>The Control Room returns a vehicle for amendment</td><td>The Field Technician</td><td>Correct it and resubmit</td></tr>
+							<tr><td>A critical seal alert is raised in transit</td><td>Control Room users</td><td>Investigate and resolve the alert</td></tr>
+							<tr><td>Arrival confirmed with a physical or remote unlock</td><td>The journey's PCB Team Leader</td><td>Assign a Tag Operator for untagging / seal return</td></tr>
+							<tr><td>A Field Technician confirms a seal return</td><td>The journey's PCB Team Leader (or every Team Leader)</td><td>Approve the seal return or return it for amendment</td></tr>
+							<tr><td>A seal return is approved or returned for amendment</td><td>The Field Technician</td><td>Nothing (approved) or correct and reconfirm (returned)</td></tr>
+							<tr><td>A billing rule is created, or an approved rule's terms change</td><td>Managing Director</td><td>Approve or reject the rule</td></tr>
+							<tr><td>The Managing Director approves or rejects a billing rule</td><td>The user who created the rule</td><td>Revise and resubmit if rejected</td></tr>
+							<tr><td>Finance generates a Sales Order from Completed Journeys</td><td>The customer's portal users (email only)</td><td>Accept or reject it on the Customer Portal</td></tr>
+							<tr><td>The customer accepts or rejects a Sales Order</td><td>Every Finance PCB user</td><td>Follow up on rejections</td></tr>
+							<tr><td>A PCB Assignment is cancelled</td><td>The released Field Technician and Finance PCB users</td><td>Re-approve / reassign the journey</td></tr>
+						</tbody>
+					</table>
+				</div>
 			</section>
 
 			<section id="billing-finance" class="docs-section mt-5 pt-5 border-top border-secondary">
@@ -386,7 +425,7 @@
 					Electronic lock rentals are configured under the <strong>Seal Billing Rate</strong> doctype. This directory defines standard subscription terms:
 				</p>
 				<ul class="text-light-muted pl-4 small">
-					<li class="mb-2"><strong>Billing Periods:</strong> Supports Weekly, Monthly, Quarterly, Semi-Annually, Annually, Date Range, and Custom Days.</li>
+					<li class="mb-2"><strong>Billing Periods:</strong> Supports Weekly, Bi-Weekly, Monthly, Quarterly, Semi-Annually, Annually, Date Range, Days and Custom.</li>
 					<li class="mb-2"><strong>Pricing Parameters:</strong>
 						<ul class="pl-3 mt-1">
 							<li><code>First Period Days</code>: The initial days included in the subscription baseline (default: 5 days).</li>
@@ -400,7 +439,7 @@
 				<div class="alert alert-warning bg-dark border-secondary text-light mt-4 p-4 rounded" style="background-color: #2b2b2b !important; border-left: 4px solid #f57c00 !important;">
 					<h5 class="text-warning font-weight-normal"><i class="fa fa-shield-alt mr-2"></i>Executive Approval Required</h5>
 					<p class="small mb-0 mt-2 text-light-muted">
-						New subscription rules or changes to existing approved rates require sign-off from the <strong>Managing Director</strong>. The rule is set to <code>Pending Approval</code> upon creation and cannot be assigned to clients until its status advances to <code>Approved</code>.
+						New subscription rules or changes to existing approved rates require sign-off from the <strong>Managing Director</strong>. The rule is set to <code>Pending Approval</code> on creation, or when an approved rule's terms change, and the Managing Director is notified. Customers on it stay disabled until it is <code>Approved</code>, and the rule's creator is notified of the decision.
 					</p>
 				</div>
 
@@ -424,7 +463,8 @@
 					<p class="small text-info font-weight-bold mb-2">Billing Calculation Breakdown Formula:</p>
 					<code class="d-block small text-light-muted mb-2">Total Charge = (First Period Amount + (Extra Days * Extra Day Rate)) * Seal Count</code>
 					<ul class="small text-light-muted pl-3 mb-0">
-						<li><strong>Billable Days:</strong> The duration between billing start (tagging) and billing return (seal received at warehouse).</li>
+						<li><strong>Billable Days:</strong> Whole days, inclusive, from the journey start (tagging) to its completion (seal return approved). Until then the charge is an estimate up to today.</li>
+							<li><strong>Non-Flat Rate subscriptions:</strong> there is no extra-day rate; each started period beyond the first is charged as another full First Period Amount.</li>
 						<li><strong>Extra Days:</strong> Billable days exceeding the <code>First Period Days</code> parameter.</li>
 					</ul>
 				</div>

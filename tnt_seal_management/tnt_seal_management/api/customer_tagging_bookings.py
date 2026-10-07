@@ -131,7 +131,7 @@ def _get_eligible_account_managers():
 	return frappe.get_all(
 		"User",
 		filters={"name": ["in", account_managers], "enabled": 1, "user_type": "System User"},
-		fields=["name"],
+		fields=["name", "email"],
 		order_by="name asc",
 	)
 
@@ -174,7 +174,34 @@ def create_customer_tagging_booking(data):
 		}
 	).insert(ignore_permissions=True)
 
+	_notify_account_managers_new_booking(doc, account_managers)
 	return _customer_safe_booking(doc)
+
+
+def _notify_account_managers_new_booking(doc, account_managers):
+	"""Tell the Account Manager(s) a customer booking needs review: the
+	auto-assigned one, or every eligible Account Manager when it lands in the
+	shared queue to be claimed."""
+	from tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking import (
+		notify_booking_approvers,
+	)
+
+	recipients = [
+		(row.name, row.email or row.name)
+		for row in account_managers
+		if not doc.account_manager or row.name == doc.account_manager
+	]
+	intro = (
+		_("A customer booking has been assigned to you for review.")
+		if doc.account_manager
+		else _("A customer booking is waiting in the shared queue. Assign it to yourself to review.")
+	)
+	notify_booking_approvers(
+		doc,
+		recipients,
+		_("New Customer Tagging Booking: {0}").format(doc.name),
+		intro,
+	)
 
 
 @frappe.whitelist()

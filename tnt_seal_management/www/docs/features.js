@@ -14,6 +14,7 @@ frappe.ready(() => {
 		'inventory-devices': 'Inventory & Devices',
 		'field-operations': 'Field Operations',
 		'control-room': 'Control Room & Tracking',
+		'notifications': 'Notifications',
 		'billing-finance': 'Billing & Finance'
 	};
 

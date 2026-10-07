@@ -31,10 +31,16 @@
 					<a href="#role-operator" class="nav-link">Control Room Operator</a>
 				</li>
 				<li class="nav-item mb-1">
+					<a href="#role-account-manager" class="nav-link">Account Manager</a>
+				</li>
+				<li class="nav-item mb-1">
 					<a href="#role-pcb-leader" class="nav-link">PCB Team Leader</a>
 				</li>
 				<li class="nav-item">
 					<a href="#role-finance" class="nav-link">Finance Manager</a>
+				</li>
+				<li class="nav-item">
+					<a href="#role-managing-director" class="nav-link">Managing Director</a>
 				</li>
 				<li class="nav-item">
 					<a href="#role-admin" class="nav-link">System Administrator</a>
@@ -52,20 +58,68 @@
 				<p class="docs-paragraph text-muted">
 					Manual for external clients submitting seal requests and monitoring active shipments.
 				</p>
-				<h3 class="h4 mt-5 text-light font-weight-normal">Portal Onboarding</h3>
+<h3 class="h4 mt-5 text-light font-weight-normal">Portal Onboarding</h3>
 				<p class="docs-paragraph small text-light-muted">
-					Clients gain access to the Customer Portal via invitation emails sent by system managers. Once authenticated, the portal provides a self-service tagging booking interface.
+					Clients gain access to the Customer Portal (<code>/customer-portal</code>) via invitation emails sent by system managers. Your login must be linked to exactly one Customer account. The portal has four tabs:
 				</p>
 				<ul class="text-light-muted pl-4 small">
-					<li class="mb-2"><strong>Booking Requests:</strong> Submit origin locations, destinations, scheduled date/times, and required quantities of e-seals.</li>
-					<li class="mb-2"><strong>Tracking Logs:</strong> View history logs of active and completed journey requests associated with the client's corporate account.</li>
+					<li class="mb-2"><strong>New Tagging Booking:</strong> request a seal tagging service.</li>
+					<li class="mb-2"><strong>My Tagging Bookings:</strong> track your bookings (<code>Submitted for Review</code> → <code>Under Internal Review</code> → <code>Confirmed</code> / <code>Not Approved</code>) and cancel one that is still <code>Submitted for Review</code>.</li>
+					<li class="mb-2"><strong>Completed Journeys:</strong> a statement of your finished journeys and their charges for a chosen period (Daily, Weekly, Monthly or Custom), exportable to PDF or Excel.</li>
+					<li class="mb-2"><strong>Sales Orders:</strong> the orders raised for your completed journeys, which you Accept or Reject.</li>
 				</ul>
-				
+
 				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #17a2b8;">
-					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial: Viewing Journeys</h4>
-					<p class="small text-light-muted mb-0">
-						To view active shipments, navigate to the <strong>Journeys</strong> tab on your portal. You can view real-time location data on the integrated map and check the status (e.g., Tagged, Unlocked) of each container.
-					</p>
+					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial 1: Requesting a Tagging</h4>
+					<ol class="small text-light-muted pl-4 mb-0">
+						<li class="mb-1"><strong>Open the form:</strong> Go to the <strong>New Tagging Booking</strong> tab.</li>
+						<li class="mb-1"><strong>Fill in the details:</strong> Enter the <strong>Location</strong>, the <strong>Requested Date and Time</strong> (must be in the future), and the on-site contact's <strong>Name</strong> and <strong>Phone Number</strong>.</li>
+						<li class="mb-1"><strong>Submit:</strong> Click <strong>Submit Tagging Booking</strong>. Your Account Manager is notified and reviews it.</li>
+						<li class="mb-1"><strong>Track it:</strong> Follow its status on <strong>My Tagging Bookings</strong>. Use <strong>Cancel</strong> there if you no longer need it (only while <code>Submitted for Review</code>).</li>
+					</ol>
+				</div>
+
+				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #17a2b8;">
+					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial 2: Responding to a Sales Order</h4>
+					<p class="small text-light-muted mb-2">When your completed journeys are billed, a Sales Order is raised and you are emailed:</p>
+					<ol class="small text-light-muted pl-4 mb-0">
+						<li class="mb-1"><strong>Open it:</strong> Go to the <strong>Sales Orders</strong> tab and click <strong>View</strong> on the order to see the journeys and charges it covers.</li>
+						<li class="mb-1"><strong>Respond:</strong> Click <strong>Accept</strong>, or <strong>Reject</strong> with a reason (required). Your response is final and Finance is notified.</li>
+					</ol>
+				</div>
+
+				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #f57c00;">
+					<h4 class="h6 text-warning mb-2"><i class="fa fa-bell mr-2"></i>You are notified when…</h4>
+					<p class="small text-light-muted mb-2">You receive an email for each of these (portal users have no Desk bell).</p>
+					<ul class="small text-light-muted pl-4 mb-0">
+						<li class="mb-1">A Sales Order is raised for your completed journeys and is waiting for your response</li>
+					</ul>
+				</div>
+			</section>
+
+			<section id="role-account-manager" class="docs-section mt-5 pt-5 border-top border-secondary">
+				<h2 class="docs-title">Account Manager</h2>
+				<p class="docs-paragraph text-muted">
+					Raising tagging bookings for clients, reviewing customer portal bookings, and submitting them to Finance.
+				</p>
+				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #17a2b8;">
+					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial: Reviewing and Submitting a Booking</h4>
+					<ol class="small text-light-muted pl-4 mb-0">
+						<li class="mb-1"><strong>Open the booking:</strong> Use the bell notification link or the <strong>Tagging Booking List</strong>. Portal bookings arrive as <code>Pending Account Manager Review</code>; bookings you raise yourself start as <code>Draft</code>.</li>
+						<li class="mb-1"><strong>Claim it (shared queue only):</strong> If the portal booking has no Account Manager yet, click <strong>Assign to Me</strong>.</li>
+						<li class="mb-1"><strong>Check the details:</strong> Date and time cannot be in the past, and every vehicle must be registered to the client.</li>
+						<li class="mb-1"><strong>Submit:</strong> Click <strong>Submit to Finance</strong>. Every Finance PCB user is notified to approve it.</li>
+						<li class="mb-1"><strong>If Finance sends it back:</strong> you are notified with their remarks. Correct the booking and click <strong>Submit to Finance</strong> again.</li>
+					</ol>
+				</div>
+
+				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #f57c00;">
+					<h4 class="h6 text-warning mb-2"><i class="fa fa-bell mr-2"></i>You are notified when…</h4>
+					<p class="small text-light-muted mb-2">Each notification arrives in the Desk bell icon (click it to open the record) and by email.</p>
+					<ul class="small text-light-muted pl-4 mb-0">
+						<li class="mb-1">A customer books on the portal and it is assigned to you (or lands in the shared queue)</li>
+						<li class="mb-1">Finance returns a booking for amendment, reopens an approved booking, or rejects it</li>
+					</ul>
 				</div>
 			</section>
 
@@ -81,11 +135,11 @@
 				
 				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #17a2b8;">
 					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial 1: Dispatching for Tagging (Start of Journey)</h4>
-					<p class="small text-light-muted mb-2">When Finance approves a tagging booking, a Job Order is created and a Tagging Assignment is routed to you:</p>
+					<p class="small text-light-muted mb-2">When Finance approves a tagging booking, a PCB Job Order is created, assigned to you, and you are notified:</p>
 					<ol class="small text-light-muted pl-4 mb-0">
-						<li class="mb-1"><strong>Open Assignment:</strong> Open the <strong>PCB Assignment List</strong> and find the new assignment (or open it via the PCB Job Order).</li>
+						<li class="mb-1"><strong>Open Assignment:</strong> Use the bell notification link, or open the <strong>PCB Assignment List</strong> and find the new assignment (or open it via the PCB Job Order).</li>
 						<li class="mb-1"><strong>Select Operator:</strong> In the assignment form, select the target <strong>Assigned Field Technician</strong> from your team.</li>
-						<li class="mb-1"><strong>Dispatch:</strong> Click <strong>Actions &gt; Assign</strong>. This will formally pass the job to the selected agent's queue and update the overarching journey status to <code>Tagging</code>.</li>
+						<li class="mb-1"><strong>Dispatch:</strong> Click <strong>Actions &gt; Assign</strong>. One Journey Request is created covering every vehicle on the booking, each vehicle's journey moves to <code>Technician Assigned</code>, and the technician is notified.</li>
 					</ol>
 				</div>
 
@@ -95,10 +149,12 @@
 					<ol class="small text-light-muted pl-4 mb-0">
 						<li class="mb-1"><strong>Open Assignment:</strong> Access the newly generated <strong>Untagging</strong> or <strong>Seal Return</strong> assignment.</li>
 						<li class="mb-1"><strong>Select Operator:</strong> Pick the <strong>Assigned Field Technician</strong> who will physically retrieve or cut the seal.</li>
-						<li class="mb-1"><strong>Save (Auto-Dispatch):</strong> Unlike Tagging, there is no separate "Assign" button for end-of-journey tasks. Simply clicking <strong>Save</strong> on the document auto-progresses the assignment and instantly hands the task to the field agent.</li>
+						<li class="mb-1"><strong>Save (Auto-Dispatch):</strong> Unlike Tagging, there is no separate "Assign" button for end-of-journey tasks. Simply clicking <strong>Save</strong> on the document auto-progresses the assignment and instantly hands the task to the field agent, who is notified.</li>
 					</ol>
 				</div>
-			</section>
+{bell(["Finance approves a booking and its PCB Job Order is assigned to you",
+       "The Control Room confirms arrival with a physical or remote unlock (new Untagging / Seal Return assignment)",
+       "A Field Technician confirms a seal return and it needs your approval"])}			</section>
 
 			<section id="role-agent" class="docs-section mt-5 pt-5 border-top border-secondary">
 				<h2 class="docs-title">Field Tagging Agent</h2>
@@ -112,38 +168,42 @@
 				
 				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #17a2b8;">
 					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial 1: Journey Tagging (Start of Transit)</h4>
-					<p class="small text-light-muted mb-2">When a Journey Request enters the <code>Tagging</code> status, perform the lock installation:</p>
+					<p class="small text-light-muted mb-2">When you are assigned a tagging job you are notified, and the <strong>Journey Request</strong> waits for you in <code>Draft</code>. One request covers every vehicle on the booking:</p>
 					<ol class="small text-light-muted pl-4 mb-0">
-						<li class="mb-1"><strong>Open Request:</strong> Access the assigned <strong>Journey Request</strong>.</li>
-						<li class="mb-1"><strong>Pre-Tagging Checks:</strong> Scroll to the <em>Pre-Tagging</em> section and complete the required <strong>Pre-Tagging Checklist</strong> (verifying battery levels, SIM card status, and mechanical integrity).</li>
-						<li class="mb-1"><strong>Capture Evidence:</strong> Under the <em>Documents & Photos</em> section, upload your <strong>Pre-Tagging Pictures</strong> and <strong>Tagging Pictures</strong> (e.g., photo of the locked seal on the container).</li>
-						<li class="mb-1"><strong>Confirm:</strong> Click the <strong>Confirm Tagging</strong> action button. The system will record the GPS location live from the seal and transition the journey to "Tagging In Progress".</li>
+						<li class="mb-1"><strong>Open Request:</strong> Use the bell notification link or open the assigned <strong>Journey Request</strong>.</li>
+						<li class="mb-1"><strong>Fill in the details:</strong> File number, departure card number, route and the <strong>Seals</strong>. With two or more vehicles, set the <strong>Vehicle</strong> column on each seal row to the vehicle it is fitted to (it is pre-filled; every vehicle needs at least one seal).</li>
+						<li class="mb-1"><strong>Pre-Tagging Checks:</strong> Complete every item on the <strong>Pre-Tagging Checklist</strong> and upload at least one <strong>Tagging Picture</strong>.</li>
+						<li class="mb-1"><strong>Submit:</strong> Click <strong>Submit to Control Room</strong> (on the Seals table). With several vehicles, untick any you are not ready to submit; they stay in Draft for later.</li>
+						<li class="mb-1"><strong>Wait for approval:</strong> You are notified when the Control Room approves a vehicle, or returns it with remarks to correct and resubmit.</li>
+						<li class="mb-1"><strong>Complete Tagging:</strong> Fit the seals and click <strong>Complete Tagging</strong>. With several approved vehicles, pick one or all. The seal's live GPS location is recorded and that vehicle's journey goes <code>In Transit</code>. This cannot be undone.</li>
 					</ol>
 				</div>
 
 				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #17a2b8;">
 					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial 2: Journey Untagging (End of Transit)</h4>
-					<p class="small text-light-muted mb-2">When a container arrives and the Control Room triggers a physical unlock, the Journey Request enters the <code>Untagging</code> status:</p>
+					<p class="small text-light-muted mb-2">After a physical unlock at the destination, the PCB Team Leader assigns you the untagging job (you are notified) and that vehicle on the Journey Request moves to <code>Untagging</code>:</p>
 					<ol class="small text-light-muted pl-4 mb-0">
-						<li class="mb-1"><strong>Open Request:</strong> Access the assigned <strong>Journey Request</strong>.</li>
-						<li class="mb-1"><strong>Physical Removal:</strong> Physically cut or remove the seal from the container doors.</li>
-						<li class="mb-1"><strong>Capture Evidence (Optional):</strong> Navigate to the <em>Untagging Documents</em> section. Upload <strong>Entry Pictures</strong> and <strong>Untagging Pictures</strong> if available.</li>
-						<li class="mb-1"><strong>Remarks:</strong> Record any tampering, damage, or observations in the <strong>Untagging Remarks</strong> field.</li>
-						<li class="mb-1"><strong>Confirm:</strong> Click the <strong>Confirm Untagging</strong> action button to finalize the unlock event and initiate the return phase.</li>
+						<li class="mb-1"><strong>Open Request:</strong> Use the bell notification link or open the assigned <strong>Journey Request</strong>.</li>
+						<li class="mb-1"><strong>Physical Removal:</strong> Physically remove the seal from the container or truck.</li>
+						<li class="mb-1"><strong>Capture Evidence (Optional):</strong> Upload photos under <em>Untagging Documents</em> &gt; <strong>Entry Pictures</strong>.</li>
+						<li class="mb-1"><strong>Confirm:</strong> Click <strong>Confirm Untagging</strong> (with several vehicles, pick one or all) and add any remarks in the dialog. The location is captured live from the seal's GPS; if that is unavailable you are asked to type it. The vehicle moves to <code>Awaiting Seal Return</code> and the seal stays in your custody.</li>
 					</ol>
 				</div>
 
 				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #17a2b8;">
 					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial 3: Seal Return (Custody Handoff)</h4>
-					<p class="small text-light-muted mb-2">Following an untagging (or after a remote unlock), the request enters the <code>Awaiting Seal Return</code> status:</p>
+					<p class="small text-light-muted mb-2">After untagging (or a remote unlock, where the Team Leader assigns you a Seal Return job), the vehicle is in <code>Awaiting Seal Return</code>:</p>
 					<ol class="small text-light-muted pl-4 mb-0">
-						<li class="mb-1"><strong>Transport:</strong> Transport the physical seal hardware back to the designated local custody point or warehouse.</li>
-						<li class="mb-1"><strong>Open Request:</strong> Access the <strong>Journey Request</strong> one last time.</li>
-						<li class="mb-1"><strong>Capture Evidence:</strong> Navigate to the <em>Seal Return</em> section and upload the final <strong>Seal Return Pictures</strong> showing the device being handed over.</li>
-						<li class="mb-1"><strong>Confirm:</strong> Click the <strong>Confirm Seal Return</strong> action button. You will be prompted to confirm the return location, officially closing your assignment and returning the seal to the system's inventory pool.</li>
+						<li class="mb-1"><strong>Transport:</strong> Take the seal hardware back to the warehouse.</li>
+						<li class="mb-1"><strong>Capture Evidence (Optional):</strong> Upload photos under <em>Seal Return Documents &amp; Photos</em> &gt; <strong>Entry Pictures (Seal Return)</strong>.</li>
+						<li class="mb-1"><strong>Confirm:</strong> Click <strong>Confirm Seal Return</strong> (with several vehicles, pick one or all). In the dialog tick that the seal was physically returned and enter the <strong>Seal Condition</strong> (Good, Damaged or Lost), <strong>Retrieval Card Number</strong> and <strong>Warehouse</strong> (all required), plus optional remarks. The location is captured from the seal's GPS (or typed if unavailable).</li>
+						<li class="mb-1"><strong>Approval:</strong> The PCB Team Leader is notified to approve the return. You are notified when they approve it (journey <code>Completed</code>, seal back in the warehouse) or send it back for amendment.</li>
 					</ol>
 				</div>
-			</section>
+{bell(["You are assigned a Tagging, Untagging or Seal Return job",
+       "The Control Room approves a vehicle (complete tagging) or returns it for amendment",
+       "The PCB Team Leader approves your seal return or returns it for amendment",
+       "Your assignment is cancelled"])}			</section>
 
 			<section id="role-operator" class="docs-section mt-5 pt-5 border-top border-secondary">
 				<h2 class="docs-title">Control Room Operator</h2>
@@ -157,42 +217,45 @@
 				
 				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #17a2b8;">
 					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial 1: Journey Setup & Approvals</h4>
-					<p class="small text-light-muted mb-2">Before a container begins its transit, you must approve the hardware assignment:</p>
+					<p class="small text-light-muted mb-2">Before a container begins its transit, you must approve the hardware assignment. You are notified whenever a technician submits a request:</p>
 					<ol class="small text-light-muted pl-4 mb-0">
-						<li class="mb-1"><strong>View Pending Requests:</strong> Navigate to the <strong>Journey Request List</strong> and filter for requests in the <code>Pending Control Room Approval</code> status.</li>
-						<li class="mb-1"><strong>Hardware Check:</strong> Open a request. You can verify the assigned seal is responsive by clicking the <strong>Refresh Seal Status</strong> button. If the seal is defective, use the <strong>Swap Seal</strong> button to exchange it for a fresh unit.</li>
-						<li class="mb-1"><strong>Approve:</strong> Provide any required <strong>Control Room Remarks</strong> and click the <strong>Approve</strong> button to authorize the Field Agent to begin tagging.</li>
+						<li class="mb-1"><strong>View Pending Requests:</strong> Open the <strong>Control Room</strong> page, <strong>Approve</strong> tab. Each request waiting for you is a card (it stays there while any of its vehicles is pending).</li>
+						<li class="mb-1"><strong>Hardware Check:</strong> Click <strong>Refresh Seal Status</strong> to pull live lock, battery and location. On a multi-vehicle request the seal table's <strong>Vehicle</strong> column shows which vehicle each seal is fitted to. To replace a defective seal, open the Journey Request and use <strong>Seals &gt; Swap Seal</strong>.</li>
+						<li class="mb-1"><strong>Approve or return each vehicle:</strong> The card's <strong>Vehicles</strong> table has <strong>Approve</strong> (remarks optional) and <strong>Return</strong> (remarks required) per pending vehicle. Use <strong>Approve All Pending</strong> / <strong>Return All Pending</strong> to act on every pending vehicle at once (on a single-vehicle request these read <strong>Approve</strong> / <strong>Return for Amendment</strong>).</li>
+						<li class="mb-1"><strong>Result:</strong> An approved vehicle moves to <code>Tagging</code> and the technician is notified to complete tagging; a returned vehicle goes back to <code>Draft</code> and the technician is notified with your remarks.</li>
 					</ol>
 				</div>
 
 				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #17a2b8;">
 					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial 2: Alert Monitoring & Resolution</h4>
-					<p class="small text-light-muted mb-2">When a seal detects an anomaly (e.g., Seal Cut, Low Battery, Route Deviation), it generates an alert:</p>
+					<p class="small text-light-muted mb-2">When a seal reports an anomaly (e.g. tamper, low battery, lost connection) an alert is raised. Critical alerts are also sent to you as a notification:</p>
 					<ol class="small text-light-muted pl-4 mb-0">
-						<li class="mb-1"><strong>Monitor Alerts:</strong> Open the <strong>Control Room</strong> tracking dashboard and switch to the <strong>Alerts</strong> tab (indicated by a bell icon).</li>
-						<li class="mb-1"><strong>Acknowledge Alert:</strong> Locate the new alert row and click the <strong>Acknowledge</strong> button directly on the dashboard.</li>
-						<li class="mb-1"><strong>Resolution Status:</strong> In the prompt, set the status to <code>Escalated</code> (if you are investigating or dispatching response teams) or <code>Resolved</code> (if the issue is handled or confirmed as a false alarm).</li>
-						<li class="mb-1"><strong>Remarks:</strong> Type in your resolution actions (e.g., "Contacted driver, legitimate detour") into the Remarks field and submit.</li>
+						<li class="mb-1"><strong>Monitor Alerts:</strong> Open the <strong>Control Room</strong> page and switch to the <strong>Alert</strong> tab. Filter by status (Open, Resolved, All), level and type; click an alert's status to see its full details.</li>
+						<li class="mb-1"><strong>Action:</strong> Click <strong>Action</strong> on the alert row (<strong>Update</strong> if it is already Escalated).</li>
+						<li class="mb-1"><strong>Resolution Status:</strong> Choose <code>Resolved</code> (handled or a false alarm) or <code>Escalated</code> (acknowledged, more action needed), and log what was done in <strong>Remarks</strong>. Click <strong>Submit</strong>.</li>
+						<li class="mb-1"><strong>Notify the custodian (optional):</strong> From the same dialog, <strong>Send</strong> emails the alert to the seal's current custodian.</li>
 					</ol>
 				</div>
 
 				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #17a2b8;">
 					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial: Unlocking a Seal (End Journey)</h4>
-					<p class="small text-light-muted mb-2">When a container reaches its destination, perform the unlock routine:</p>
+					<p class="small text-light-muted mb-2">When a container reaches its destination, confirm arrival and how the seal was unlocked:</p>
 					<ol class="small text-light-muted pl-4 mb-0">
-						<li class="mb-1"><strong>Open Control Room:</strong> Navigate to the <strong>Control Room</strong> tracking dashboard.</li>
-						<li class="mb-1"><strong>Select Journey:</strong> Search and locate the target active journey in the side panel.</li>
-						<li class="mb-1"><strong>Trigger Unlock:</strong> Click the <strong>End Journey / Unlock</strong> button.</li>
-						<li class="mb-1"><strong>Select Mode:</strong> 
+						<li class="mb-1"><strong>Open Control Room:</strong> Go to the <strong>Control Room</strong> page, <strong>Approve</strong> tab, and scroll to <strong>Arrivals — Confirm Seal Unlocked</strong> (every journey <code>In Transit</code>; use the search box to filter).</li>
+						<li class="mb-1"><strong>Select Journey:</strong> Click <strong>View</strong> on the journey. Each vehicle of a multi-vehicle booking has its own journey.</li>
+						<li class="mb-1"><strong>Select Mode:</strong>
 							<ul class="mt-1 pl-3">
-								<li><em>Physical Unlock:</em> Creates an untagging assignment for a Field Tagging Agent.</li>
-								<li><em>Remote Unlock:</em> Skips untagging and schedules a direct seal return assignment.</li>
+								<li><em>Physical Unlock — Send for Untagging:</em> creates an untagging assignment; the PCB Team Leader is notified.</li>
+								<li><em>Remote Unlock — Skip to Seal Return:</em> skips untagging and creates a seal return assignment; the PCB Team Leader is notified.</li>
+								<li><em>Remote Unlock — Seal Stays on Vehicle:</em> destination too far to collect from; the journey completes immediately and the seal is released.</li>
+								<li><em>End Journey:</em> nobody at the destination; same outcome as the option above.</li>
 							</ul>
 						</li>
-						<li class="mb-1"><strong>Confirm:</strong> Accept the prompt. The final unlock location is captured live from the seal's GPS.</li>
+						<li class="mb-1"><strong>Confirm:</strong> Accept the prompt. The arrival location is captured live from the seal's GPS. This cannot be undone.</li>
 					</ol>
 				</div>
-			</section>
+{bell(["A Field Technician submits a Journey Request for approval",
+       "A critical seal alert is raised for a journey in transit"])}			</section>
 
 			<section id="role-finance" class="docs-section mt-5 pt-5 border-top border-secondary">
 				<h2 class="docs-title">Finance Manager</h2>
@@ -208,12 +271,12 @@
 					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial 1: Booking Approvals (Job Order Creation)</h4>
 					<p class="small text-light-muted mb-2">Before a tagging job can start, Finance must approve the customer booking:</p>
 					<ol class="small text-light-muted pl-4 mb-0">
-						<li class="mb-1"><strong>View Bookings:</strong> Open the <strong>Tagging Booking List</strong> and filter for requests in the <code>Pending Finance PCB Approval</code> status.</li>
+						<li class="mb-1"><strong>View Bookings:</strong> You are notified when a booking is submitted; use the bell link or open the <strong>Tagging Booking List</strong> and filter for requests in the <code>Pending Finance PCB Approval</code> status.</li>
 						<li class="mb-1"><strong>Review Contract:</strong> Open the booking and ensure the customer's financial account is in good standing.</li>
 						<li class="mb-1"><strong>Approve or Amend:</strong> 
 							<ul class="mt-1 pl-3">
 								<li>Click <strong>Actions &gt; Approve</strong> to authorize the booking. This automatically generates a <code>PCB Job Order</code> for the operations team.</li>
-								<li>If the booking details need correction, click <strong>Actions &gt; Reopen / Amend</strong>, provide a reason, and send it back to the Account Manager.</li>
+								<li>If a booking still pending approval needs correction, click <strong>Actions &gt; Amend</strong>; for an already approved booking use <strong>Actions &gt; Reopen / Amend</strong>. Give a reason; the Account Manager is notified with it.</li>
 							</ul>
 						</li>
 					</ol>
@@ -231,18 +294,53 @@
 								<li class="mb-1"><strong>If Leasing:</strong> Proceed to the <em>Rate Terms</em> section to manually input the <em>Currency</em>, <em>First Period Amount</em>, <em>First Period Days</em>, and <em>Extra Day Rate</em>.</li>
 							</ul>
 						</li>
-						<li class="mb-1"><strong>Save:</strong> Verify the Tax category and click <strong>Save Billing</strong> to apply the rules.</li>
+						<li class="mb-1"><strong>Save:</strong> Verify the Tax category and click <strong>Save Billing</strong> to apply the rules. A new or changed billing rule goes to the Managing Director for approval (they are notified), and the customer stays disabled until it is approved.</li>
 					</ol>
 				</div>
 
 				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #17a2b8;">
-					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial 3: Billing Follow-up & Settlement</h4>
-					<p class="small text-light-muted mb-2">Once a journey completes, Finance must review the generated charges and mark the journey as billed:</p>
+					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial 3: Invoicing Completed Journeys</h4>
+					<p class="small text-light-muted mb-2">Completed journeys are billed per customer in batches from the <strong>Completed Journeys</strong> page:</p>
 					<ol class="small text-light-muted pl-4 mb-0">
-						<li class="mb-1"><strong>View Pending Billing:</strong> Open the <strong>Billing Follow-up List</strong> to view all seal journeys currently in the <code>Pending Billing</code> status.</li>
-						<li class="mb-1"><strong>Manage Billing:</strong> Click on a journey row to open its <strong>Manage Billing</strong> dashboard.</li>
-						<li class="mb-1"><strong>Review Charges:</strong> Review the calculated totals, including the base <em>First Period</em> charges and any calculated <em>Extra Days</em> amounts.</li>
+						<li class="mb-1"><strong>Choose the period:</strong> Open <strong>Completed Journeys</strong> and set the period / From and To dates. Each customer's unbilled completed journeys are grouped with their normal charges, extra-day charges, subscription fees and VAT.</li>
+						<li class="mb-1"><strong>Review:</strong> Check the charges summary for the customer. Export to PDF or Excel if needed.</li>
+						<li class="mb-1"><strong>Generate:</strong> Click <strong>Generate Sales Order</strong> and confirm. The journeys move to <code>Processing Payment</code> and the customer is emailed to Accept or Reject the order on the portal.</li>
+						<li class="mb-1"><strong>Customer response:</strong> You are notified when the customer accepts or rejects (with their reason). Follow up on rejections.</li>
+						<li class="mb-1"><strong>Settlement:</strong> Once the Sales Invoice for the order is fully paid, its journeys are marked <code>Billed</code> automatically.</li>
 					</ol>
+				</div>
+							<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #f57c00;">
+					<h4 class="h6 text-warning mb-2"><i class="fa fa-bell mr-2"></i>You are notified when…</h4>
+					<p class="small text-light-muted mb-2">Each notification arrives in the Desk bell icon (click it to open the record) and by email.</p>
+					<ul class="small text-light-muted pl-4 mb-0">
+						<li class="mb-1">An Account Manager submits a booking for your approval</li>
+						<li class="mb-1">A PCB Assignment is cancelled and its journey reverts to Pending Finance PCB Approval</li>
+						<li class="mb-1">A customer accepts or rejects a Sales Order on the portal</li>
+						<li class="mb-1">The Managing Director approves or rejects a billing rule you created</li>
+					</ul>
+				</div>
+			</section>
+
+			<section id="role-managing-director" class="docs-section mt-5 pt-5 border-top border-secondary">
+				<h2 class="docs-title">Managing Director</h2>
+				<p class="docs-paragraph text-muted">
+					Signing off on billing rules before they can be used to charge customers.
+				</p>
+				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #17a2b8;">
+					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial: Approving a Billing Rule</h4>
+					<p class="small text-light-muted mb-2">Every new billing rule, and any approved rule whose terms are changed, waits for your approval. Customers on it stay disabled until you approve:</p>
+					<ol class="small text-light-muted pl-4 mb-0">
+						<li class="mb-1"><strong>Open the rule:</strong> Use the bell notification link, or open <strong>Seal Billing Rates</strong> and look for <code>Pending Approval</code>.</li>
+						<li class="mb-1"><strong>Review the terms:</strong> Check the billing type, period, first-period amount and days, and extra-day rate.</li>
+						<li class="mb-1"><strong>Decide:</strong> Click <strong>Approve</strong>, or <strong>Reject</strong> with remarks. Whoever created the rule is notified.</li>
+					</ol>
+				</div>
+				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #f57c00;">
+					<h4 class="h6 text-warning mb-2"><i class="fa fa-bell mr-2"></i>You are notified when…</h4>
+					<p class="small text-light-muted mb-2">Each notification arrives in the Desk bell icon (click it to open the record) and by email.</p>
+					<ul class="small text-light-muted pl-4 mb-0">
+						<li class="mb-1">A new billing rule, or a change to an approved one, needs your approval</li>
+					</ul>
 				</div>
 			</section>
 
@@ -251,13 +349,12 @@
 				<p class="docs-paragraph text-muted">
 					Configuring API keys, user management, and setting up master checkpoints.
 				</p>
-				<h3 class="h4 mt-5 text-light font-weight-normal">App Configuration</h3>
-				<p class="docs-paragraph small text-light-muted">
-					Maintains the foundational backend of the custom app:
-				</p>
+<h3 class="h4 mt-5 text-light font-weight-normal">App Configuration</h3>
+				<p class="docs-paragraph small text-light-muted">Maintains the foundational backend of the custom app:</p>
 				<ul class="text-light-muted pl-4 small">
-					<li class="mb-2"><strong>API Settings:</strong> Map cellular telemetry parameters, set cron job intervals, and adjust SMS/Email notification templates.</li>
-					<li class="mb-2"><strong>Master Data:</strong> Manage checkpoints, vehicle lists, and device acquisitions.</li>
+					<li class="mb-2"><strong>Seal API Settings:</strong> the telemetry API connection (base URL, project, authentication), <strong>Sync Frequency Minutes</strong>, the optional <strong>Full Fleet Sync</strong> and its interval, request throttling, and the <strong>Pre-Tagging Checklist Template</strong> copied into every new Journey Request. Last sync times and errors are shown here.</li>
+					<li class="mb-2"><strong>Notifications:</strong> workflow notifications are emailed through the site's <strong>default outgoing Email Account</strong>, so keep it enabled and working. Every user must have an email address and the right role (Account Manager, Finance PCB, PCB Team Leader, Field Technician, Operations Control Room, Managing Director) to be notified. See the Notifications section of the Features guide for the full list.</li>
+					<li class="mb-2"><strong>Master Data:</strong> manage custody points (warehouses), transport locations (checkpoints), vehicles and their owning customers, and seal devices.</li>
 				</ul>
 			</section>
 

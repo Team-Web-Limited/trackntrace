@@ -578,21 +578,30 @@ def _notify_control_room_approval_pending(doc):
 	)
 
 
-def _notify_technician_control_room_decision(doc, approved, remarks=None):
-	"""Tell the Field Technician the Control Room returned their submission for
-	amendment (there is no notification on approval — the technician sees the
-	status change to Tagging directly)."""
+def _notify_technician_control_room_decision(doc, approved, remarks=None, vehicles=None):
+	"""Tell the Field Technician how the Control Room ruled: approved (go ahead and
+	complete tagging) or returned for amendment (correct and resubmit)."""
 	from tnt_seal_management.tnt_seal_management.api.notifications import notify_users
 
-	if approved or not doc.assigned_technician:
+	if not doc.assigned_technician:
 		return
 
 	email = frappe.db.get_value("User", doc.assigned_technician, "email")
-	subject = _("Journey Request Returned for Amendment: {0}").format(doc.name)
-	lines = [
-		_("The Control Room returned {0} for amendment.").format(doc.name),
-		_("Correct the details and resubmit to the Control Room."),
-	]
+	if approved:
+		subject = _("Journey Request Approved for Tagging: {0}").format(doc.name)
+		lines = [
+			_("The Control Room approved {0}. Fit the seals and complete tagging to start the journey.").format(
+				doc.name
+			),
+		]
+		if vehicles:
+			lines.append(_("Vehicles approved: {0}").format(", ".join(vehicles)))
+	else:
+		subject = _("Journey Request Returned for Amendment: {0}").format(doc.name)
+		lines = [
+			_("The Control Room returned {0} for amendment.").format(doc.name),
+			_("Correct the details and resubmit to the Control Room."),
+		]
 	if cstr(remarks).strip():
 		lines.append(_("Remarks: {0}").format(cstr(remarks).strip()))
 	message = "<br>".join(str(line) for line in lines)
@@ -933,6 +942,9 @@ def approve_by_control_room(docname, remarks=None, vehicle_row=None):
 		set_journey_status(journey, "Tagging In Progress")
 		sync_seal_journey_mirror(journey)
 	frappe.db.commit()
+	_notify_technician_control_room_decision(
+		doc, approved=True, remarks=remarks, vehicles=[_row_label(row) for row in rows]
+	)
 
 
 @frappe.whitelist()
@@ -2255,6 +2267,7 @@ def _get_approval_queue_by_status(status, search=None, from_date=None, to_date=N
 		filters={"parent": ["in", request_names], "parenttype": "Journey Request"},
 		fields=[
 			"parent",
+			"vehicle",
 			"seal_device",
 			"seal_number",
 			"serial_number",

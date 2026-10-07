@@ -54,6 +54,15 @@ class PCBJobOrder(Document):
 
 	def on_update(self):
 		self._mirror_to_seal_journey()
+		if (
+			self.assigned_pcb_team_leader
+			and self.job_order_status == "Team Leader Assigned"
+			and (
+				self.has_value_changed("assigned_pcb_team_leader")
+				or self.has_value_changed("job_order_status")
+			)
+		):
+			_notify_team_leader_new_job_order(self)
 
 	def _mirror_to_seal_journey(self):
 		"""Keep the Seal Journey mirror in step when a PCB Team Leader is assigned
@@ -121,6 +130,36 @@ class PCBJobOrder(Document):
 			}
 		)
 		assignment.save(ignore_permissions=True)
+
+
+def _notify_team_leader_new_job_order(job_order):
+	"""Tell the PCB Team Leader a Finance-approved job order has landed on them and
+	needs a Tag Operator assigned, via desk notification and email."""
+	from tnt_seal_management.tnt_seal_management.api.notifications import notify_users
+
+	team_leader = job_order.assigned_pcb_team_leader
+	email = frappe.db.get_value("User", team_leader, "email")
+	subject = _("New Tagging Job Order: {0}").format(job_order.name)
+	lines = [
+		_("A Finance-approved tagging job is awaiting a Tag Operator assignment."),
+		_("Client: {0}").format(job_order.client_name or "-"),
+		_("Location: {0}").format(job_order.location or "-"),
+		_("Scheduled: {0}").format(job_order.scheduled_date_time or "-"),
+		_("Contact: {0} ({1})").format(
+			job_order.contact_person_name or "-", job_order.contact_person_phone or "-"
+		),
+		_("Booking: {0}").format(job_order.tagging_booking or "-"),
+	]
+	message = "<br>".join(str(line) for line in lines)
+
+	notify_users(
+		[(team_leader, email or team_leader)],
+		subject,
+		message,
+		document_type="PCB Job Order",
+		document_name=job_order.name,
+		link=f"/app/pcb-job-order/{job_order.name}",
+	)
 
 
 def _get_sole_team_leader():
