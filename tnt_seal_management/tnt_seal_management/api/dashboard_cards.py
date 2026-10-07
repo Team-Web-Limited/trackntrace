@@ -188,30 +188,6 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
-	"pcb-job-order-list": {
-		"doctype": "PCB Job Order",
-		"rules": [
-			{
-				"roles": ["Finance PCB"],
-				"label": "Awaiting approval",
-				"filters": {
-					"job_order_status": ["not in", ["Completed", "Cancelled"]]
-				},
-			},
-			{
-				"roles": ["PCB Team Leader"],
-				"label": "Assigned to your team",
-				"filters": {"job_order_status": "Team Leader Assigned"},
-			},
-			{
-				"roles": ["System Manager", "Management", "Managing Director"],
-				"label": "Open job orders",
-				"filters": {
-					"job_order_status": ["not in", ["Completed", "Cancelled"]]
-				},
-			},
-		],
-	},
 	"assignment-list": {
 		"doctype": "PCB Assignment",
 		"rules": [

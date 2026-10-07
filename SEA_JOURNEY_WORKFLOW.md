@@ -22,6 +22,10 @@ central record that every other doctype mirrors its status onto.
     it is still `Pending Account Manager Review`.
 - Validation on save: booking date/time cannot be in the past, and every booked
   vehicle must be registered to the booking's client.
+- **Branch is mandatory** before a booking reaches Finance: required when an Account
+  Manager raises a booking and checked again by `submit_to_finance`. Portal bookings
+  are created without one and the Account Manager sets it during review. Older
+  bookings saved without a branch are not blocked from approval/amend/reopen.
 
 ### 2. Finance Approval
 - Account Manager runs `submit_to_finance` (from `Draft`, or `Pending Account Manager
@@ -31,23 +35,36 @@ central record that every other doctype mirrors its status onto.
   - **Notification:** every enabled **Finance PCB** user gets a desk notification +
     email (booking number, client, location, date/time, contact, vehicles) linking to
     the booking.
-- Finance runs `approve_booking` → Booking `Finance PCB Approved`;
-  Seal Journey(s) → `Finance PCB Approved`.
-  - A **PCB Job Order** is created/reused, `job_order_status = Unassigned`.
+- Finance runs `approve_booking` (**Actions › Approve**) and **chooses the PCB Team
+  Leader** in the Approve dialog: pre-filled when exactly one Team Leader is enabled,
+  required when there are several, and approval is blocked when none is set up.
+  Booking → `Finance PCB Approved`; Seal Journey(s) → `Finance PCB Approved`. In the
+  same action:
+  - A **PCB Job Order** is created (or reused after a reopen) with that Team Leader →
+    `Team Leader Assigned`, Seal Journey(s) → `Team Lead Assigned`, and is then marked
+    `Completed` ("Assignment Completed").
+  - The tagging **PCB Assignment** is raised (`assignment_status = Pending`,
+    `pcb_team_leader` = the chosen Team Leader), who is notified.
+  - There is no separate job order approval any more (formerly Finance clicked
+    **Approve** a second time on the job order), and no PCB Job Orders card.
 - Other Finance actions:
   - `reject_booking` → `Finance PCB Rejected` (Seal Journeys mirror it).
   - `amend_booking` (while pending Finance) → back to `Draft` /
     `Pending Account Manager Review` for correction and resubmission.
   - `reopen_booking` (after approval) → same revert, and the PCB Job Order is parked as
-    `Cancelled` (reused on re-approval). Blocked once a tag operator is assigned or the
+    `Cancelled` and its Pending assignment removed (the job order number is reused on
+    re-approval, with a fresh assignment). Blocked once a tag operator is assigned or the
     journey has moved past `Team Lead Assigned`.
+  - **Change Team Leader** (PCB Assignment › Actions, Finance PCB / System Manager,
+    `pcb_assignment.change_team_leader`) — while the tagging assignment is still
+    `Pending`, hand it to another Team Leader. Updated on the job order, so the
+    assignment and Seal Journey follow; the new Team Leader is notified.
 - Only **Finance PCB** (or System Manager) can change approval status/fields.
 
-### 3. Team Lead & Technician Assignment
-- PCB Job Order auto-assigns the sole **PCB Team Leader** on save →
-  `job_order_status = Team Leader Assigned`; Seal Journey → `Team Lead Assigned`.
-- Team Leader runs `assign_to_field_technician` →
-  - Creates/updates a **PCB Assignment** (`assignment_status = Assigned`).
+### 3. Technician Assignment
+- The Team Leader opens the Pending tagging request on **Assignments**, picks the
+  **Field Technician**, saves, then **Actions › Assign** →
+  - PCB Assignment → `Assigned`; the technician is notified.
   - Creates **one Journey Request for the whole booking** (`journey_request_status =
     Draft`). Its **Vehicles** table (`Journey Request Vehicle`) gets one row per booked
     vehicle, each linked to that vehicle's own Seal Journey and carrying its own
@@ -263,6 +280,8 @@ Draft (Account Manager)  |  Pending Account Manager Review (Customer Portal)
 **PCB Job Order (`job_order_status`)**:
 ```
 Unassigned → Team Leader Assigned → Completed / Cancelled
+(all three steps happen inside approve_booking; Completed = tagging request handed to
+the Team Leader. Cancelled = parked by a reopen.)
 ```
 
 **PCB Assignment (`assignment_status`)**:
@@ -305,7 +324,8 @@ email through the site's default outgoing Email Account. Failures are logged
 | Customer portal booking created | Assigned Account Manager, else all Account Managers | Claim/review, submit to Finance |
 | `submit_to_finance` | All Finance PCB users | Approve or amend |
 | `amend_booking` / `reopen_booking` / `reject_booking` | The booking's Account Manager (else the staff user who raised it) | Correct and resubmit / follow up with client |
-| PCB Job Order assigned to a Team Leader (on Finance approval, incl. re-approval) | That PCB Team Leader | Assign a Tag Operator |
+| `approve_booking` raises the tagging PCB Assignment (incl. re-approval) | The Team Leader Finance chose | Assign a Tag Operator |
+| `change_team_leader` on a Pending tagging assignment | The new Team Leader | Assign a Tag Operator |
 | Tag Operator assigned (Tagging / Untagging / Seal Return) | The Field Technician | Do the job |
 | `submit_to_control_room` | Control Room roles | Approve / return each vehicle |
 | `approve_by_control_room` | The Field Technician (lists the approved vehicles) | Complete tagging |

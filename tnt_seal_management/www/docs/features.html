@@ -95,7 +95,7 @@
 				</p>
 				<ul class="text-light-muted pl-4 small">
 					<li class="mb-2"><strong>Global Search (Ctrl + G):</strong> Use this shortcut to quickly find doctypes like <code>Vehicle</code>, <code>Seal Device</code>, or <code>Custody Point</code>.</li>
-					<li class="mb-2"><strong>Sidebar Modules:</strong> The TNT Seal Management workspace links to the main pages: Control Room, Tagging Bookings, PCB Job Orders, Assignments, Journey Requests, Seal Journeys, Completed Journeys, Current Customers, Seal Billing Rates, Vehicles and the dashboards.</li>
+					<li class="mb-2"><strong>Sidebar Modules:</strong> The TNT Seal Management workspace links to the main pages: Control Room, Tagging Bookings, Assignments, Journey Requests, Seal Journeys, Completed Journeys, Current Customers, Seal Billing Rates, Vehicles and the dashboards.</li>
 				</ul>
 
 				<h3 class="h4 mt-5 mb-4 text-light font-weight-normal" id="master-data">Master Data Setup Checklist</h3>
@@ -126,7 +126,7 @@
 							<div class="card-body">
 								<h5 class="text-info font-weight-normal"><i class="fa fa-truck mr-2"></i>2. Vehicles</h5>
 								<p class="small text-light-muted mt-2">
-									Register all transit trucks or fleet assets that carry cargo requiring seal tracking. Each vehicle belongs to a <strong>Customer</strong>; a booking can only include vehicles registered to its client.
+									Register all transit trucks or fleet assets that carry cargo requiring seal tracking. Each vehicle belongs to a <strong>Customer</strong>; a booking can only include vehicles registered to its client. New customers are placed in the <strong>FMS Division</strong> by default (the <em>Branch</em> field on the Customer form); change it there for ECTS customers.
 								</p>
 								<ul class="small text-light-muted pl-3">
 									<li><strong>Naming Expression:</strong> Naming follows the automated format <code>VEH-YYYY-MM-#####</code>.</li>
@@ -208,7 +208,7 @@
 				</p>
 				<ul class="text-light-muted pl-4 small">
 					<li class="mb-2"><strong>Customer Web Portal:</strong> External clients log in directly and submit requests specifying the location, date/time, and on-site contact details. These bookings carry the <code>Customer Portal</code> source flag and are set to <code>Pending Account Manager Review</code>. The assigned Account Manager (or, if none is assigned, every Account Manager) is notified in the system and by email.</li>
-					<li class="mb-2"><strong>Account Managers:</strong> Internal account reps can log a booking manually on behalf of a customer in the Desk, entering client associations and scheduling details.</li>
+					<li class="mb-2"><strong>Account Managers:</strong> Internal account reps can log a booking manually on behalf of a customer in the Desk, entering the client, <strong>Branch</strong> (required), vehicles and scheduling details. Portal bookings arrive without a branch; the Account Manager must set it before submitting to Finance.</li>
 				</ul>
 
 				<h3 class="h4 mt-5 text-light font-weight-normal" id="managing-bookings">2. Verification & Financial Approval</h3>
@@ -229,7 +229,7 @@
 
 				<h3 class="h4 mt-5 text-light font-weight-normal">3. Generating the PCB Job Order</h3>
 				<p class="docs-paragraph small text-light-muted">
-					Upon financial approval, a <strong>PCB Job Order</strong> (<code>JO-YYYY-MM-#####</code>) is automatically created and linked to the booking record. The Job Order manages field assignments and scheduled times, mapping the scheduled date, location, and site contact details from the original booking.
+					When Finance approves the booking they choose the <strong>PCB Team Leader</strong> who will dispatch it (pre-filled when only one is set up; approval is blocked if none is). In that single step a <strong>PCB Job Order</strong> (<code>JO-YYYY-MM-#####</code>) is created with the booking's scheduled date, location and site contact, and the tagging request (PCB Assignment) is raised straight to that Team Leader, who is notified. The job order is a back-office record; there is no separate job order approval.
 				</p>
 
 				<h3 class="h4 mt-5 text-light font-weight-normal" id="journey-requests">4. Journey Request Setup</h3>
@@ -271,7 +271,7 @@
 
 				<h3 class="h4 mt-5 text-light font-weight-normal" id="job-orders">1. Technician Assignments & Dispatch</h3>
 				<p class="docs-paragraph small text-light-muted">
-					Once a <strong>PCB Job Order</strong> is generated, it must be assigned to an active field technician. This is managed by the <strong>PCB Team Leader</strong> using the <strong>PCB Assignment</strong> (<code>ASG-YYYY-MM-#####</code>) doctype:
+					When Finance approves a booking, the tagging request lands with the <strong>PCB Team Leader</strong> they chose, who assigns an active field technician using the <strong>PCB Assignment</strong> (<code>ASG-YYYY-MM-#####</code>) doctype:
 				</p>
 				<ul class="text-light-muted pl-4 small">
 					<li class="mb-2"><strong>Request Types:</strong> Assignments are categorized by operation type:
@@ -342,7 +342,7 @@
 
 				<h3 class="h4 mt-5 text-light font-weight-normal">2. Alarm & Exception Management (Seal Alert Log)</h3>
 				<p class="docs-paragraph small text-light-muted">
-					Security incidents or hardware problems trigger entries in the <strong>Seal Alert Log</strong> (<code>SAL-YYYY-MM-#####</code>) registry. Alerts come from two distinct streams:
+					Security incidents or hardware problems trigger entries in the <strong>Seal Alert Log</strong> (<code>SAL-YYYY-MM-#####</code>) registry. The Control Room's <strong>Alert</strong> tab, its count badge and its export show only alerts for seals currently on a journey that is <code>In Transit</code>. Alerts come from two distinct streams:
 				</p>
 				<ul class="text-light-muted pl-4 small">
 					<li class="mb-2"><strong>System Alerts:</strong> Internally triggered rules monitoring device timeouts (connectivity lost) or low battery levels (battery below 15%).</li>
@@ -359,6 +359,7 @@
 							<li class="mb-1"><strong>Acknowledge Alert:</strong> Toggle the <code>Acknowledged</code> checkbox, which automatically registers your username under <code>Acknowledged By</code> and stamps the current time.</li>
 							<li class="mb-1"><strong>Investigate & Resolve:</strong> Review the raw JSON payload in the <code>Raw Data</code> field, contact the driver/transporter if required, and log your resolution findings in <code>Acknowledgement Remarks</code>.</li>
 							<li class="mb-1"><strong>Close Status:</strong> Advance the <code>Resolution Status</code> from <code>Open</code> &rarr; <code>Escalated</code> &rarr; <code>Resolved</code>.</li>
+							<li class="mb-1"><strong>Escalation Email:</strong> When escalating from the Control Room's <strong>Action</strong> dialog, the operator can email the alert in the same step. The draft is pre-filled with the alert details and the seal holder's address, editable (To, CC, subject, message), and the sent email is kept on the alert's timeline.</li>
 						</ul>
 					</div>
 				</div>
@@ -395,7 +396,8 @@
 							<tr><td>A customer books on the Customer Portal</td><td>The assigned Account Manager (or every Account Manager if it is in the shared queue)</td><td>Review the booking (claim it with <strong>Assign to Me</strong> if unassigned) and submit it to Finance</td></tr>
 							<tr><td>An Account Manager submits a booking to Finance</td><td>Every Finance PCB user</td><td>Approve or amend the booking</td></tr>
 							<tr><td>Finance amends, reopens or rejects a booking</td><td>The booking's Account Manager</td><td>Correct and resubmit it, or follow up with the client</td></tr>
-							<tr><td>Finance approves a booking (PCB Job Order created)</td><td>The PCB Team Leader on the job order</td><td>Assign a Tag Operator</td></tr>
+							<tr><td>Finance approves a booking (choosing the Team Leader)</td><td>That PCB Team Leader</td><td>Assign a Tag Operator</td></tr>
+							<tr><td>Finance hands a pending tagging request to another Team Leader</td><td>The new PCB Team Leader</td><td>Assign a Tag Operator</td></tr>
 							<tr><td>A Tag Operator is assigned (Tagging, Untagging or Seal Return)</td><td>That Field Technician</td><td>Carry out the job on the Journey Request</td></tr>
 							<tr><td>A Journey Request is submitted to the Control Room</td><td>Control Room users</td><td>Approve or return each vehicle</td></tr>
 							<tr><td>The Control Room approves a vehicle</td><td>The Field Technician</td><td>Fit the seals and <strong>Complete Tagging</strong></td></tr>

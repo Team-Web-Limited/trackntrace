@@ -54,15 +54,6 @@ class PCBJobOrder(Document):
 
 	def on_update(self):
 		self._mirror_to_seal_journey()
-		if (
-			self.assigned_pcb_team_leader
-			and self.job_order_status == "Team Leader Assigned"
-			and (
-				self.has_value_changed("assigned_pcb_team_leader")
-				or self.has_value_changed("job_order_status")
-			)
-		):
-			_notify_team_leader_new_job_order(self)
 
 	def _mirror_to_seal_journey(self):
 		"""Keep the Seal Journey mirror in step when a PCB Team Leader is assigned
@@ -132,34 +123,68 @@ class PCBJobOrder(Document):
 		assignment.save(ignore_permissions=True)
 
 
-def _notify_team_leader_new_job_order(job_order):
-	"""Tell the PCB Team Leader a Finance-approved job order has landed on them and
-	needs a Tag Operator assigned, via desk notification and email."""
-	from tnt_seal_management.tnt_seal_management.api.notifications import notify_users
-
-	team_leader = job_order.assigned_pcb_team_leader
-	email = frappe.db.get_value("User", team_leader, "email")
-	subject = _("New Tagging Job Order: {0}").format(job_order.name)
-	lines = [
-		_("A Finance-approved tagging job is awaiting a Tag Operator assignment."),
-		_("Client: {0}").format(job_order.client_name or "-"),
-		_("Location: {0}").format(job_order.location or "-"),
-		_("Scheduled: {0}").format(job_order.scheduled_date_time or "-"),
-		_("Contact: {0} ({1})").format(
-			job_order.contact_person_name or "-", job_order.contact_person_phone or "-"
-		),
-		_("Booking: {0}").format(job_order.tagging_booking or "-"),
-	]
-	message = "<br>".join(str(line) for line in lines)
-
-	notify_users(
-		[(team_leader, email or team_leader)],
-		subject,
-		message,
-		document_type="PCB Job Order",
-		document_name=job_order.name,
-		link=f"/app/pcb-job-order/{job_order.name}",
+def get_enabled_team_leaders():
+	"""[(user, full name)] for every enabled PCB Team Leader, by name."""
+	users = frappe.get_all(
+		"Has Role",
+		filters={"role": "PCB Team Leader", "parenttype": "User"},
+		pluck="parent",
+		distinct=True,
 	)
+	users = [u for u in users if u not in ("Administrator", "Guest")]
+	if not users:
+		return []
+	return [
+		(r.name, r.full_name or r.name)
+		for r in frappe.get_all(
+			"User",
+			filters={"name": ["in", users], "enabled": 1},
+			fields=["name", "full_name"],
+			order_by="full_name asc",
+		)
+	]
+
+
+@frappe.whitelist()
+def get_team_leader_options():
+	"""Enabled PCB Team Leaders for the booking Approve / Change Team Leader
+	dialogs."""
+	return [{"value": user, "label": name} for user, name in get_enabled_team_leaders()]
+
+
+def resolve_team_leader(chosen=None):
+	"""The PCB Team Leader a newly approved booking's work goes to: the one Finance
+	chose, or the only enabled Team Leader when there is exactly one. Throws when
+	none is set up, or when several are and none was chosen."""
+	leaders = [user for user, _name in get_enabled_team_leaders()]
+	if not leaders:
+		frappe.throw(
+			_("No PCB Team Leader is set up. Ask a System Manager to give someone the PCB Team Leader role."),
+			title=_("No PCB Team Leader"),
+		)
+	if chosen:
+		if chosen not in leaders:
+			frappe.throw(
+				_("{0} is not an enabled PCB Team Leader.").format(chosen),
+				title=_("Invalid Team Leader"),
+			)
+		return chosen
+	if len(leaders) == 1:
+		return leaders[0]
+	frappe.throw(
+		_("Select the PCB Team Leader who will dispatch this booking."),
+		title=_("PCB Team Leader Required"),
+	)
+
+
+def complete_job_order(job_order):
+	"""Finance's approval of the booking is the job order's only gate: mark it
+	Completed and raise its Pending tagging PCB Assignment in one go (formerly a
+	second, separate "Approve" on the job order). Returns the assignment."""
+	assignment = _ensure_assignment(job_order)
+	job_order.job_order_status = "Completed"
+	job_order.save(ignore_permissions=True)
+	return assignment
 
 
 def _get_sole_team_leader():

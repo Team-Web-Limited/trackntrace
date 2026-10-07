@@ -135,6 +135,7 @@ class IntegrationTestTaggingBooking(IntegrationTestCase):
 				"doctype": "Tagging Booking",
 				"client_name": self._get_customer_name(),
 				"location": "QA Yard",
+				"branch": "QA Branch",
 				"booking_date_time": add_to_date(None, days=1),
 				"contact_person_name": "Jane Doe",
 				"contact_person_phone": "+254700000000",

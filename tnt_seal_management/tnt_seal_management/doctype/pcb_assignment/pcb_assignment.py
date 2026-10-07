@@ -146,6 +146,16 @@ class PCBAssignment(Document):
 		previous = self.get_doc_before_save()
 		previous_status = previous.assignment_status if previous else None
 
+		# A tagging request waiting for its Team Leader — on creation (Finance
+		# approved the booking) or when Finance hands it to another Team Leader.
+		if (
+			self.request_type == "Tagging"
+			and self.assignment_status == "Pending"
+			and self.pcb_team_leader
+			and self.has_value_changed("pcb_team_leader")
+		):
+			_notify_pcb_team_leader_new_request(self)
+
 		if (
 			self.request_type == "Untagging"
 			and self.assignment_status == "Untagging Assigned"
@@ -237,6 +247,40 @@ def _notify_field_technician_assigned(assignment):
 		document_name=assignment.name,
 		link=f"/app/pcb-assignment/{assignment.name}",
 	)
+
+
+@frappe.whitelist()
+def change_team_leader(assignment_name, team_leader):
+	"""Hand a tagging request that is still waiting for a Tag Operator to another
+	PCB Team Leader. Done through the job order (its _sync_assignment pushes the
+	Team Leader onto this assignment and the Seal Journey mirror), so all three
+	stay in step; the new Team Leader is notified by on_update."""
+	from tnt_seal_management.tnt_seal_management.doctype.pcb_job_order.pcb_job_order import (
+		resolve_team_leader,
+	)
+
+	if not set(frappe.get_roles()) & {"Finance PCB", "System Manager"}:
+		frappe.throw(
+			_("Only Finance PCB can change the PCB Team Leader."),
+			title=_("Insufficient Permission"),
+		)
+	assignment = frappe.get_doc("PCB Assignment", assignment_name)
+	if assignment.request_type != "Tagging" or assignment.assignment_status != "Pending":
+		frappe.throw(
+			_("The Team Leader can only be changed before a Tag Operator is assigned."),
+			title=_("Invalid Status"),
+		)
+	team_leader = resolve_team_leader(team_leader)
+	if not assignment.pcb_job_order:
+		assignment.pcb_team_leader = team_leader
+		assignment.save(ignore_permissions=True)
+	else:
+		job_order = frappe.get_doc("PCB Job Order", assignment.pcb_job_order)
+		job_order.assigned_pcb_team_leader = team_leader
+		job_order.team_leader_assignment_date_time = now_datetime()
+		job_order.save(ignore_permissions=True)
+	frappe.db.commit()
+	return {"pcb_team_leader": team_leader}
 
 
 def get_permission_query_conditions(user=None):

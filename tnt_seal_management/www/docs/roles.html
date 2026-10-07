@@ -107,7 +107,7 @@
 					<ol class="small text-light-muted pl-4 mb-0">
 						<li class="mb-1"><strong>Open the booking:</strong> Use the bell notification link or the <strong>Tagging Booking List</strong>. Portal bookings arrive as <code>Pending Account Manager Review</code>; bookings you raise yourself start as <code>Draft</code>.</li>
 						<li class="mb-1"><strong>Claim it (shared queue only):</strong> If the portal booking has no Account Manager yet, click <strong>Assign to Me</strong>.</li>
-						<li class="mb-1"><strong>Check the details:</strong> Date and time cannot be in the past, and every vehicle must be registered to the client.</li>
+						<li class="mb-1"><strong>Check the details:</strong> Select the <strong>Branch</strong> (required; portal bookings arrive without one), make sure the date and time are not in the past, and that every vehicle is registered to the client.</li>
 						<li class="mb-1"><strong>Submit:</strong> Click <strong>Submit to Finance</strong>. Every Finance PCB user is notified to approve it.</li>
 						<li class="mb-1"><strong>If Finance sends it back:</strong> you are notified with their remarks. Correct the booking and click <strong>Submit to Finance</strong> again.</li>
 					</ol>
@@ -135,9 +135,9 @@
 				
 				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #17a2b8;">
 					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial 1: Dispatching for Tagging (Start of Journey)</h4>
-					<p class="small text-light-muted mb-2">When Finance approves a tagging booking, a PCB Job Order is created, assigned to you, and you are notified:</p>
+					<p class="small text-light-muted mb-2">When Finance approves a tagging booking they choose you as its Team Leader; a tagging request appears on your <strong>Assignments</strong> page and you are notified:</p>
 					<ol class="small text-light-muted pl-4 mb-0">
-						<li class="mb-1"><strong>Open Assignment:</strong> Use the bell notification link, or open the <strong>PCB Assignment List</strong> and find the new assignment (or open it via the PCB Job Order).</li>
+						<li class="mb-1"><strong>Open Assignment:</strong> Use the bell notification link, or open <strong>Assignments</strong> and find the new <code>Pending</code> tagging request.</li>
 						<li class="mb-1"><strong>Select Operator:</strong> In the assignment form, select the target <strong>Assigned Field Technician</strong> from your team.</li>
 						<li class="mb-1"><strong>Dispatch:</strong> Click <strong>Actions &gt; Assign</strong>. One Journey Request is created covering every vehicle on the booking, each vehicle's journey moves to <code>Technician Assigned</code>, and the technician is notified.</li>
 					</ol>
@@ -152,9 +152,16 @@
 						<li class="mb-1"><strong>Save (Auto-Dispatch):</strong> Unlike Tagging, there is no separate "Assign" button for end-of-journey tasks. Simply clicking <strong>Save</strong> on the document auto-progresses the assignment and instantly hands the task to the field agent, who is notified.</li>
 					</ol>
 				</div>
-{bell(["Finance approves a booking and its PCB Job Order is assigned to you",
-       "The Control Room confirms arrival with a physical or remote unlock (new Untagging / Seal Return assignment)",
-       "A Field Technician confirms a seal return and it needs your approval"])}			</section>
+				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #f57c00;">
+					<h4 class="h6 text-warning mb-2"><i class="fa fa-bell mr-2"></i>You are notified when…</h4>
+					<p class="small text-light-muted mb-2">Each notification arrives in the Desk bell icon (click it to open the record) and by email.</p>
+					<ul class="small text-light-muted pl-4 mb-0">
+						<li class="mb-1">Finance approves a booking and chooses you as its Team Leader, or hands an existing request over to you</li>
+						<li class="mb-1">The Control Room confirms arrival with a physical or remote unlock (new Untagging / Seal Return assignment)</li>
+						<li class="mb-1">A Field Technician confirms a seal return and it needs your approval</li>
+					</ul>
+				</div>
+			</section>
 
 			<section id="role-agent" class="docs-section mt-5 pt-5 border-top border-secondary">
 				<h2 class="docs-title">Field Tagging Agent</h2>
@@ -200,10 +207,17 @@
 						<li class="mb-1"><strong>Approval:</strong> The PCB Team Leader is notified to approve the return. You are notified when they approve it (journey <code>Completed</code>, seal back in the warehouse) or send it back for amendment.</li>
 					</ol>
 				</div>
-{bell(["You are assigned a Tagging, Untagging or Seal Return job",
-       "The Control Room approves a vehicle (complete tagging) or returns it for amendment",
-       "The PCB Team Leader approves your seal return or returns it for amendment",
-       "Your assignment is cancelled"])}			</section>
+				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #f57c00;">
+					<h4 class="h6 text-warning mb-2"><i class="fa fa-bell mr-2"></i>You are notified when…</h4>
+					<p class="small text-light-muted mb-2">Each notification arrives in the Desk bell icon (click it to open the record) and by email.</p>
+					<ul class="small text-light-muted pl-4 mb-0">
+						<li class="mb-1">You are assigned a Tagging, Untagging or Seal Return job</li>
+						<li class="mb-1">The Control Room approves a vehicle (complete tagging) or returns it for amendment</li>
+						<li class="mb-1">The PCB Team Leader approves your seal return or returns it for amendment</li>
+						<li class="mb-1">Your assignment is cancelled</li>
+					</ul>
+				</div>
+			</section>
 
 			<section id="role-operator" class="docs-section mt-5 pt-5 border-top border-secondary">
 				<h2 class="docs-title">Control Room Operator</h2>
@@ -230,10 +244,10 @@
 					<h4 class="h6 text-info mb-2"><i class="fa fa-info-circle mr-2"></i>Tutorial 2: Alert Monitoring & Resolution</h4>
 					<p class="small text-light-muted mb-2">When a seal reports an anomaly (e.g. tamper, low battery, lost connection) an alert is raised. Critical alerts are also sent to you as a notification:</p>
 					<ol class="small text-light-muted pl-4 mb-0">
-						<li class="mb-1"><strong>Monitor Alerts:</strong> Open the <strong>Control Room</strong> page and switch to the <strong>Alert</strong> tab. Filter by status (Open, Resolved, All), level and type; click an alert's status to see its full details.</li>
+						<li class="mb-1"><strong>Monitor Alerts:</strong> Open the <strong>Control Room</strong> page and switch to the <strong>Alert</strong> tab. It lists only alerts for seals on journeys that are <code>In Transit</code> (alerts on seals in stock, awaiting return or on finished journeys are left out). Filter by status (Open, Resolved, All), level and type; click an alert's status to see its full details.</li>
 						<li class="mb-1"><strong>Action:</strong> Click <strong>Action</strong> on the alert row (<strong>Update</strong> if it is already Escalated).</li>
-						<li class="mb-1"><strong>Resolution Status:</strong> Choose <code>Resolved</code> (handled or a false alarm) or <code>Escalated</code> (acknowledged, more action needed), and log what was done in <strong>Remarks</strong>. Click <strong>Submit</strong>.</li>
-						<li class="mb-1"><strong>Notify the custodian (optional):</strong> From the same dialog, <strong>Send</strong> emails the alert to the seal's current custodian.</li>
+						<li class="mb-1"><strong>Resolve:</strong> Choose <code>Resolved</code> (handled or a false alarm), log what was done in <strong>Remarks</strong> and click <strong>Submit</strong>. The alert closes.</li>
+						<li class="mb-1"><strong>Escalate with an email:</strong> Choose <code>Escalated</code> (acknowledged, more action needed). An <strong>Escalation Email</strong> section appears, pre-filled with the alert details and addressed to whoever holds the seal (when they have an email on file). Change or add recipients (comma-separated), add <strong>CC</strong>, edit the subject and message, then click <strong>Submit</strong>. The alert is escalated and the email sent in one step; it is recorded on the alert's timeline and noted in its remarks. Untick <strong>Send an email with this escalation</strong> to escalate without emailing.</li>
 					</ol>
 				</div>
 
@@ -254,8 +268,15 @@
 						<li class="mb-1"><strong>Confirm:</strong> Accept the prompt. The arrival location is captured live from the seal's GPS. This cannot be undone.</li>
 					</ol>
 				</div>
-{bell(["A Field Technician submits a Journey Request for approval",
-       "A critical seal alert is raised for a journey in transit"])}			</section>
+				<div class="docs-callout mt-4 p-3 rounded" style="background: rgba(43, 43, 43, 0.5); border-left: 3px solid #f57c00;">
+					<h4 class="h6 text-warning mb-2"><i class="fa fa-bell mr-2"></i>You are notified when…</h4>
+					<p class="small text-light-muted mb-2">Each notification arrives in the Desk bell icon (click it to open the record) and by email.</p>
+					<ul class="small text-light-muted pl-4 mb-0">
+						<li class="mb-1">A Field Technician submits a Journey Request for approval</li>
+						<li class="mb-1">A critical seal alert is raised for a journey in transit</li>
+					</ul>
+				</div>
+			</section>
 
 			<section id="role-finance" class="docs-section mt-5 pt-5 border-top border-secondary">
 				<h2 class="docs-title">Finance Manager</h2>
@@ -275,7 +296,7 @@
 						<li class="mb-1"><strong>Review Contract:</strong> Open the booking and ensure the customer's financial account is in good standing.</li>
 						<li class="mb-1"><strong>Approve or Amend:</strong> 
 							<ul class="mt-1 pl-3">
-								<li>Click <strong>Actions &gt; Approve</strong> to authorize the booking. This automatically generates a <code>PCB Job Order</code> for the operations team.</li>
+								<li>Click <strong>Actions &gt; Approve</strong> and choose the <strong>PCB Team Leader</strong> who will dispatch it (pre-filled when there is only one). This creates the PCB Job Order and sends the tagging request straight to that Team Leader, who is notified. To hand it to someone else before a Tag Operator is assigned, open the assignment from <strong>Assignments</strong> and use <strong>Actions &gt; Change Team Leader</strong>.</li>
 								<li>If a booking still pending approval needs correction, click <strong>Actions &gt; Amend</strong>; for an already approved booking use <strong>Actions &gt; Reopen / Amend</strong>. Give a reason; the Account Manager is notified with it.</li>
 							</ul>
 						</li>

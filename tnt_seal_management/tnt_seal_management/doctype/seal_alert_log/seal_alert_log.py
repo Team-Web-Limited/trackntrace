@@ -19,12 +19,20 @@ _RESOLUTION_STATUSES = ("Escalated", "Resolved")
 
 
 @frappe.whitelist()
-def acknowledge_alert(docname, status=None, remarks=None):
+def acknowledge_alert(
+	docname, status=None, remarks=None, send_email=0, recipients=None, cc=None, subject=None, message=None
+):
 	"""Acknowledge an alert and set its resolution status.
 
 	status: "Escalated" (acknowledged, further action still needed) or
 	"Resolved" (handled). Re-submitting is allowed to progress an alert from
 	Escalated -> Resolved, but a Resolved alert is locked.
+
+	When escalating, the Control Room can email the alert straight from the
+	Action dialog (``send_email`` with ``recipients``/``cc``/``subject``/
+	``message``). It goes out as a Communication on the alert, so it shows in the
+	alert's timeline and the Email Queue. The email is validated before anything
+	is saved, so a bad address never leaves the alert half-escalated.
 	"""
 	status = (status or "").strip().title()
 	if status not in _RESOLUTION_STATUSES:
@@ -37,6 +45,10 @@ def acknowledge_alert(docname, status=None, remarks=None):
 	doc.check_permission("write")
 	if doc.resolution_status == "Resolved":
 		frappe.throw(_("This alert has already been resolved."), title=_("Already Resolved"))
+
+	email = None
+	if status == "Escalated" and cint(send_email):
+		email = _validated_escalation_email(recipients, cc, subject, message)
 
 	doc.resolution_status = status
 	doc.acknowledged = 1
@@ -52,8 +64,96 @@ def acknowledge_alert(docname, status=None, remarks=None):
 		if not doc.resolved_at:
 			doc.resolved_at = now_datetime()
 
+	if email:
+		note = _("Escalation email sent to {0}").format(", ".join(email["recipients"] + email["cc"]))
+		doc.acknowledgement_remarks = "\n".join(filter(None, [doc.acknowledgement_remarks, note]))
+
 	doc.save()
+
+	result = {"resolution_status": doc.resolution_status}
+	if email:
+		from frappe.core.doctype.communication.email import make
+
+		comm = make(
+			doctype="Seal Alert Log",
+			name=doc.name,
+			subject=email["subject"],
+			content=email["message"],
+			recipients=", ".join(email["recipients"]),
+			cc=", ".join(email["cc"]) or None,
+			communication_medium="Email",
+			send_email=True,
+		)
+		result["email"] = {"communication": comm.get("name"), "recipients": email["recipients"], "cc": email["cc"]}
+
 	frappe.db.commit()
+	return result
+
+
+def _split_emails(value):
+	return [e.strip() for e in re.split(r"[,;\s]+", cstr(value)) if e.strip()]
+
+
+def _validated_escalation_email(recipients, cc, subject, message):
+	to = _split_emails(recipients)
+	copy = _split_emails(cc)
+	if not to:
+		frappe.throw(_("Enter at least one recipient for the escalation email."), title=_("Recipient Required"))
+	bad = [e for e in to + copy if not frappe.utils.validate_email_address(e)]
+	if bad:
+		frappe.throw(
+			_("Not a valid email address: {0}").format(", ".join(bad)), title=_("Invalid Email Address")
+		)
+	if not cstr(subject).strip():
+		frappe.throw(_("Enter a subject for the escalation email."), title=_("Subject Required"))
+	if not frappe.utils.strip_html(cstr(message)).strip():
+		frappe.throw(_("Enter a message for the escalation email."), title=_("Message Required"))
+	return {"recipients": to, "cc": copy, "subject": cstr(subject).strip(), "message": cstr(message)}
+
+
+@frappe.whitelist()
+def get_escalation_email(docname):
+	"""Draft escalation email for the Action dialog: addressed to whoever holds
+	the seal right now (when they have an email on file) and filled with the
+	alert's details. The Control Room edits it before sending."""
+	doc = frappe.get_doc("Seal Alert Log", docname)
+	doc.check_permission("read")
+
+	row = {"seal_device": doc.seal_device, "seal_journey": doc.seal_journey}
+	_attach_alert_locations([row])
+	target = alert_notification_target(doc.seal_device)
+
+	details = [
+		(_("Alert"), doc.message),
+		(_("Level"), doc.level),
+		(_("Type"), doc.alert_type),
+		(_("Client"), row.get("client_name")),
+		(_("Vehicle"), row.get("vehicle")),
+		(_("Seal"), doc.seal_device),
+		(_("Journey"), doc.seal_journey),
+		(_("Last known location"), row.get("seal_location")),
+		(_("Occurred at"), format_datetime(doc.occurred_at) if doc.occurred_at else None),
+	]
+	table = "".join(
+		f"<tr><th align='left' style='padding:4px 12px 4px 0'>{label}</th><td>{frappe.utils.escape_html(cstr(value))}</td></tr>"
+		for label, value in details
+		if value
+	)
+	message = (
+		f"<p>{_('Dear Sir/Madam,')}</p>"
+		f"<p>{_('The TNT Control Room has escalated the following seal alert and needs your urgent attention.')}</p>"
+		f"<table>{table}</table>"
+		f"<p>{_('Please contact the TNT Control Room as soon as possible.')}</p>"
+	)
+	plate = f" ({row.get('vehicle')})" if row.get("vehicle") else ""
+	return {
+		"recipients": target.get("email") or "",
+		"recipient_label": target.get("label") or "",
+		"subject": _("Escalated seal alert: {0} on seal {1}{2}").format(
+			doc.alert_type or doc.level or _("Alert"), doc.seal_device or "—", plate
+		),
+		"message": message,
+	}
 
 
 # Where to find an email address for each kind of custodian a seal can sit
@@ -121,76 +221,33 @@ def alert_notification_target(seal_device):
 	}
 
 
-@frappe.whitelist()
-def notify_alert_custodian(docname, remarks=None):
-	"""Email a critical alert to whoever is currently holding the seal.
-
-	Sent as a Communication against the alert, so the Control Room keeps an
-	audit trail of what was sent and to whom.
-	"""
-	doc = frappe.get_doc("Seal Alert Log", docname)
-	doc.check_permission("write")
-
-	if cstr(doc.level) != "Critical":
-		frappe.throw(
-			_("Only critical alerts can be sent to the seal's custodian."),
-			title=_("Critical Alerts Only"),
+def in_transit_seal_devices():
+	"""Seal Devices currently travelling: the assigned seal, or any seal in the
+	seals table, of a Seal Journey that is In Transit. The Control Room's Alert
+	tab only shows alerts for these units — alerts on seals sitting in stock,
+	awaiting return or on finished journeys are left out."""
+	return [
+		row[0]
+		for row in frappe.db.sql(
+			"""
+			select j.assigned_seal
+			from `tabSeal Journey` j
+			where j.journey_status = 'In Transit' and ifnull(j.assigned_seal, '') != ''
+			union
+			select s.seal_device
+			from `tabJourney Request Seal` s
+			inner join `tabSeal Journey` j on j.name = s.parent
+			where s.parenttype = 'Seal Journey'
+				and j.journey_status = 'In Transit'
+				and ifnull(s.seal_device, '') != ''
+			"""
 		)
-
-	target = alert_notification_target(doc.seal_device)
-	if not target:
-		frappe.throw(
-			_("Seal {0} has no current custodian to notify.").format(doc.seal_device or "—"),
-			title=_("No Custodian"),
-		)
-	if not target.get("email"):
-		frappe.throw(
-			_("{0} has no email address on file, so this alert cannot be sent.").format(
-				target.get("label")
-			),
-			title=_("No Email Address"),
-		)
-
-	location = ""
-	if doc.seal_device:
-		location = (
-			frappe.db.get_value("Seal Device", doc.seal_device, "last_known_api_location")
-			or frappe.db.get_value("Seal Device", doc.seal_device, "current_location")
-			or ""
-		)
-
-	details = [
-		(_("Alert"), doc.message),
-		(_("Seal"), doc.seal_device),
-		(_("Journey"), doc.seal_journey),
-		(_("Occurred at"), format_datetime(doc.occurred_at) if doc.occurred_at else None),
-		(_("Last known location"), location),
-		(_("Remarks"), cstr(remarks).strip() or None),
 	]
-	rows = "".join(
-		f"<tr><th align='left' style='padding:4px 12px 4px 0'>{label}</th><td>{frappe.utils.escape_html(cstr(value))}</td></tr>"
-		for label, value in details
-		if value
-	)
-	message = f"""
-		<p>{_("A critical alert has been raised on a seal currently in your custody.")}</p>
-		<table>{rows}</table>
-		<p>{_("Please contact the TNT Control Room immediately.")}</p>
-	"""
-
-	frappe.sendmail(
-		recipients=[target["email"]],
-		subject=_("Critical seal alert: {0}").format(doc.message or doc.name),
-		message=message,
-		reference_doctype="Seal Alert Log",
-		reference_name=doc.name,
-	)
-
-	return {"email": target["email"], "label": target["label"]}
 
 
 def _build_alert_filters(search=None, level=None, alert_type=None, status="open", from_date=None, to_date=None):
-	filters = []
+	# Only units in transit — an empty list must still filter everything out.
+	filters = [["seal_device", "in", in_transit_seal_devices() or [""]]]
 	if status == "open":
 		filters.append(["is_resolved", "=", 0])
 	elif status == "resolved":
@@ -231,6 +288,51 @@ def _attach_alert_locations(rows):
 			loc_map[d.name] = d.last_known_api_location or d.current_location or ""
 	for r in rows:
 		r["seal_location"] = loc_map.get(r.get("seal_device"), "")
+	_attach_alert_journey_details(rows)
+
+
+def _attach_alert_journey_details(rows):
+	"""Client Name and Vehicle for each alert, from the In Transit Seal Journey its
+	seal is currently on (the only alerts the Control Room shows); falls back to
+	the journey the alert itself was raised against."""
+	devices = list({r["seal_device"] for r in rows if r.get("seal_device")})
+	by_device = {}
+	if devices:
+		for row in frappe.db.sql(
+			"""
+			select seal, customer, vehicle_plate_number from (
+				select j.assigned_seal as seal, j.customer, j.vehicle_plate_number, j.modified
+				from `tabSeal Journey` j
+				where j.journey_status = 'In Transit' and j.assigned_seal in %(devices)s
+				union all
+				select s.seal_device, j.customer, j.vehicle_plate_number, j.modified
+				from `tabJourney Request Seal` s
+				inner join `tabSeal Journey` j on j.name = s.parent
+				where s.parenttype = 'Seal Journey'
+					and j.journey_status = 'In Transit'
+					and s.seal_device in %(devices)s
+			) t
+			order by modified asc
+			""",
+			{"devices": tuple(devices)},
+			as_dict=True,
+		):
+			by_device[row.seal] = row
+
+	journeys = list({r["seal_journey"] for r in rows if r.get("seal_journey")})
+	by_journey = {}
+	if journeys:
+		for row in frappe.get_all(
+			"Seal Journey",
+			filters={"name": ["in", journeys]},
+			fields=["name", "customer", "vehicle_plate_number"],
+		):
+			by_journey[row.name] = row
+
+	for r in rows:
+		src = by_device.get(r.get("seal_device")) or by_journey.get(r.get("seal_journey")) or {}
+		r["client_name"] = src.get("customer") or ""
+		r["vehicle"] = src.get("vehicle_plate_number") or ""
 
 
 @frappe.whitelist()
@@ -308,11 +410,14 @@ def get_alert_queue(
 		)],
 	}
 
+	in_transit = ["in", in_transit_seal_devices() or [""]]
 	summary = {
-		"open": frappe.db.count("Seal Alert Log", filters={"is_resolved": 0}),
-		"critical_open": frappe.db.count("Seal Alert Log", filters={"is_resolved": 0, "level": "Critical"}),
+		"open": frappe.db.count("Seal Alert Log", filters={"is_resolved": 0, "seal_device": in_transit}),
+		"critical_open": frappe.db.count(
+			"Seal Alert Log", filters={"is_resolved": 0, "level": "Critical", "seal_device": in_transit}
+		),
 		"unacknowledged_open": frappe.db.count(
-			"Seal Alert Log", filters={"is_resolved": 0, "acknowledged": 0}
+			"Seal Alert Log", filters={"is_resolved": 0, "acknowledged": 0, "seal_device": in_transit}
 		),
 	}
 
@@ -335,7 +440,7 @@ def get_all_alerts_for_export(search=None, level=None, alert_type=None, status="
 
 	fields = [
 		"name", "alert_type", "level", "message",
-		"seal_device", "occurred_at", "is_resolved", "resolution_status",
+		"seal_device", "seal_journey", "occurred_at", "is_resolved", "resolution_status",
 	]
 
 	rows = frappe.get_list(
@@ -382,6 +487,8 @@ _EXPORT_COLUMNS = (
 	("Level", "level", 14),
 	("Type", "alert_type", 22),
 	("Message", "message", 40),
+	("Client Name", "client_name", 28),
+	("Vehicle", "vehicle", 16),
 	("Seal", "seal_device", 20),
 	("Location", "seal_location", 26),
 	("Occurred At", "occurred_at", 20),
@@ -458,14 +565,19 @@ def alert_message_group(message):
 def open_alert_message_groups():
 	"""Counts of open alerts per message group, worst level first, for the
 	Control Room's information pills. Each group's ``label`` is also what the
-	alert search matches on, so a pill can filter the queue to its own alerts."""
+	alert search matches on, so a pill can filter the queue to its own alerts.
+	Units in transit only, matching the Alert tab."""
+	devices = in_transit_seal_devices()
+	if not devices:
+		return []
 	rows = frappe.db.sql(
 		"""
 		select message, level, count(*) as count
 		from `tabSeal Alert Log`
-		where is_resolved = 0
+		where is_resolved = 0 and seal_device in %(devices)s
 		group by message, level
 		""",
+		{"devices": tuple(devices)},
 		as_dict=True,
 	)
 

@@ -55,12 +55,6 @@ const TNT_DASHBOARD_CARDS = [
 		roles: ["System Manager", "Account Manager", "Finance PCB", "Management", "Managing Director"],
 	},
 	{
-		title: "PCB Job Orders",
-		icon: "📋",
-		route: "pcb-job-order-list",
-		roles: ["System Manager", "Finance PCB", "Management", "Managing Director", "PCB Team Leader", "Account Manager"],
-	},
-	{
 		title: "Assignments",
 		icon: "👷",
 		route: "assignment-list",
@@ -183,7 +177,6 @@ const TNT_DASHBOARD_CARDS = [
 const CARDS_WITHOUT_COUNT_LABELS = new Set([
 	"seal-journey-list",
 	"tagging-booking-list",
-	"pcb-job-order-list",
 	"vehicle-list",
 	"seal-device-dashboard",
 	"seal-billing-rate-list",

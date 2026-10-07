@@ -35,6 +35,12 @@ frappe.ui.form.on("Tagging Booking", {
 		frm.doc.__booking_dt_at_load = frm.doc.booking_date_time;
 		set_booking_date_min(frm);
 		load_branch_options(frm);
+		// Branch must be set before a booking goes to Finance (enforced server-side
+		// too); older bookings past that point aren't forced to have one.
+		frm.toggle_reqd(
+			"branch",
+			frm.is_new() || ["Draft", "Pending Account Manager Review"].includes(frm.doc.booking_status)
+		);
 		frm.add_custom_button(__("Back"), () => {
 			frappe.set_route("tagging-booking-list");
 		});
@@ -139,30 +145,7 @@ frappe.ui.form.on("Tagging Booking", {
 			frm.doc.booking_status === "Pending Finance PCB Approval" &&
 			frappe.user.has_role("Finance PCB")
 		) {
-			frm.add_custom_button(
-				__("Approve"),
-				() => {
-					frappe.call({
-						method:
-							"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.approve_booking",
-						args: { docname: frm.doc.name },
-						callback: (r) => {
-							const jobOrder = r.message && r.message.pcb_job_order;
-							frm.reload_doc();
-							if (jobOrder) {
-								frappe.show_alert(
-									{
-										message: __("PCB Job Order {0} created", [jobOrder]),
-										indicator: "green",
-									},
-									5
-								);
-							}
-						},
-					});
-				},
-				__("Actions")
-			);
+			frm.add_custom_button(__("Approve"), () => approve_booking_with_team_leader(frm), __("Actions"));
 
 			frm.add_custom_button(
 				__("Amend"),
@@ -264,6 +247,64 @@ function sync_selected_vehicles(frm) {
 	});
 
 	frm.refresh_field("selected_vehicles");
+}
+
+// Approving hands the booking straight to a PCB Team Leader, so Finance picks
+// one here — pre-filled when there is only one, blocked when none is set up.
+function approve_booking_with_team_leader(frm) {
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.doctype.pcb_job_order.pcb_job_order.get_team_leader_options",
+		callback(r) {
+			const leaders = r.message || [];
+			if (!leaders.length) {
+				frappe.msgprint({
+					title: __("No PCB Team Leader"),
+					message: __(
+						"No PCB Team Leader is set up. Ask a System Manager to give someone the PCB Team Leader role."
+					),
+					indicator: "red",
+				});
+				return;
+			}
+			frappe.prompt(
+				[
+					{
+						fieldname: "pcb_team_leader",
+						fieldtype: "Autocomplete",
+						label: __("PCB Team Leader"),
+						options: leaders,
+						default: leaders.length === 1 ? leaders[0].value : "",
+						reqd: 1,
+						description: __("Who will assign a Tag Operator for this booking. They are notified."),
+					},
+				],
+				(values) => {
+					frappe.call({
+						method:
+							"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.approve_booking",
+						args: { docname: frm.doc.name, pcb_team_leader: values.pcb_team_leader },
+						freeze: true,
+						freeze_message: __("Approving booking…"),
+						callback: (res) => {
+							const jobOrder = res.message && res.message.pcb_job_order;
+							frm.reload_doc();
+							if (jobOrder) {
+								frappe.show_alert(
+									{
+										message: __("Approved — PCB Job Order {0} sent to the Team Leader", [jobOrder]),
+										indicator: "green",
+									},
+									5
+								);
+							}
+						},
+					});
+				},
+				__("Approve Tagging Booking"),
+				__("Approve")
+			);
+		},
+	});
 }
 
 function load_branch_options(frm) {

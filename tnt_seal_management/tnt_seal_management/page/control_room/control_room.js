@@ -191,7 +191,7 @@ function _control_room_render(page) {
 				<div class="cr-toolbar" style="display: ${state.tab === "alert" ? "block" : "none"}">
 					<div class="cr-toolbar-top">
 						<label class="cr-field cr-search-inline">
-							<input class="cr-alert-search" type="search" placeholder="${__("Seal device, journey or message")}" value="${frappe.utils.escape_html(state.alertSearch || "")}">
+							<input class="cr-alert-search" type="search" title="${__("Only alerts for seals on journeys In Transit are shown")}" placeholder="${__("Seal device, journey or message")}" value="${frappe.utils.escape_html(state.alertSearch || "")}">
 						</label>
 						<label class="cr-field">
 							<span>${__("Status")}</span>
@@ -416,47 +416,7 @@ function _control_room_render(page) {
 		.on("click", ".cr-alert-ack-btn", function () {
 			const docname = $(this).data("name");
 			if (!docname) return;
-			const alert = (page.control_room_state.alerts || []).find((a) => a.name === docname);
-			const dialog = frappe.prompt(
-				[
-					{
-						fieldname: "status",
-						fieldtype: "Select",
-						label: __("Status"),
-						options: ["Resolved", "Escalated"].join("\n"),
-						default: "Resolved",
-						reqd: 1,
-						description: __("Resolved if handled. Escalated if acknowledged but further action is still needed."),
-					},
-					{
-						fieldname: "remarks",
-						fieldtype: "Small Text",
-						label: __("Remarks (optional)"),
-						description: __("Log what was done — e.g. action taken, driver contacted, or false alarm."),
-					},
-				],
-				(values) => {
-					frappe.call({
-						method: "tnt_seal_management.tnt_seal_management.doctype.seal_alert_log.seal_alert_log.acknowledge_alert",
-						args: { docname, status: values.status, remarks: values.remarks || null },
-						freeze: true,
-						freeze_message: __("Saving…"),
-						callback() {
-							frappe.show_alert(
-								{ message: __("Alert marked {0}", [values.status]), indicator: "green" },
-								4
-							);
-							_control_room_load_alerts(page);
-						},
-					});
-				},
-				__("Acknowledge {0}", [docname]),
-				__("Submit")
-			);
-
-			if (alert && alert.level === "Critical") {
-				_control_room_add_alert_send_action(dialog, docname, alert);
-			}
+			_control_room_open_alert_action(page, docname);
 		});
 
 	$(page.body)
@@ -508,7 +468,7 @@ function _control_room_render_body(page) {
 				<div class="cr-empty">
 					<div class="cr-empty-icon">🛎️</div>
 					<h3>${__("No alerts")}</h3>
-					<p>${__("Seal exceptions, journey disruptions and low-battery signals will surface here as they occur.")}</p>
+					<p>${__("Only alerts for seals on journeys In Transit are shown. Seal exceptions, journey disruptions and low-battery signals for those units will surface here as they occur.")}</p>
 				</div>
 			`);
 			return;
@@ -1245,6 +1205,8 @@ function _control_room_export_alerts_pdf(page) {
 									<th>${__("Level")}</th>
 									<th>${__("Type")}</th>
 									<th>${__("Message")}</th>
+									<th>${__("Client Name")}</th>
+									<th>${__("Vehicle")}</th>
 									<th>${__("Seal")}</th>
 									<th>${__("Location")}</th>
 									<th>${__("Occurred At")}</th>
@@ -1305,6 +1267,8 @@ function _control_room_alert_pdf_row_html(a) {
 			<td><span class="cr-print-badge cr-print-badge--${levelClass}">${esc(a.level || "—")}</span></td>
 			<td>${esc(a.alert_type || dash)}</td>
 			<td>${esc(a.message || dash)}</td>
+			<td>${esc(a.client_name || dash)}</td>
+			<td>${esc(a.vehicle || dash)}</td>
 			<td>${esc(a.seal_device || dash)}</td>
 			<td>${esc(a.seal_location || dash)}</td>
 			<td>${esc(occurred)}</td>
@@ -1361,60 +1325,131 @@ function _control_room_alert_print_styles() {
 }
 
 
-// Critical alerts get a Send button beside Submit in the acknowledge dialog: it
-// emails the alert to whoever is physically holding the seal right now — the
-// customer while it is on their journey, the warehouse once it is back in
-// store, the technician while they carry it (see the seal's custody pointer).
-// Sending is separate from acknowledging, so the dialog stays open afterwards.
-function _control_room_add_alert_send_action(dialog, docname, alert) {
-	const target = alert.notify_target || {};
-	const holder = target.label || __("the current custodian");
+// Action dialog for an alert. Resolved closes it. Escalated keeps it open and,
+// optionally, emails it straight from here: the draft (from get_escalation_email)
+// is addressed to whoever holds the seal right now and carries the alert details;
+// the operator can change recipients, add CC and edit the text before sending.
+// The email goes out as a Communication on the alert (see acknowledge_alert).
+const CR_ALERT_METHOD = (m) => `tnt_seal_management.tnt_seal_management.doctype.seal_alert_log.seal_alert_log.${m}`;
 
-	dialog.set_secondary_action_label(__("Send"));
-	dialog.set_secondary_action(() => {
-		if (!target.custodian) {
-			frappe.msgprint({
-				message: __("Seal {0} has no current custodian to notify.", [alert.seal_device || "—"]),
-				title: __("No Custodian"),
-				indicator: "orange",
-			});
-			return;
-		}
-		if (!target.email) {
-			frappe.msgprint({
-				message: __("{0} has no email address on file, so this alert cannot be sent.", [holder]),
-				title: __("No Email Address"),
-				indicator: "orange",
-			});
-			return;
-		}
+function _control_room_open_alert_action(page, docname) {
+	let draftLoaded = false;
+	const showEmail = "eval:doc.status === 'Escalated'";
+	const showEmailFields = "eval:doc.status === 'Escalated' && doc.send_email";
 
-		frappe.confirm(
-			__("Send this alert to {0} ({1})?", [holder, target.email]),
-			() => {
-				frappe.call({
-					method: "tnt_seal_management.tnt_seal_management.doctype.seal_alert_log.seal_alert_log.notify_alert_custodian",
-					args: { docname, remarks: dialog.get_value("remarks") || null },
-					freeze: true,
-					freeze_message: __("Sending…"),
-					callback(r) {
-						const sent = (r.message || {}).email || target.email;
-						frappe.show_alert({ message: __("Alert sent to {0}", [sent]), indicator: "green" }, 5);
-					},
-				});
+	const dialog = new frappe.ui.Dialog({
+		title: __("Action {0}", [docname]),
+		size: "large",
+		fields: [
+			{
+				fieldname: "status",
+				fieldtype: "Select",
+				label: __("Status"),
+				options: ["Resolved", "Escalated"].join("\n"),
+				default: "Resolved",
+				reqd: 1,
+				description: __("Resolved if handled. Escalated if acknowledged but further action is still needed."),
+				onchange: () => {
+					if (dialog.get_value("status") === "Escalated") load_draft();
+				},
+			},
+			{
+				fieldname: "remarks",
+				fieldtype: "Small Text",
+				label: __("Remarks (optional)"),
+			},
+			{ fieldtype: "Section Break", label: __("Escalation Email"), depends_on: showEmail },
+			{
+				fieldname: "send_email",
+				fieldtype: "Check",
+				label: __("Send an email with this escalation"),
+				default: 1,
+				depends_on: showEmail,
+			},
+			{
+				fieldname: "recipients",
+				fieldtype: "Data",
+				label: __("To"),
+				depends_on: showEmailFields,
+				description: __("Separate several addresses with commas."),
+			},
+			{ fieldname: "cc", fieldtype: "Data", label: __("CC"), depends_on: showEmailFields },
+			{ fieldname: "subject", fieldtype: "Data", label: __("Subject"), depends_on: showEmailFields },
+			{ fieldname: "message", fieldtype: "Text Editor", label: __("Message"), depends_on: showEmailFields },
+		],
+		primary_action_label: __("Submit"),
+		primary_action(values) {
+			const emailing = values.status === "Escalated" && values.send_email;
+			if (emailing) {
+				const missing = [
+					[values.recipients, __("To")],
+					[values.subject, __("Subject")],
+					[frappe.utils.html2text(values.message || "").trim(), __("Message")],
+				]
+					.filter(([v]) => !(v || "").trim())
+					.map(([, label]) => label);
+				if (missing.length) {
+					frappe.msgprint(__("Fill in the escalation email: {0}", [missing.join(", ")]));
+					return;
+				}
 			}
-		);
+			frappe.call({
+				method: CR_ALERT_METHOD("acknowledge_alert"),
+				args: {
+					docname,
+					status: values.status,
+					remarks: values.remarks || null,
+					send_email: emailing ? 1 : 0,
+					recipients: emailing ? values.recipients : null,
+					cc: emailing ? values.cc || null : null,
+					subject: emailing ? values.subject : null,
+					message: emailing ? values.message : null,
+				},
+				freeze: true,
+				freeze_message: emailing ? __("Escalating and sending email…") : __("Saving…"),
+				callback(r) {
+					dialog.hide();
+					const sent = (r.message || {}).email;
+					frappe.show_alert(
+						{
+							message: sent
+								? __("Alert escalated — email sent to {0}", [sent.recipients.concat(sent.cc).join(", ")])
+								: __("Alert marked {0}", [values.status]),
+							indicator: "green",
+						},
+						6
+					);
+					_control_room_load_alerts(page);
+				},
+			});
+		},
 	});
 
-	// Say up front who the alert would reach, so the operator isn't sending blind.
-	const note = target.email
-		? __("Send emails this alert to {0} ({1}), who is holding the seal.", [holder, target.email])
-		: target.custodian
-		? __("{0} is holding the seal but has no email address on file.", [holder])
-		: __("This seal has no current custodian to send to.");
-	dialog.$wrapper
-		.find(".modal-body")
-		.append(`<p class="cr-alert-send-note">${frappe.utils.escape_html(note)}</p>`);
+	function load_draft() {
+		if (draftLoaded) return;
+		draftLoaded = true;
+		frappe.call({
+			method: CR_ALERT_METHOD("get_escalation_email"),
+			args: { docname },
+			callback(r) {
+				const draft = r.message || {};
+				// Only fill what the operator hasn't typed yet.
+				["recipients", "subject", "message"].forEach((f) => {
+					if (!dialog.get_value(f) && draft[f]) dialog.set_value(f, draft[f]);
+				});
+				// Only speak up when there is no address to pre-fill.
+				if (!draft.recipients) {
+					dialog.fields_dict.recipients.set_description(
+						draft.recipient_label
+							? __("{0} is holding the seal but has no email address on file — enter recipients.", [draft.recipient_label])
+							: __("This seal has no current custodian with an email — enter recipients.")
+					);
+				}
+			},
+		});
+	}
+
+	dialog.show();
 }
 
 function _control_room_alert_pagination(state) {
@@ -1467,6 +1502,8 @@ function _control_room_alert_table(alerts) {
 					<td>${statusBadge}</td>
 					<td>${frappe.utils.escape_html(a.alert_type || "—")}</td>
 					<td>${frappe.utils.escape_html(a.message || "")}</td>
+					<td>${frappe.utils.escape_html(a.client_name || "—")}</td>
+					<td class="cr-nowrap">${frappe.utils.escape_html(a.vehicle || "—")}</td>
 					<td>${frappe.utils.escape_html(seal)}</td>
 					<td class="cr-seal-loc">${frappe.utils.escape_html(a.seal_location || "—")}</td>
 					<td class="cr-nowrap">${occurred}</td>
@@ -1483,6 +1520,8 @@ function _control_room_alert_table(alerts) {
 					<th>${__("Level")}</th>
 					<th>${__("Type")}</th>
 					<th>${__("Message")}</th>
+					<th>${__("Client Name")}</th>
+					<th>${__("Vehicle")}</th>
 					<th>${__("Seal")}</th>
 					<th>${__("Location")}</th>
 					<th>${__("Occurred At")}</th>
@@ -1520,6 +1559,8 @@ function _control_room_open_alert_details(alert) {
 				${row(__("Level"), `<span class="cr-alert-badge cr-alert-badge--${(alert.level || "info").toLowerCase()}">${val(alert.level)}</span>`)}
 				${row(__("Type"), val(alert.alert_type))}
 				${row(__("Message"), val(alert.message))}
+				${row(__("Client Name"), val(alert.client_name))}
+				${row(__("Vehicle"), val(alert.vehicle))}
 				${row(__("Source"), val(alert.alert_source))}
 				${row(__("Target"), val(target))}
 				${row(__("Occurred At"), dt(alert.occurred_at))}
@@ -1811,14 +1852,6 @@ function _control_room_inject_styles() {
 		.cr-tab-count--critical { background: #fee2e2; color: #b91c1c; }
 		.cr-tab.active .cr-tab-count--critical { background: #fff; color: #b91c1c; }
 		.cr-tab-body { padding: 22px; }
-		.cr-alert-send-note {
-			margin: 4px 0 0;
-			padding: 9px 12px;
-			border-radius: 8px;
-			background: #f1f5f9;
-			color: #475569;
-			font-size: 12px;
-		}
 		.cr-alert-badge {
 			display: inline-block;
 			padding: 2px 9px;
@@ -1909,7 +1942,7 @@ function _control_room_inject_styles() {
 			box-shadow: none;
 		}
 		/* keep columns from squishing; forces horizontal scroll on narrow widths */
-		.cr-alert-table-wrap .cr-queue-table { min-width: 1300px; }
+		.cr-alert-table-wrap .cr-queue-table { min-width: 1560px; }
 		.cr-alert-table-wrap .cr-queue-table th:first-child,
 		.cr-alert-table-wrap .cr-queue-table td:first-child { padding-left: 14px; }
 		.cr-alert-table-wrap .cr-queue-table th:last-child,
@@ -2461,7 +2494,6 @@ function _control_room_inject_styles() {
 		[data-theme="dark"] .cr-tabs { background: #0f172a; border-color: #334155; }
 		[data-theme="dark"] .cr-tab { background: #1e293b; border-color: #334155; color: #cbd5e1; }
 		[data-theme="dark"] .cr-tab.active { background: #0284c7; color: #fff; border-color: #0284c7; }
-		[data-theme="dark"] .cr-alert-send-note { background: #0f172a; color: #cbd5e1; }
 		[data-theme="dark"] .cr-info-pill { background: #1e293b; border-color: #334155; color: #cbd5e1; }
 		[data-theme="dark"] .cr-info-pill:hover { border-color: #64748b; }
 		[data-theme="dark"] .cr-info-pill-count { background: #0f172a; color: #e2e8f0; }

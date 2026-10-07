@@ -37,6 +37,7 @@ class TaggingBooking(Document):
 
 	def validate(self):
 		self._validate_booking_date_time_not_past()
+		self._validate_branch()
 		self._validate_vehicles_belong_to_client()
 		self._enforce_finance_only_approval_controls()
 		self._sync_approval_status()
@@ -58,6 +59,21 @@ class TaggingBooking(Document):
 				_("Date and Time cannot be in the past."),
 				title=_("Invalid Date and Time"),
 			)
+
+	def _validate_branch(self):
+		"""Branch is mandatory for every booking that reaches Finance. Checked when
+		an Account Manager raises a booking and when any booking is submitted to
+		Finance — a customer portal booking is created without one and the
+		Account Manager sets it during review. Older bookings saved before this
+		rule are not blocked from being approved, amended or reopened."""
+		if cstr(self.branch).strip():
+			return
+		raising = self.is_new() and self.booking_source != "Customer Portal"
+		submitting = self.booking_status == "Pending Finance PCB Approval" and self.has_value_changed(
+			"booking_status"
+		)
+		if raising or submitting:
+			frappe.throw(_("Branch is required."), title=_("Missing Branch"))
 
 	def _validate_vehicles_belong_to_client(self):
 		"""Every booked vehicle must be owned by the booking's client. Only
@@ -529,6 +545,12 @@ def submit_to_finance(docname):
 				title=_("Not Assigned to You"),
 			)
 
+	if not cstr(doc.branch).strip():
+		frappe.throw(
+			_("Select the Branch before submitting this booking to Finance."),
+			title=_("Missing Branch"),
+		)
+
 	doc._ensure_seal_journey(force=True)
 	doc.booking_status = "Pending Finance PCB Approval"
 	doc.account_manager_submission_date_time = now_datetime()
@@ -580,7 +602,16 @@ def notify_booking_approvers(doc, recipients, subject, intro):
 
 
 @frappe.whitelist()
-def approve_booking(docname, remarks=None):
+def approve_booking(docname, remarks=None, pcb_team_leader=None):
+	"""Approve the booking and hand it straight to the chosen PCB Team Leader:
+	creates (or revives) the PCB Job Order with that Team Leader, completes it and
+	raises the Pending tagging PCB Assignment — the Team Leader is notified from
+	there (PCBAssignment.on_update)."""
+	from tnt_seal_management.tnt_seal_management.doctype.pcb_job_order.pcb_job_order import (
+		complete_job_order,
+		resolve_team_leader,
+	)
+
 	_ensure_finance_role()
 	doc = _get_tagging_booking(docname)
 	if doc.booking_status != "Pending Finance PCB Approval":
@@ -588,6 +619,7 @@ def approve_booking(docname, remarks=None):
 			_("Only tagging bookings pending Finance approval can be approved."),
 			title=_("Invalid Status"),
 		)
+	team_leader = resolve_team_leader(pcb_team_leader)
 
 	doc.booking_status = "Finance PCB Approved"
 	doc.finance_pcb_approver = frappe.session.user
@@ -599,12 +631,13 @@ def approve_booking(docname, remarks=None):
 	# journey to "Team Lead Assigned" from "Finance PCB Approved". Setting the
 	# status afterwards would regress that auto-advance.
 	_set_booking_journeys_status(doc, "Finance PCB Approved", sync=False)
-	job_order = _get_or_create_pcb_job_order(doc)
+	job_order = _get_or_create_pcb_job_order(doc, team_leader)
+	assignment = complete_job_order(job_order)
 	doc.pcb_job_order_reference = job_order.name
 	doc.save()
 	_sync_booking_journeys(doc)
 	frappe.db.commit()
-	return {"pcb_job_order": job_order.name}
+	return {"pcb_job_order": job_order.name, "pcb_assignment": assignment.name, "pcb_team_leader": team_leader}
 
 
 @frappe.whitelist()
@@ -745,9 +778,12 @@ def _guard_no_downstream_work(booking):
 	)
 	if job_order_name:
 		status = frappe.db.get_value("PCB Job Order", job_order_name, "job_order_status")
-		# Unassigned and the auto-assigned "Team Leader Assigned" are still safe;
-		# Completed/Cancelled are not.
-		if status not in ("Unassigned", "Team Leader Assigned"):
+		# Unassigned / Team Leader Assigned / Completed are all still safe —
+		# "Completed" ("Assignment Completed") only means the tagging request was
+		# handed to the Team Leader, which approve_booking now does at once; a Tag
+		# Operator being assigned (checked below) is what marks real work.
+		# Cancelled is not.
+		if status not in ("Unassigned", "Team Leader Assigned", "Completed"):
 			frappe.throw(
 				_(
 					"This booking cannot be reopened — its PCB Job Order is already '{0}'."
@@ -809,7 +845,7 @@ def _reset_pcb_job_order(booking):
 	job_order.save(ignore_permissions=True)
 
 
-def _get_or_create_pcb_job_order(booking):
+def _get_or_create_pcb_job_order(booking, team_leader=None):
 	existing = booking.pcb_job_order_reference or frappe.db.get_value(
 		"PCB Job Order",
 		{"tagging_booking": booking.name},
@@ -828,6 +864,8 @@ def _get_or_create_pcb_job_order(booking):
 				"contact_person_phone": booking.contact_person_phone,
 				# Revive a job order parked as Cancelled by a prior reopen.
 				"job_order_status": "Unassigned",
+				"assigned_pcb_team_leader": team_leader,
+				"team_leader_assignment_date_time": None,
 			}
 		)
 		job_order.save(ignore_permissions=True)
@@ -843,5 +881,6 @@ def _get_or_create_pcb_job_order(booking):
 			"contact_person_name": booking.contact_person_name,
 			"contact_person_phone": booking.contact_person_phone,
 			"job_order_status": "Unassigned",
+			"assigned_pcb_team_leader": team_leader,
 		}
 	).insert(ignore_permissions=True)

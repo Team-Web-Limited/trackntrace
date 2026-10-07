@@ -23,6 +23,14 @@ frappe.ui.form.on("PCB Assignment", {
 		const can_cancel = is_system_manager || frappe.user.has_role("Finance PCB");
 
 		if (
+			can_cancel &&
+			frm.doc.request_type === "Tagging" &&
+			frm.doc.assignment_status === "Pending"
+		) {
+			frm.add_custom_button(__("Change Team Leader"), () => _asg_change_team_leader(frm), __("Actions"));
+		}
+
+		if (
 			can_assign &&
 			frm.doc.assignment_status === "Pending" &&
 			frm.doc.assigned_field_technician
@@ -77,6 +85,44 @@ function _asg_update_status(frm, status) {
 		callback() {
 			frappe.show_alert({ message: __("Assignment marked as {0}", [status]), indicator: "green" }, 5);
 			frm.reload_doc();
+		},
+	});
+}
+
+function _asg_change_team_leader(frm) {
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.doctype.pcb_job_order.pcb_job_order.get_team_leader_options",
+		callback(r) {
+			const leaders = (r.message || []).filter((l) => l.value !== frm.doc.pcb_team_leader);
+			if (!leaders.length) {
+				frappe.msgprint(__("There is no other enabled PCB Team Leader to hand this to."));
+				return;
+			}
+			frappe.prompt(
+				[
+					{
+						fieldname: "team_leader",
+						fieldtype: "Autocomplete",
+						label: __("New PCB Team Leader"),
+						options: leaders,
+						reqd: 1,
+					},
+				],
+				(values) => {
+					frappe.call({
+						method:
+							"tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment.change_team_leader",
+						args: { assignment_name: frm.doc.name, team_leader: values.team_leader },
+						freeze: true,
+						callback() {
+							frappe.show_alert({ message: __("Team Leader changed and notified"), indicator: "green" }, 5);
+							frm.reload_doc();
+						},
+					});
+				},
+				__("Change Team Leader"),
+				__("Change")
+			);
 		},
 	});
 }
