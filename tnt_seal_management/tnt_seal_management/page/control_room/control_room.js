@@ -42,18 +42,27 @@ frappe.pages["control-room"].on_page_load = function (wrapper) {
 		arrivalsLoaded: false,
 		arrivalDialog: null,
 		dialog_kind: "tagging",
+		journeys: [],
+		journeysLoaded: false,
+		journeysLoading: false,
+		journeySearch: "",
+		journeyPage: 1,
+		journeyTotal: 0,
+		journeyOverall: 0,
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
 	page.add_inner_button(__("Refresh"), () => {
 		_control_room_load_queue(page);
 		_control_room_load_arrivals(page);
+		_control_room_load_journeys(page);
 	}).addClass("cr-page-refresh-btn");
 
 	_control_room_inject_styles();
 	_control_room_render(page);
 	_control_room_load_queue(page);
 	_control_room_load_arrivals(page);
+	_control_room_load_journeys(page);
 
 	// Stash the page so on_page_show can re-apply a deep-link when the user
 	// re-enters this already-built page from the bell.
@@ -168,6 +177,10 @@ function _control_room_render(page) {
 						${__("Alert")}
 						<span class="cr-tab-count ${state.alertSummary.critical_open ? "cr-tab-count--critical" : ""}" data-cr-alert-count>${state.alertSummary.open || 0}</span>
 					</button>
+					<button class="cr-tab ${state.tab === "journeys" ? "active" : ""}" data-tab="journeys">
+						${__("Journey List")}
+						<span class="cr-tab-count" data-cr-journey-count>${state.journeyOverall || 0}</span>
+					</button>
 					<div class="cr-info-pills" data-cr-info-pills>${_control_room_info_pills_html(state)}</div>
 				</div>
 				<div class="cr-toolbar" style="display: ${state.tab === "approve" ? "block" : "none"}">
@@ -235,6 +248,19 @@ function _control_room_render(page) {
 						</div>
 					</div>
 				</div>
+				<div class="cr-toolbar" style="display: ${state.tab === "journeys" ? "block" : "none"}">
+					<div class="cr-toolbar-top">
+						<label class="cr-field cr-search-inline">
+							<input class="cr-journey-search" type="search" placeholder="${__("Journey, client, vehicle, seal, entry, container, origin or destination")}" value="${frappe.utils.escape_html(state.journeySearch || "")}">
+						</label>
+						<div class="cr-actions">
+							<button class="cr-journey-refresh-btn ${state.journeysLoading ? "is-loading" : ""}" title="${__("Refresh journey list")}">
+								<svg class="cr-refresh-icon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+								<span>${__("Refresh")}</span>
+							</button>
+						</div>
+					</div>
+				</div>
 				<div class="cr-tab-body" data-cr-body></div>
 			</section>
 		</div>
@@ -267,6 +293,24 @@ function _control_room_render(page) {
 			_control_room_reload_approve(page);
 		});
 
+	const delayedJourneySearch = _cr_debounce(() => {
+		page.control_room_state.journeySearch = ($(page.body).find(".cr-journey-search").val() || "").trim();
+		page.control_room_state.journeyPage = 1;
+		_control_room_load_journeys(page);
+	}, 350);
+	$(page.body).off("input", ".cr-journey-search").on("input", ".cr-journey-search", delayedJourneySearch);
+	$(page.body)
+		.off("click", ".cr-journey-refresh-btn")
+		.on("click", ".cr-journey-refresh-btn", () => _control_room_load_journeys(page));
+	$(page.body)
+		.off("click", ".cr-journey-page-btn")
+		.on("click", ".cr-journey-page-btn", function () {
+			const nextPage = Number($(this).data("page"));
+			if (!nextPage || nextPage === page.control_room_state.journeyPage) return;
+			page.control_room_state.journeyPage = nextPage;
+			_control_room_load_journeys(page);
+		});
+
 	$(page.body)
 		.off("click", ".cr-tab")
 		.on("click", ".cr-tab", function () {
@@ -275,6 +319,7 @@ function _control_room_render(page) {
 			page.control_room_state.tab = tab;
 			_control_room_render(page);
 			_control_room_render_body(page);
+			if (tab === "journeys" && !page.control_room_state.journeysLoaded) _control_room_load_journeys(page);
 			if (tab === "alert") {
 				if (!page.control_room_state.alertsLoaded) _control_room_load_alerts(page);
 				_control_room_start_alert_polling(page);
@@ -458,6 +503,28 @@ function _control_room_render_body(page) {
 	const state = page.control_room_state;
 	const $body = $(page.body).find("[data-cr-body]");
 
+	if (state.tab === "journeys") {
+		if (state.journeysLoading && !state.journeys.length) {
+			$body.html(`<div class="cr-loading"><div class="cr-spinner"></div>${__("Loading journeys…")}</div>`);
+			return;
+		}
+		if (!state.journeys.length) {
+			$body.html(`
+				<div class="cr-empty">
+					<div class="cr-empty-icon">🚚</div>
+					<h3>${state.journeySearch ? __("No matching journeys") : __("No journeys in transit")}</h3>
+					<p>${state.journeySearch ? __("Try a different search term.") : __("Journeys appear here once tagging is completed and they are In Transit.")}</p>
+				</div>
+			`);
+			return;
+		}
+		$body.html(`
+			<div class="cr-table-wrap cr-alert-table-wrap cr-journey-table-wrap">${_control_room_journey_table(state.journeys)}</div>
+			${_control_room_journey_pagination(state)}
+		`);
+		return;
+	}
+
 	if (state.tab === "alert") {
 		if (state.alertsLoading) {
 			$body.html(`<div class="cr-loading"><div class="cr-spinner"></div>${__("Loading alerts…")}</div>`);
@@ -585,7 +652,7 @@ function _control_room_arrival_row(journey) {
 			<td class="cr-arrival-journey">${frappe.utils.escape_html(journey.name)}</td>
 			<td>${frappe.utils.escape_html(journey.vehicle_plate_number || "—")}</td>
 			<td>${frappe.utils.escape_html(journey.assigned_seal || "—")}</td>
-			<td class="cr-arrival-location" title="${frappe.utils.escape_html(journey.api_device_location || "")}">${frappe.utils.escape_html(journey.api_device_location || "—")}</td>
+			<td class="cr-arrival-location">${_cr_location_html(journey)}</td>
 			<td class="cr-arrival-action-col">
 				<button class="cr-arrival-open" data-name="${frappe.utils.escape_html(journey.name)}">${__("View")}</button>
 			</td>
@@ -635,7 +702,7 @@ function _control_room_arrival_card(journey) {
 				${_cr_meta(__("Container"), frappe.utils.escape_html(journey.container_number || "—"))}
 				${_cr_meta(__("Seal Device"), frappe.utils.escape_html(journey.assigned_seal || "—"))}
 				${_cr_meta(__("Route"), route, true)}
-				${_cr_meta(__("Last Known Location"), frappe.utils.escape_html(journey.api_device_location || "—"), true)}
+				${_cr_meta(__("Last Known Location"), _cr_location_html(journey), true)}
 				${_cr_meta(__("Journey Started"), started)}
 				${_cr_meta(__("Last API Update"), lastSeen)}
 			</div>
@@ -1104,6 +1171,138 @@ function _control_room_update_approve_count(page) {
 }
 
 
+
+// ---------------------------------------------------------------------------
+// Journey List tab — every Seal Journey In Transit (get_control_room_journey_list).
+// ---------------------------------------------------------------------------
+
+function _control_room_load_journeys(page) {
+	const state = page.control_room_state;
+	state.journeysLoading = true;
+	$(page.body).find(".cr-journey-refresh-btn").addClass("is-loading");
+	if (state.tab === "journeys") _control_room_render_body(page);
+
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey.get_control_room_journey_list",
+		args: { search: state.journeySearch || "", page: state.journeyPage || 1, page_length: state.queuePageLength },
+		callback(r) {
+			const res = r.message || {};
+			const totalPages = Math.max(1, Math.ceil((res.total || 0) / state.queuePageLength));
+			if (state.journeyPage > totalPages) {
+				state.journeyPage = totalPages;
+				_control_room_load_journeys(page);
+				return;
+			}
+			state.journeysLoading = false;
+			state.journeysLoaded = true;
+			$(page.body).find(".cr-journey-refresh-btn").removeClass("is-loading");
+			state.journeys = res.journeys || [];
+			state.journeyTotal = res.total || 0;
+			state.journeyOverall = res.overall || 0;
+			$(page.body).find("[data-cr-journey-count]").text(state.journeyOverall);
+			if (state.tab === "journeys") _control_room_render_body(page);
+		},
+		error() {
+			state.journeysLoading = false;
+			$(page.body).find(".cr-journey-refresh-btn").removeClass("is-loading");
+			if (state.tab === "journeys") _control_room_render_body(page);
+			frappe.show_alert({ message: __("Could not load the journey list"), indicator: "red" }, 5);
+		},
+	});
+}
+
+// Location cell, same as Journey Monitoring: a map link (Google Maps at the
+// exact coordinates) only when there is a GPS fix, labelled with the first few
+// words of the place name and the full name + coordinates on hover; plain
+// truncated text when there is a name but no fix.
+function _cr_location_html(j) {
+	const esc = frappe.utils.escape_html;
+	const raw = j.location ? String(j.location) : "";
+	const short = (v) => {
+		const words = v.trim().split(/\s+/);
+		return words.length <= 3 ? v.trim() : `${words.slice(0, 3).join(" ")}...`;
+	};
+	if (j.latitude != null && j.longitude != null) {
+		const mapUrl = `https://www.google.com/maps?q=${encodeURIComponent(`${j.latitude},${j.longitude}`)}`;
+		const title = `${raw ? raw + " — " : ""}${j.latitude}, ${j.longitude}`;
+		return `<a class="cr-location-truncated cr-location-link" href="${mapUrl}" target="_blank"
+			rel="noopener noreferrer" title="${esc(title)}">${esc(raw ? short(raw) : __("View on map"))}</a>`;
+	}
+	if (raw) return `<span class="cr-location-truncated" title="${esc(raw)}">${esc(short(raw))}</span>`;
+	return "—";
+}
+
+function _control_room_journey_table(journeys) {
+	const esc = frappe.utils.escape_html;
+	const dash = "—";
+	const rows = journeys
+		.map((j) => {
+			const seals = (j.seals || []).length
+				? j.seals
+						.map(
+							(s) => `
+					<div class="cr-journey-seal">
+						<a href="/app/seal-device/${encodeURIComponent(s.seal_device)}" target="_blank" rel="noopener">${esc(s.seal_number || s.seal_device)}</a>
+					</div>`
+						)
+						.join("")
+				: dash;
+			return `
+				<tr>
+					<td class="cr-nowrap"><a href="/app/seal-journey/${encodeURIComponent(j.name)}" target="_blank" rel="noopener">${esc(j.name)}</a></td>
+					<td>${esc(j.customer || dash)}</td>
+					<td class="cr-nowrap">${esc(j.vehicle_plate_number || dash)}</td>
+					<td>${seals}</td>
+					<td class="cr-nowrap">${esc(j.entry_number || dash)}</td>
+					<td class="cr-nowrap">${esc(j.container_number || dash)}</td>
+					<td>${esc(j.origin || dash)}</td>
+					<td>${esc(j.destination || dash)}</td>
+					<td class="cr-nowrap">${_cr_location_html(j)}</td>
+					<td>${esc(j.tagged_by || dash)}</td>
+				</tr>
+			`;
+		})
+		.join("");
+
+	return `
+		<table class="cr-queue-table">
+			<thead>
+				<tr>
+					<th>${__("Journey")}</th>
+					<th>${__("Client Name")}</th>
+					<th>${__("Vehicle")}</th>
+					<th>${__("Seal Number")}</th>
+					<th>${__("Entry Number")}</th>
+					<th>${__("Container Number")}</th>
+					<th>${__("Origin")}</th>
+					<th>${__("Destination")}</th>
+					<th>${__("Current Location")}</th>
+					<th>${__("Tagged By")}</th>
+				</tr>
+			</thead>
+			<tbody>${rows}</tbody>
+		</table>
+	`;
+}
+
+function _control_room_journey_pagination(state) {
+	const total = state.journeyTotal || 0;
+	const pageLength = state.queuePageLength;
+	const totalPages = Math.max(1, Math.ceil(total / pageLength));
+	const currentPage = Math.min(Math.max(state.journeyPage || 1, 1), totalPages);
+	const firstRow = total ? (currentPage - 1) * pageLength + 1 : 0;
+	const lastRow = Math.min(currentPage * pageLength, total);
+	return `
+		<div class="cr-alert-pagination">
+			<span class="cr-alert-page-summary">${__("Showing {0}-{1} of {2}", [firstRow, lastRow, total])}</span>
+			<div class="cr-alert-page-actions">
+				<button class="cr-journey-page-btn cr-alert-page-btn" data-page="${currentPage - 1}" ${currentPage === 1 ? "disabled" : ""}>${__("Previous")}</button>
+				<span>${__("Page {0} of {1}", [currentPage, totalPages])}</span>
+				<button class="cr-journey-page-btn cr-alert-page-btn" data-page="${currentPage + 1}" ${currentPage === totalPages ? "disabled" : ""}>${__("Next")}</button>
+			</div>
+		</div>
+	`;
+}
 
 function _control_room_load_alerts(page) {
 	const state = page.control_room_state;
@@ -1943,6 +2142,34 @@ function _control_room_inject_styles() {
 		}
 		/* keep columns from squishing; forces horizontal scroll on narrow widths */
 		.cr-alert-table-wrap .cr-queue-table { min-width: 1560px; }
+		.cr-journey-table-wrap .cr-queue-table { min-width: 1500px; }
+		.cr-journey-seal + .cr-journey-seal { margin-top: 8px; }
+		.cr-journey-seal a { font-weight: 600; }
+		.cr-journey-refresh-btn {
+			display: inline-flex;
+			align-items: center;
+			gap: 7px;
+			height: 38px;
+			padding: 0 16px;
+			border: 1px solid #7dd3fc;
+			border-radius: 10px;
+			background: #e0f2fe;
+			color: #075985;
+			font-size: 13px;
+			font-weight: 700;
+			cursor: pointer;
+			box-shadow: 0 2px 6px rgba(14, 165, 233, .08);
+			transition: background .12s, border-color .12s, color .12s;
+		}
+		.cr-journey-refresh-btn:hover { background: #bae6fd; border-color: #38bdf8; color: #0c4a6e; }
+		.cr-journey-refresh-btn:focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; }
+		.cr-journey-refresh-btn.is-loading .cr-refresh-icon { animation: cr-spin .8s linear infinite; }
+		[data-theme="dark"] .cr-journey-refresh-btn { background: #1e293b; border-color: #0369a1; color: #7dd3fc; }
+		[data-theme="dark"] .cr-journey-refresh-btn:hover { background: #0f172a; border-color: #38bdf8; }
+		.cr-location-truncated { cursor: help; border-bottom: 1px dashed #94a3b8; white-space: nowrap; }
+		.cr-location-link { cursor: pointer; color: #0284c7; border-bottom-color: #0284c7; }
+		.cr-location-link:hover { color: #0369a1; text-decoration: none; }
+		[data-theme="dark"] .cr-location-link { color: #38bdf8; border-bottom-color: #38bdf8; }
 		.cr-alert-table-wrap .cr-queue-table th:first-child,
 		.cr-alert-table-wrap .cr-queue-table td:first-child { padding-left: 14px; }
 		.cr-alert-table-wrap .cr-queue-table th:last-child,

@@ -706,12 +706,140 @@ def get_arrival_queue(search=None, page=1, page_length=30):
 			"origin", "destination", "assigned_seal",
 			"journey_start_date_time", "current_seal_status",
 			"api_device_location", "api_last_update_time",
+			"api_latitude", "api_longitude", "assigned_technician", "journey_request",
 		],
 		order_by="journey_start_date_time asc",
 		limit_start=(page - 1) * page_length,
 		limit_page_length=page_length,
 	)
+	# Same location (seal's live fix, then the journey's) as the Journey List tab.
+	_attach_journey_list_details(journeys)
 	return {"journeys": journeys, "total": total, "overall": overall}
+
+
+@frappe.whitelist()
+def get_control_room_journey_list(search=None, page=1, page_length=30):
+	"""Seal Journeys In Transit for the Control Room's Journey List tab: client,
+	vehicle, every seal on it, entry and
+	container numbers, route, last known location (with coordinates for a map
+	link) and the Tag Operator who tagged it. ``total`` is the filtered count,
+	``overall`` every journey In Transit."""
+	_ensure_control_room_role(include_read_only=True)
+	page = max(cint(page), 1)
+	page_length = min(max(cint(page_length) or 30, 1), 100)
+	search = (search or "").strip()
+
+	filters = {"journey_status": "In Transit"}
+	or_filters = None
+	if search:
+		like = f"%{search}%"
+		or_filters = [
+			[field, "like", like]
+			for field in (
+				"name", "customer", "vehicle_plate_number", "container_number",
+				"assigned_seal", "origin", "destination", "api_device_location",
+			)
+		]
+		# Entry numbers live on the Journey Request; seals on the seals table.
+		entry_requests = frappe.get_all("Journey Request", filters={"entry_number": ["like", like]}, pluck="name")
+		if entry_requests:
+			or_filters.append(["journey_request", "in", entry_requests])
+		seal_journeys = frappe.get_all(
+			"Journey Request Seal",
+			filters={"parenttype": "Seal Journey", "seal_device": ["like", like]},
+			pluck="parent",
+		)
+		if seal_journeys:
+			or_filters.append(["name", "in", seal_journeys])
+
+	overall = len(frappe.get_list("Seal Journey", filters=filters, pluck="name", limit_page_length=0))
+	total = len(
+		frappe.get_list("Seal Journey", filters=filters, or_filters=or_filters, pluck="name", limit_page_length=0)
+	)
+	journeys = frappe.get_list(
+		"Seal Journey",
+		filters=filters,
+		or_filters=or_filters,
+		fields=[
+			"name", "customer", "vehicle_plate_number", "container_number", "origin", "destination",
+			"assigned_seal", "assigned_technician", "journey_request", "journey_start_date_time",
+			"api_device_location", "api_latitude", "api_longitude", "api_last_update_time",
+		],
+		order_by="journey_start_date_time desc",
+		limit_start=(page - 1) * page_length,
+		limit_page_length=page_length,
+	)
+	_attach_journey_list_details(journeys)
+	return {"journeys": journeys, "total": total, "overall": overall}
+
+
+def _attach_journey_list_details(journeys):
+	names = [j.name for j in journeys]
+	if not names:
+		return
+
+	seals_by_journey = {}
+	for row in frappe.get_all(
+		"Journey Request Seal",
+		filters={"parenttype": "Seal Journey", "parent": ["in", names]},
+		fields=["parent", "seal_device"],
+		order_by="idx asc",
+	):
+		if row.seal_device:
+			seals_by_journey.setdefault(row.parent, []).append(row.seal_device)
+	for j in journeys:
+		devices = seals_by_journey.get(j.name) or []
+		if j.assigned_seal and j.assigned_seal not in devices:
+			devices.insert(0, j.assigned_seal)
+		j.seal_devices = devices
+
+	all_devices = list({d for j in journeys for d in j.seal_devices})
+	devices = {
+		d.name: d
+		for d in frappe.get_all(
+			"Seal Device",
+			filters={"name": ["in", all_devices or [""]]},
+			fields=["name", "seal_number", "last_known_api_location", "latitude", "longitude"],
+		)
+	}
+	entries = dict(
+		frappe.get_all(
+			"Journey Request",
+			filters={"name": ["in", [j.journey_request for j in journeys if j.journey_request] or [""]]},
+			fields=["name", "entry_number"],
+			as_list=True,
+		)
+	)
+	technicians = dict(
+		frappe.get_all(
+			"User",
+			filters={"name": ["in", [j.assigned_technician for j in journeys if j.assigned_technician] or [""]]},
+			fields=["name", "full_name"],
+			as_list=True,
+		)
+	)
+
+	for j in journeys:
+		j.seals = [
+			{
+				"seal_device": name,
+				"seal_number": (devices.get(name) or {}).get("seal_number") or name,
+			}
+			for name in j.seal_devices
+		]
+		# Same rule as Journey Monitoring: the seal's own live fix first, then the
+		# journey-level one; 0/0 (no GPS fix yet) counts as no position.
+		from tnt_seal_management.tnt_seal_management.api.journey_monitoring import _coords
+
+		first = devices.get(j.seal_devices[0]) if j.seal_devices else None
+		lat, lng = _coords((first or {}).get("latitude"), (first or {}).get("longitude"))
+		if lat is None:
+			lat, lng = _coords(j.api_latitude, j.api_longitude)
+		j.location = j.api_device_location or (first or {}).get("last_known_api_location") or ""
+		j.latitude, j.longitude = lat, lng
+		j.entry_number = entries.get(j.journey_request) or ""
+		j.tagged_by = technicians.get(j.assigned_technician) or j.assigned_technician or ""
+		del j.seal_devices
 
 
 @frappe.whitelist()
