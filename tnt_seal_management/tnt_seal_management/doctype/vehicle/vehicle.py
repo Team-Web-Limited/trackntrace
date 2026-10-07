@@ -12,11 +12,33 @@ from frappe.utils import cint
 class Vehicle(Document):
 	def validate(self):
 		self.registration_number = _normalize_registration(self.registration_number)
+		self._validate_plate_format()
 		self._sync_legacy_party()
 		if self.seating_capacity is not None and cint(self.seating_capacity) < 1:
 			frappe.throw(_("Seating Capacity must be at least 1."))
 		if self.year_of_manufacture is not None and cint(self.year_of_manufacture) < 1900:
 			frappe.throw(_("Year of Manufacture must be 1900 or later."))
+
+	def _validate_plate_format(self):
+		"""Kenyan plates are stored as KAX 840K / KMGQ 479X / ZD 7072. Only checked
+		when the plate is entered or changed, so older vehicles saved before this
+		rule can still be edited."""
+		if self.get("special_plate") or not self.registration_number:
+			return
+		before = None if self.is_new() else self.get_doc_before_save()
+		if before and _normalize_registration(before.registration_number) == self.registration_number:
+			return
+		formatted = format_kenyan_plate(self.registration_number)
+		if not formatted:
+			frappe.throw(
+				_(
+					"{0} is not a valid Kenyan plate. Enter it as <b>KAX 840K</b> "
+					"(motorbike <b>KMGQ 479X</b>, trailer <b>ZD 7072</b>), or tick "
+					"<b>Foreign / Special Plate</b> for a foreign, government or diplomatic plate."
+				).format(frappe.bold(frappe.utils.escape_html(self.registration_number))),
+				title=_("Invalid Registration Number"),
+			)
+		self.registration_number = formatted
 
 	def _sync_legacy_party(self):
 		"""Some sites carry ERPNext's party_type/party_name custom fields on
@@ -31,6 +53,25 @@ class Vehicle(Document):
 
 def _normalize_registration(value):
 	return re.sub(r"\s+", " ", (value or "").strip()).upper()
+
+
+# Car KAX 840K, motorbike KMGQ 479X, trailer ZD 7072 — matched with spaces and
+# punctuation stripped, so "kax840k" or "KAX 840K." come out as "KAX 840K".
+KENYAN_PLATE_PATTERNS = (
+	re.compile(r"^(K[A-Z]{2}|KM[A-Z]{2})(\d{3})([A-Z])$"),
+	re.compile(r"^(Z[A-Z])(\d{4})()$"),
+)
+
+
+def format_kenyan_plate(value):
+	"""The plate in canonical Kenyan form, or None if it isn't one."""
+	compact = re.sub(r"[^A-Z0-9]", "", (value or "").upper())
+	for pattern in KENYAN_PLATE_PATTERNS:
+		match = pattern.match(compact)
+		if match:
+			prefix, digits, suffix = match.groups()
+			return f"{prefix} {digits}{suffix}"
+	return None
 
 
 @frappe.whitelist()

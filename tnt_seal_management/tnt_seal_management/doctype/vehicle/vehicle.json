@@ -8,6 +8,7 @@
  "field_order": [
   "vehicle_identity_section",
   "registration_number",
+  "special_plate",
   "customer",
   "identity_column",
   "vehicle_make",
@@ -32,7 +33,15 @@
    "in_list_view": 1,
    "label": "Registration Number",
    "reqd": 1,
-   "unique": 1
+   "unique": 1,
+   "description": "Kenyan format, e.g. <b>KAX 840K</b> (motorbike <b>KMGQ 479X</b>, trailer <b>ZD 7072</b>). Typed without spaces it is formatted for you. For foreign or special plates tick <b>Foreign / Special Plate</b>."
+  },
+  {
+   "default": "0",
+   "description": "Foreign, government or diplomatic plate that doesn't follow the Kenyan format (e.g. UAX 123A, T 123 ABC).",
+   "fieldname": "special_plate",
+   "fieldtype": "Check",
+   "label": "Foreign / Special Plate"
   },
   {
    "fieldname": "customer",
@@ -103,7 +112,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-27 12:00:00.000000",
+ "modified": "2026-10-02 16:14:47.896792",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Vehicle",

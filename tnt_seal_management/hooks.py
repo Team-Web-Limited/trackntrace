@@ -214,7 +214,12 @@ doc_events = {
 		# on_change (not on_update) so it also catches the db_set-only status flip
 		# ERPNext does when a Payment Entry is reconciled against the invoice.
 		"on_change": "tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey.sync_billing_from_sales_invoice",
+		"validate": "tnt_seal_management.vehicle_links.validate_vehicle_links",
 	},
+	# Vehicle rows must name an existing Vehicle (see vehicle_links.py).
+	"Quotation": {"validate": "tnt_seal_management.vehicle_links.validate_vehicle_links"},
+	"Sales Order": {"validate": "tnt_seal_management.vehicle_links.validate_vehicle_links"},
+	"Delivery Note": {"validate": "tnt_seal_management.vehicle_links.validate_vehicle_links"},
 }
 
 # Scheduled Tasks
