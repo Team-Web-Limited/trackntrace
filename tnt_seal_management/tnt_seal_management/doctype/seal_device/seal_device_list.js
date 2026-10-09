@@ -1,5 +1,11 @@
 frappe.listview_settings["Seal Device"] = {
 	add_fields: ["imei_number", "current_journey", "current_technician"],
+	onload(listview) {
+		listview.page.add_actions_menu_item(__("Transfer Custody"), () => {
+			const seals = listview.get_checked_items(true);
+			window.tnt_transfer_seals(seals, () => listview.refresh());
+		});
+	},
 	custom_filter_configs: [
 		{
 			fieldtype: "Data",

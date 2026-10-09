@@ -26,28 +26,6 @@ frappe.pages["tnt-seal-management"].on_page_show = function (wrapper) {
 
 const TNT_DASHBOARD_CARDS = [
 	{
-		title: "Seal Journeys",
-		icon: "🚚",
-		route: "seal-journey-list",
-		primary: true,
-		roles: ["System Manager", "Finance PCB", "Operations Control Room", "Managing Director", "Account Manager"],
-	},
-	{
-		title: "Journey Start Request",
-		icon: "🧾",
-		route: "journey-request-list",
-		roles: [
-			"System Manager",
-			"Management",
-			"Managing Director",
-			"Operations Control Room",
-			"Field Technician",
-			"PCB Team Leader",
-			"Finance PCB",
-			"Account Manager",
-		],
-	},
-	{
 		title: "Tagging Bookings",
 		icon: "📅",
 		route: "tagging-booking-list",
@@ -59,7 +37,92 @@ const TNT_DASHBOARD_CARDS = [
 		icon: "👷",
 		route: "assignment-list",
 		primary: true,
+		// Single card for both Assignments and Journey Start Requests. Users with
+		// any of `roles` open the assignment list (plus a Seal Return badge from
+		// journey requests); the rest (Field Technician, Control Room) have no
+		// assignment access, so the card opens the journey request list instead.
 		roles: ["System Manager", "PCB Team Leader", "Finance PCB", "Management", "Managing Director", "Account Manager"],
+		fallback_route: "journey-request-list",
+		fallback_roles: ["Operations Control Room", "Field Technician"],
+	},
+	{
+		title: "Control Room",
+		icon: "🛂",
+		route: "control-room",
+		primary: true,
+		roles: [
+			"System Manager",
+			"Operations Control Room",
+			"Management",
+			"Managing Director",
+			"Account Manager",
+		],
+	},
+	{
+		title: "Seal Device",
+		icon: "🔒",
+		route: "seal-device-dashboard",
+		roles: [
+			"System Manager",
+			"Operations Control Room",
+			"Management",
+			"Managing Director",
+			"PCB Team Leader",
+			"Account Manager",
+		],
+	},
+	{
+		title: "Warehouses",
+		icon: "🏬",
+		route: "warehouse-list",
+		roles: [
+			"System Manager",
+			"Operations Control Room",
+			"Management",
+			"Managing Director",
+			"PCB Team Leader",
+			"Field Technician",
+			"Account Manager",
+		],
+	},
+	{
+		title: "Billing Rates",
+		icon: "💰",
+		route: "seal-billing-rate-list",
+		// Single card for Billing Rates and Completed Journeys. Users allowed both
+		// get a modal to pick one; users allowed only one go straight there.
+		roles: [],
+		choices: [
+			{
+				title: "Billing Rates",
+				icon: "💰",
+				route: "seal-billing-rate-list",
+				description: "Rates charged per journey type and customer",
+				roles: ["System Manager", "Finance PCB", "Management", "Managing Director"],
+			},
+			{
+				title: "Completed Journeys",
+				icon: "📄",
+				route: "completed-journeys",
+				description: "Finished journeys and their billing",
+				roles: [
+					"System Manager",
+					"Finance PCB",
+					"Management",
+					"Managing Director",
+					"Accounts Manager",
+					"Accounts User",
+					"Account Manager",
+				],
+			},
+		],
+	},
+	{
+		title: "Seal Journeys",
+		icon: "🚚",
+		route: "seal-journey-list",
+		primary: true,
+		roles: ["System Manager", "Finance PCB", "Operations Control Room", "Managing Director", "Account Manager"],
 	},
 	{
 		title: "Current Customers",
@@ -79,92 +142,6 @@ const TNT_DASHBOARD_CARDS = [
 		icon: "🚘",
 		route: "vehicle-list",
 		roles: ["System Manager", "Management", "Managing Director", "Field Technician", "Account Manager"],
-	},
-	{
-		title: "Warehouses",
-		icon: "🏬",
-		route: "List/Warehouse/List",
-		roles: [
-			"System Manager",
-			"Operations Control Room",
-			"Management",
-			"Managing Director",
-			"PCB Team Leader",
-			"Field Technician",
-			"Account Manager",
-		],
-	},
-	{
-		title: "Seal Device",
-		icon: "🔒",
-		route: "seal-device-dashboard",
-		roles: [
-			"System Manager",
-			"Operations Control Room",
-			"Management",
-			"Managing Director",
-			"PCB Team Leader",
-			"Account Manager",
-		],
-	},
-	{
-		title: "Billing Rates",
-		icon: "💰",
-		route: "seal-billing-rate-list",
-		roles: ["System Manager", "Finance PCB", "Management", "Managing Director"],
-	},
-	{
-		title: "Completed Journeys",
-		icon: "📄",
-		route: "completed-journeys",
-		roles: [
-			"System Manager",
-			"Finance PCB",
-			"Management",
-			"Managing Director",
-			"Accounts Manager",
-			"Accounts User",
-			"Account Manager",
-		],
-	},
-	{
-		title: "Tracking Dashboard",
-		icon: "🗺",
-		route: "seal-tracking-dashboard",
-		primary: true,
-		roles: [
-			"System Manager",
-			"Operations Control Room",
-			"Management",
-			"Managing Director",
-			"Account Manager",
-		],
-	},
-	{
-		title: "Control Room",
-		icon: "🛂",
-		route: "control-room",
-		primary: true,
-		roles: [
-			"System Manager",
-			"Operations Control Room",
-			"Management",
-			"Managing Director",
-			"Account Manager",
-		],
-	},
-	{
-		title: "Journey Monitoring",
-		icon: "📡",
-		route: "journey-monitoring",
-		primary: true,
-		roles: [
-			"System Manager",
-			"Operations Control Room",
-			"Management",
-			"Managing Director",
-			"Account Manager",
-		],
 	},
 	{
 		title: "Seal Settings",
@@ -191,12 +168,54 @@ function bind_actions(page) {
 			if (!route) return;
 			frappe.set_route(...route.split("/"));
 		});
+	$(page.body)
+		.find("[data-choose]")
+		.on("click", function () {
+			const card = get_visible_cards().find((c) => c.route === $(this).data("choose"));
+			if (card) open_card_chooser(card);
+		});
+}
+
+// Modal for a merged card: one button per page the user may open.
+function open_card_chooser(card) {
+	const dialog = new frappe.ui.Dialog({ title: __(card.title) });
+	dialog.$body.html(`
+		<div class="tsm-chooser">
+			${card.choices
+				.map(
+					(c) => `<button class="tsm-chooser__option" data-route="${frappe.utils.escape_html(c.route)}">
+						<span class="tsm-chooser__icon">${c.icon}</span>
+						<span>
+							<strong>${__(c.title)}</strong>
+							<small>${__(c.description || "")}</small>
+						</span>
+					</button>`
+				)
+				.join("")}
+		</div>
+	`);
+	dialog.$body.on("click", ".tsm-chooser__option", function () {
+		dialog.hide();
+		frappe.set_route(...String($(this).data("route")).split("/"));
+	});
+	dialog.show();
 }
 
 function get_visible_cards() {
-	return TNT_DASHBOARD_CARDS.filter((card) =>
-		card.roles.some((role) => frappe.user.has_role(role))
-	);
+	return TNT_DASHBOARD_CARDS.map((card) => {
+		if (card.choices) {
+			const allowed = card.choices.filter((c) => c.roles.some((role) => frappe.user.has_role(role)));
+			if (!allowed.length) return null;
+			// Only one page allowed: the card opens it directly, no modal.
+			if (allowed.length === 1) return { ...card, route: allowed[0].route, choices: null };
+			return { ...card, choices: allowed };
+		}
+		if (card.roles.some((role) => frappe.user.has_role(role))) return card;
+		if (card.fallback_roles?.some((role) => frappe.user.has_role(role))) {
+			return { ...card, route: card.fallback_route };
+		}
+		return null;
+	}).filter(Boolean);
 }
 
 function get_card_html(card) {
@@ -240,7 +259,8 @@ function get_card_html(card) {
 	// Retrieval (seal-return requests raised when a seal is unlocked remotely —
 	// see dashboard_cards.py's "assignment-list", "assignment-untagging" and
 	// "assignment-seal-return" entries), each labeled. This is the PCB Team
-	// Leader's single workspace.
+	// Leader's single workspace. A fourth "Seal Return" badge carries the journey
+	// request seal-return count (the former Journey Start Request card's badge).
 	if (card.route === "assignment-list") {
 		return `
 			<div class="tsm-card${primaryClass}" data-route="${route}">
@@ -258,6 +278,10 @@ function get_card_html(card) {
 						<div class="tsm-badge-stat">
 							<span class="tsm-count tsm-count--arrival is-hidden" data-count="assignment-seal-return"></span>
 							<span class="tsm-badge-label">${__("Retrieval")}</span>
+						</div>
+						<div class="tsm-badge-stat">
+							<span class="tsm-count tsm-count--arrival is-hidden" data-count="journey-request-seal-return"></span>
+							<span class="tsm-badge-label">${__("Seal Return")}</span>
 						</div>
 					</div>
 				</div>
@@ -292,7 +316,7 @@ function get_card_html(card) {
 	}
 
 	return `
-		<div class="tsm-card${primaryClass}" data-route="${route}">
+		<div class="tsm-card${primaryClass}" ${card.choices ? `data-choose="${route}"` : `data-route="${route}"`}>
 			<div class="tsm-card__top">
 				<div class="tsm-icon">${card.icon}</div>
 				<span class="tsm-count is-hidden" data-count="${route}"></span>
@@ -343,7 +367,9 @@ function get_landing_page_html() {
 	return `
 		<style>
 			.tsm-landing {
-				max-width: 1120px;
+				/* Wide enough for the four-badge Assignments card to sit beside its
+				   icon at the same size as every other card. */
+				max-width: 1400px;
 				margin: 0 auto;
 				padding: 32px 20px 48px;
 				font-family: var(--font-stack);
@@ -437,7 +463,7 @@ function get_landing_page_html() {
 			}
 
 			.tsm-badges--labeled {
-				gap: 16px;
+				gap: 12px;
 				align-items: flex-start;
 			}
 			.tsm-badge-stat {
@@ -485,6 +511,26 @@ function get_landing_page_html() {
 			.tsm-count-label.is-hidden {
 				display: none;
 			}
+
+			.tsm-chooser { display: grid; gap: 12px; }
+			.tsm-chooser__option {
+				display: flex;
+				align-items: center;
+				gap: 14px;
+				width: 100%;
+				padding: 16px 18px;
+				border: 1px solid #bae6fd;
+				border-radius: 14px;
+				background: #f0f9ff;
+				color: #0c4a6e;
+				text-align: left;
+				cursor: pointer;
+			}
+			.tsm-chooser__option:hover { background: #e0f2fe; border-color: #38bdf8; }
+			.tsm-chooser__icon { font-size: 26px; }
+			.tsm-chooser__option strong { display: block; font-size: 15px; }
+			.tsm-chooser__option small { display: block; color: #64748b; font-size: 12px; margin-top: 2px; }
+			[data-theme="dark"] .tsm-chooser__option { background: #0f172a; border-color: #334155; color: #e2e8f0; }
 
 			.tsm-card h3 {
 				font-size: 19px;

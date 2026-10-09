@@ -1,0 +1,107 @@
+{
+ "actions": [],
+ "istable": 1,
+ "editable_grid": 0,
+ "creation": "2026-10-09 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "modified": "2026-10-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Seal Journey Milestone",
+ "owner": "Administrator",
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "field_order": [
+  "event_time",
+  "event_type",
+  "place_name",
+  "transport_location",
+  "journey_stage",
+  "uffizio_geofence",
+  "uffizio_address_id",
+  "latitude",
+  "longitude",
+  "source_alert_id"
+ ],
+ "fields": [
+  {
+   "fieldname": "event_time",
+   "fieldtype": "Datetime",
+   "label": "Time",
+   "in_list_view": 1,
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "event_type",
+   "fieldtype": "Select",
+   "label": "Event",
+   "options": "Arrived\nDeparted\nEntered\nExited",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "place_name",
+   "fieldtype": "Data",
+   "label": "Place",
+   "in_list_view": 1,
+   "read_only": 1,
+   "description": "Name as Uffizio reports it."
+  },
+  {
+   "fieldname": "transport_location",
+   "fieldtype": "Link",
+   "label": "Transport Location",
+   "options": "Transport Location",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "journey_stage",
+   "fieldtype": "Data",
+   "label": "Stage",
+   "in_list_view": 1,
+   "read_only": 1,
+   "description": "Origin / Destination when the place matches the journey's, else the Transport Location's role."
+  },
+  {
+   "fieldname": "uffizio_geofence",
+   "fieldtype": "Link",
+   "label": "Uffizio Geofence",
+   "options": "Uffizio Geofence",
+   "read_only": 1
+  },
+  {
+   "fieldname": "uffizio_address_id",
+   "fieldtype": "Data",
+   "label": "Uffizio Address ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "latitude",
+   "fieldtype": "Float",
+   "label": "Latitude",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "longitude",
+   "fieldtype": "Float",
+   "label": "Longitude",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_alert_id",
+   "fieldtype": "Data",
+   "label": "Source Alert ID",
+   "read_only": 1,
+   "search_index": 1,
+   "hidden": 1
+  }
+ ],
+ "permissions": []
+}

@@ -1,0 +1,127 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:address_id",
+ "creation": "2026-10-09 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "modified": "2026-10-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Uffizio Address",
+ "owner": "Administrator",
+ "row_format": "Dynamic",
+ "sort_field": "last_seen",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "address_name",
+ "show_title_field_in_link": 1,
+ "search_fields": "address_name",
+ "field_order": [
+  "address_id",
+  "address_name",
+  "transport_location",
+  "column_break_1",
+  "event_count",
+  "first_seen",
+  "last_seen",
+  "latitude",
+  "longitude"
+ ],
+ "fields": [
+  {
+   "fieldname": "address_id",
+   "fieldtype": "Data",
+   "label": "Uffizio Address ID",
+   "reqd": 1,
+   "unique": 1,
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "address_name",
+   "fieldtype": "Data",
+   "label": "Address Name",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "transport_location",
+   "fieldtype": "Link",
+   "label": "Transport Location",
+   "options": "Transport Location",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "description": "The Transport Location this Uffizio address stands for. Linking it back-fills past milestones."
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "event_count",
+   "fieldtype": "Int",
+   "label": "Events Seen",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "first_seen",
+   "fieldtype": "Datetime",
+   "label": "First Seen",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_seen",
+   "fieldtype": "Datetime",
+   "label": "Last Seen",
+   "read_only": 1
+  },
+  {
+   "fieldname": "latitude",
+   "fieldtype": "Float",
+   "label": "Last Latitude",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "longitude",
+   "fieldtype": "Float",
+   "label": "Last Longitude",
+   "precision": "9",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "email": 1,
+   "print": 1,
+   "share": 1
+  },
+  {
+   "role": "Operations Control Room",
+   "read": 1,
+   "write": 1,
+   "report": 1
+  },
+  {
+   "role": "Management",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Managing Director",
+   "read": 1,
+   "report": 1
+  }
+ ]
+}

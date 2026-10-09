@@ -1196,12 +1196,13 @@ def complete_tagging(
 					journey=seal_journey.name,
 					column="customer",
 				)
-			elif not doc.assigned_technician and doc.job_order:
-				# Fallback for a technician-less job order: custody stays with the order.
+			elif not doc.assigned_technician and seal_journey.assigned_team_lead:
+				# Fallback with no technician and no customer: a seal is only ever held
+				# by a person or a location, so it stays with the team lead.
 				set_seal_custody(
 					seal.seal_device,
-					"PCB Job Order",
-					doc.job_order,
+					"User",
+					seal_journey.assigned_team_lead,
 					remarks=f"Assigned via Journey Request {doc.name}",
 					journey=seal_journey.name,
 				)
@@ -1583,14 +1584,15 @@ def _finalise_seal_return(doc, remarks=None, row=None):
 	return_warehouse = (row.return_warehouse if row else None) or doc.return_warehouse
 
 	set_journey_status(journey, "Completed", {"completion_date_time": returned_at})
-	# The return warehouse is the one the technician selects on the Journey Request
-	# (there is no configured main warehouse). Logged with the GPS location that was
+	# The return warehouse is the Custody Point the technician selects on the
+	# Journey Request (warehouses are dynamic Custody Points; only the main store is
+	# predefined). Logged with the GPS location that was
 	# captured at return, in brackets, for auditability — e.g.
 	# "Nanak warehouse - TD (-1.30, 36.81)". If no warehouse was selected, the
 	# return warehouse column stays blank for now and gets logged on the next cycle.
 	warehouse_label = None
 	if return_warehouse:
-		wh_name = frappe.db.get_value("Warehouse", return_warehouse, "warehouse_name") or return_warehouse
+		wh_name = frappe.db.get_value("Custody Point", return_warehouse, "custody_point_name") or return_warehouse
 		warehouse_label = f"{wh_name} ({location})" if location else wh_name
 	# A returned seal goes straight back into the pool — there is no separate
 	# "Returned" resting status. Only a bad condition on return keeps it out.
@@ -1617,7 +1619,7 @@ def _finalise_seal_return(doc, remarks=None, row=None):
 			# return warehouse column as "selected warehouse (gps location)".
 			set_seal_custody(
 				seal.seal_device,
-				"Warehouse",
+				"Custody Point",
 				return_warehouse,
 				remarks=f"Returned via Journey Request {doc.name}",
 				journey=journey,

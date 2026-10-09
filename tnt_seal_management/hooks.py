@@ -108,7 +108,7 @@ portal_menu_items = [
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-doctype_js = {"Sales Order": "public/js/sales_order.js"}
+doctype_js = {"Sales Order": "public/js/sales_order.js", "Warehouse": "public/js/warehouse.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -209,6 +209,16 @@ has_permission = {
 # Hook on document methods and events
 
 doc_events = {
+	# Seal serials on a Material Receipt / Issue / Transfer become "Seal Transfer"
+	# history rows, and move custody when the target is a Custody Point.
+	"Stock Entry": {
+		"on_submit": "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.on_stock_entry_submit",
+		"on_cancel": "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.on_stock_entry_cancel",
+	},
+	# Customer emails when a journey starts (In Transit) and arrives.
+	"Seal Journey": {
+		"on_update": "tnt_seal_management.tnt_seal_management.api.customer_journey_emails.notify_customer_on_journey_event",
+	},
 	"Sales Invoice": {
 		# Marks the linked Seal Journey(s) Billed once the invoice is fully paid.
 		# on_change (not on_update) so it also catches the db_set-only status flip
@@ -239,7 +249,16 @@ scheduler_events = {
 		"* * * * *": [
 			"tnt_seal_management.tnt_seal_management.api.seal_sync.scheduled_sync_active_journeys",
 			"tnt_seal_management.tnt_seal_management.api.seal_sync.scheduled_sync_all_devices",
-		]
+		],
+		# Pulls a trailing 30-minute window (see sync_alert_data), so every
+		# 15 minutes overlaps the previous run; the dedupe key absorbs it.
+		# Uffizio geofences change rarely; refresh the staging copy daily at 03:00.
+		"0 3 * * *": [
+			"tnt_seal_management.tnt_seal_management.api.geofence_sync.scheduled_sync_geofences",
+		],
+		"*/15 * * * *": [
+			"tnt_seal_management.tnt_seal_management.api.seal_sync.scheduled_sync_alert_data",
+		],
 	}
 }
 

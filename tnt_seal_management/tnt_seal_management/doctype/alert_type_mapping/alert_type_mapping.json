@@ -1,0 +1,125 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-10-09 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "modified": "2026-10-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "owner": "Administrator",
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "autoname": "format:ATM-{#####}",
+ "name": "Alert Type Mapping",
+ "field_order": [
+  "alert_id",
+  "match_text",
+  "uffizio_name",
+  "column_break_1",
+  "category",
+  "level",
+  "ignore",
+  "journey_only",
+  "as_milestone",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "alert_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Uffizio Alert ID",
+   "reqd": 1,
+   "description": "getAlertData alert_id — identifies the alert TYPE. Several rows may share an id when match text splits it."
+  },
+  {
+   "fieldname": "match_text",
+   "fieldtype": "Data",
+   "label": "Match Text",
+   "description": "Optional. Only applies when the alert's text contains this (case-insensitive); the longest matching text wins, a row without text is the fallback. E.g. id 169 carries both 'Device Status Lock' and 'Device Status Unlock'."
+  },
+  {
+   "fieldname": "uffizio_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Uffizio Alert Name"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Category",
+   "options": "Security\nConnectivity\nBattery\nGeofence\nRoute\nOperational\nOther",
+   "reqd": 1,
+   "default": "Other",
+   "description": "Shared with the locally-derived alerts. Alerts of the same seal and category merge into one open incident."
+  },
+  {
+   "fieldname": "level",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Level",
+   "options": "Critical\nWarning\nInfo",
+   "reqd": 1,
+   "default": "Warning"
+  },
+  {
+   "default": "0",
+   "fieldname": "ignore",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Ignore",
+   "description": "Do not store alerts of this type."
+  },
+  {
+   "default": "0",
+   "fieldname": "journey_only",
+   "fieldtype": "Check",
+   "label": "Only While On Journey",
+   "description": "Store only while the seal's journey is Ready for Journey or In Transit (e.g. an unlock is only an alert then)."
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  },
+  {
+   "default": "0",
+   "fieldname": "as_milestone",
+   "fieldtype": "Check",
+   "label": "Record As Journey Milestone",
+   "description": "Add to the seal's current Seal Journey as a milestone (arrived / departed / entered / exited a place) instead of opening an alert."
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "create": 1,
+   "write": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "export": 1,
+   "share": 1
+  },
+  {
+   "role": "Operations Control Room",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Management",
+   "read": 1,
+   "report": 1
+  }
+ ]
+}

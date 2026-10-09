@@ -166,7 +166,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Current Custody Type",
-   "options": "\nCustody Point\nWarehouse\nPCB Job Order\nUser\nCustomer"
+   "options": "\nCustody Point\nUser\nCustomer"
   },
   {
    "description": "The actual record holding the seal right now (warehouse, job order, technician/team leader, or customer).",

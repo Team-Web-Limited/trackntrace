@@ -32,6 +32,7 @@ frappe.ui.form.on("Tagging Booking", {
 		}
 	},
 	refresh(frm) {
+		set_default_phone_country(frm);
 		frm.doc.__booking_dt_at_load = frm.doc.booking_date_time;
 		set_booking_date_min(frm);
 		load_branch_options(frm);
@@ -357,5 +358,22 @@ function set_booking_date_min(frm) {
 		control.datepicker.update({ minDate: frappe.datetime.str_to_obj(frappe.datetime.now_datetime()) });
 	} catch (e) {
 		// Older datepicker builds: fall back to the change/validate checks above.
+	}
+}
+
+// Older Frappe builds (e.g. Frappe Cloud) don't preselect the system default
+// country in Phone fields; newer ones do. Mirror that so +254 shows by default.
+function set_default_phone_country(frm, tries = 20) {
+	const field = frm.get_field("contact_person_phone");
+	if (!field || frm.doc.contact_person_phone || !frm.is_new()) return;
+	const country = frappe.sys_defaults?.country || "Kenya";
+	const picker = field.country_code_picker;
+	if (!picker?.on_change || !field.country_codes) {
+		// Phone control builds its picker asynchronously.
+		if (tries > 0) setTimeout(() => set_default_phone_country(frm, tries - 1), 100);
+		return;
+	}
+	if (field.country_codes[country] && !field.$wrapper.find(".selected-phone .country").length) {
+		picker.on_change(country, false);
 	}
 }

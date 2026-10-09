@@ -669,7 +669,7 @@ def _confirm_end_journey_no_collection(doc):
 
 
 @frappe.whitelist()
-def get_arrival_queue(search=None, page=1, page_length=30):
+def get_arrival_queue(search=None, page=1, page_length=30, from_date=None, to_date=None):
 	"""Seal Journeys currently In Transit, awaiting the Control Room's arrival /
 	seal-unlock confirmation — for the Approve tab's Arrivals section. Search and
 	paging are applied here; `total` is the filtered count, `overall` the
@@ -680,6 +680,13 @@ def get_arrival_queue(search=None, page=1, page_length=30):
 	search = (search or "").strip()
 
 	filters = {"journey_status": "In Transit"}
+	# Created-between filter, same as the other Control Room lists.
+	if from_date and to_date:
+		filters["creation"] = ["between", [f"{from_date} 00:00:00", f"{to_date} 23:59:59"]]
+	elif from_date:
+		filters["creation"] = [">=", f"{from_date} 00:00:00"]
+	elif to_date:
+		filters["creation"] = ["<=", f"{to_date} 23:59:59"]
 	or_filters = None
 	if search:
 		like = f"%{search}%"
@@ -691,7 +698,9 @@ def get_arrival_queue(search=None, page=1, page_length=30):
 			)
 		]
 
-	overall = len(frappe.get_list("Seal Journey", filters=filters, pluck="name", limit_page_length=0))
+	overall = len(
+		frappe.get_list("Seal Journey", filters={"journey_status": "In Transit"}, pluck="name", limit_page_length=0)
+	)
 	total = len(
 		frappe.get_list(
 			"Seal Journey", filters=filters, or_filters=or_filters, pluck="name", limit_page_length=0
@@ -718,18 +727,50 @@ def get_arrival_queue(search=None, page=1, page_length=30):
 
 
 @frappe.whitelist()
-def get_control_room_journey_list(search=None, page=1, page_length=30):
+def get_control_room_journey_list(
+	search=None, page=1, page_length=30, alert_status="open", alert_level="all", alert_type="all",
+	view="in_transit", from_date=None, to_date=None,
+):
 	"""Seal Journeys In Transit for the Control Room's Journey List tab: client,
 	vehicle, every seal on it, entry and
 	container numbers, route, last known location (with coordinates for a map
 	link) and the Tag Operator who tagged it. ``total`` is the filtered count,
-	``overall`` every journey In Transit."""
+	``overall`` every journey In Transit.
+
+	The alert filter (status / level / type, same as the Control Room's Alert
+	filter) narrows the list to the seals that have a matching Seal Alert Log
+	entry; the default (open, all, all) leaves every journey in and only sets
+	the per-seal open-alert count."""
 	_ensure_control_room_role(include_read_only=True)
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length) or 30, 1), 100)
 	search = (search or "").strip()
 
+	# Journey status filter, same views as Journey Monitoring; ``overall`` (the
+	# tab's count) stays the In Transit total whichever view is showing.
 	filters = {"journey_status": "In Transit"}
+	if view == "all":
+		filters = {}
+	elif view == "active":
+		filters = {"journey_status": ["not in", ("Completed", "Cancelled")]}
+	elif view == "completed":
+		filters = {"journey_status": "Completed"}
+	elif view == "longer":
+		filters = {"journey_status": ["not in", ("Completed", "Cancelled")]}
+	# Created-between filter, as on Journey Monitoring.
+	if from_date and to_date:
+		filters["creation"] = ["between", [f"{from_date} 00:00:00", f"{to_date} 23:59:59"]]
+	elif from_date:
+		filters["creation"] = [">=", f"{from_date} 00:00:00"]
+	elif to_date:
+		filters["creation"] = ["<=", f"{to_date} 23:59:59"]
+
+	# Journeys running past their billing allowance. That is derived per customer
+	# and rate set, so it is worked out here for every unfinished journey rather
+	# than in the query.
+	longer_names = _longer_in_journey_names(from_date, to_date)
+	if view == "longer":
+		filters["name"] = ["in", longer_names or [""]]
 	or_filters = None
 	if search:
 		like = f"%{search}%"
@@ -752,7 +793,46 @@ def get_control_room_journey_list(search=None, page=1, page_length=30):
 		if seal_journeys:
 			or_filters.append(["name", "in", seal_journeys])
 
-	overall = len(frappe.get_list("Seal Journey", filters=filters, pluck="name", limit_page_length=0))
+	overall = len(
+		frappe.get_list("Seal Journey", filters={"journey_status": "In Transit"}, pluck="name", limit_page_length=0)
+	)
+
+	alert_status = alert_status if alert_status in ("open", "resolved", "all") else "open"
+	alert_conditions = ["1=1"]
+	alert_values = {}
+	if alert_status != "all":
+		alert_conditions.append("is_resolved = %(resolved)s")
+		alert_values["resolved"] = 1 if alert_status == "resolved" else 0
+	if alert_level and alert_level != "all":
+		alert_conditions.append("level = %(level)s")
+		alert_values["level"] = alert_level
+	if alert_type and alert_type != "all":
+		alert_conditions.append("alert_type = %(alert_type)s")
+		alert_values["alert_type"] = alert_type
+	alert_filter_active = (alert_status, alert_level, alert_type) != ("open", "all", "all")
+	matching_alerts = dict(
+		frappe.db.sql(
+			f"""select seal_device, count(*) from `tabSeal Alert Log`
+			where ifnull(seal_device, '') != '' and {' and '.join(alert_conditions)}
+			group by seal_device""",
+			alert_values,
+		)
+	)
+	if alert_filter_active:
+		devices = list(matching_alerts) or [""]
+		on_devices = frappe.get_all(
+			"Journey Request Seal",
+			filters={"parenttype": "Seal Journey", "seal_device": ["in", devices]},
+			pluck="parent",
+		)
+		on_devices += frappe.get_all(
+			"Seal Journey", filters={"assigned_seal": ["in", devices]}, pluck="name"
+		)
+		on_devices = set(on_devices)
+		if view == "longer":
+			on_devices &= set(longer_names)
+		filters["name"] = ["in", list(on_devices) or [""]]
+
 	total = len(
 		frappe.get_list("Seal Journey", filters=filters, or_filters=or_filters, pluck="name", limit_page_length=0)
 	)
@@ -760,17 +840,94 @@ def get_control_room_journey_list(search=None, page=1, page_length=30):
 		"Seal Journey",
 		filters=filters,
 		or_filters=or_filters,
-		fields=[
-			"name", "customer", "vehicle_plate_number", "container_number", "origin", "destination",
-			"assigned_seal", "assigned_technician", "journey_request", "journey_start_date_time",
-			"api_device_location", "api_latitude", "api_longitude", "api_last_update_time",
-		],
+		fields=list(
+			dict.fromkeys(
+				[
+					"name", "customer", "vehicle_plate_number", "container_number", "origin", "destination",
+					"assigned_seal", "assigned_technician", "journey_request", "journey_start_date_time",
+					"api_device_location", "api_latitude", "api_longitude", "api_last_update_time",
+				]
+				# Everything Journey Monitoring reads, so its columns (status,
+				# warehouse, longer in journey, lock, battery, alerts) can be shown too.
+				+ _JOURNEY_MONITORING_FIELDS()
+			)
+		),
 		order_by="journey_start_date_time desc",
 		limit_start=(page - 1) * page_length,
 		limit_page_length=page_length,
 	)
 	_attach_journey_list_details(journeys)
-	return {"journeys": journeys, "total": total, "overall": overall}
+
+	# Journey Monitoring's columns: per-seal lock/battery/location/alerts (replaces
+	# the plain seals list above), days over the allowance, custodian and batch.
+	from tnt_seal_management.tnt_seal_management.api import journey_monitoring as jm
+
+	jm._attach_seals(journeys)
+	jm._attach_longer_in_journey(journeys)
+	jm._attach_custodian(journeys)
+	jm._attach_batch(journeys)
+
+	# Alerts matching the filter per seal: the count behind each row's Alerts
+	# button. With a filter set, only the seals that have such alerts are listed.
+	for j in journeys:
+		for s in j.get("seals") or []:
+			s["alert_count"] = matching_alerts.get(s.get("seal_device"), 0)
+		if alert_filter_active:
+			j["seals"] = [s for s in j.get("seals") or [] if s["alert_count"]]
+
+	by_status = dict(
+		frappe.db.sql(
+			"""select journey_status, count(*) from `tabSeal Journey`
+			where creation >= %(start)s and creation <= %(end)s group by journey_status""",
+			{"start": f"{from_date} 00:00:00" if from_date else "0001-01-01", "end": f"{to_date} 23:59:59" if to_date else "9999-12-31"},
+			as_list=True,
+		)
+	)
+	summary = {
+		"all": sum(by_status.values()),
+		"active": sum(v for k, v in by_status.items() if k not in ("Completed", "Cancelled")),
+		"in_transit": by_status.get("In Transit", 0),
+		"completed": by_status.get("Completed", 0),
+		"longer": len(longer_names),
+	}
+	return {
+		"journeys": journeys,
+		"total": total,
+		"overall": overall,
+		"completed_overall": frappe.db.count("Seal Journey", {"journey_status": "Completed"}),
+		"summary": summary,
+	}
+
+
+def _longer_in_journey_names(from_date=None, to_date=None):
+	"""Names of unfinished Seal Journeys that have run past the grace period of
+	their billing rate set (the Longer in Journey column > 0)."""
+	from tnt_seal_management.tnt_seal_management.api.journey_monitoring import (
+		_attach_longer_in_journey,
+	)
+
+	filters = {"journey_status": ["not in", ("Completed", "Cancelled")]}
+	if from_date and to_date:
+		filters["creation"] = ["between", [f"{from_date} 00:00:00", f"{to_date} 23:59:59"]]
+	elif from_date:
+		filters["creation"] = [">=", f"{from_date} 00:00:00"]
+	elif to_date:
+		filters["creation"] = ["<=", f"{to_date} 23:59:59"]
+
+	journeys = frappe.get_list(
+		"Seal Journey",
+		filters=filters,
+		fields=["name", "customer", "journey_type", "journey_status", "days_taken", "journey_start_date_time"],
+		limit_page_length=0,
+	)
+	_attach_longer_in_journey(journeys)
+	return [j.name for j in journeys if j.get("longer_in_journey")]
+
+
+def _JOURNEY_MONITORING_FIELDS():
+	from tnt_seal_management.tnt_seal_management.api.journey_monitoring import _FIELDS
+
+	return list(_FIELDS)
 
 
 def _attach_journey_list_details(journeys):

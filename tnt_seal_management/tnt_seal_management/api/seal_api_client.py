@@ -324,14 +324,23 @@ def get_alert_data(
 ):
 	"""
 	POST to getAlertData endpoint: https://developers.uffizio.com/tracking-api/55
-	Documented as a "Trakzee Premium" feature — unverified against the live
-	Uffizio account configured in Seal API Settings. Confirm a 200 response
-	with real alert rows before wiring this into the scheduler.
+	(Trakzee Premium — verified live against the Seal API Settings account).
 
-	from_dt / to_dt: epoch seconds (the API's documented "Long" timestamp).
+	Unlike getTokenBaseLiveData, this call needs the account password in the
+	body alongside access_token; without it Uffizio answers a bare
+	"Something went wrong on server." The window may not exceed 24 hours.
+
+	from_dt / to_dt: epoch seconds. Uffizio's documented "Long" timestamp is
+	actually epoch *milliseconds* — seconds land the window in 1970 and come
+	back "No Records Found." — so they are converted here.
 	Returns the parsed JSON response. Creates a Seal API Sync Log entry.
 	"""
 	settings, password = get_api_settings()
+	if not password:
+		frappe.throw(
+			_("getAlertData needs the account Password in Seal API Settings — an access token alone is rejected."),
+			title=_("Configuration Error"),
+		)
 
 	token = generate_access_token(force=True) if force_token_refresh else get_cached_token()
 
@@ -343,12 +352,13 @@ def get_alert_data(
 	payload = {
 		"access_token": token,
 		"username": settings.username,
+		"password": password,
 		"format": "json",
 	}
 	if from_dt:
-		payload["from"] = from_dt
+		payload["from"] = int(from_dt) * 1000
 	if to_dt:
-		payload["to"] = to_dt
+		payload["to"] = int(to_dt) * 1000
 	if imei_nos:
 		payload["imei_number"] = (
 			imei_nos if isinstance(imei_nos, str) else ",".join(str(i) for i in imei_nos)
@@ -361,7 +371,9 @@ def get_alert_data(
 		"sync_type": sync_type,
 		"sync_started_at": now_datetime(),
 		"request_url": url,
-		"request_body": json.dumps({**payload, "access_token": "***REDACTED***"}),
+		"request_body": json.dumps(
+			{**payload, "access_token": "***REDACTED***", "password": "***REDACTED***"}
+		),
 	}
 
 	try:
@@ -395,6 +407,55 @@ def get_alert_data(
 
 		log["sync_status"] = "Success"
 
+	except Exception as exc:
+		log["sync_status"] = "Failed"
+		log["error_message"] = str(exc)
+		log["sync_completed_at"] = now_datetime()
+		_save_sync_log(log)
+		raise
+
+	_save_sync_log(log)
+	return data
+
+
+def get_geofence_list(force_token_refresh=False, sync_type="Geofence Sync"):
+	"""POST getGeofenceList (auth-code header, body {"project_id": ...}).
+
+	Returns every geofence the account can see — the shared pool plus the
+	company's own — in one response, no paging. Creates a Seal API Sync Log entry.
+	"""
+	settings, _password = get_api_settings()
+	token = generate_access_token(force=True) if force_token_refresh else get_cached_token()
+	respect_rate_limit(settings)
+
+	url = f"{settings.api_base_url.rstrip('/')}/webservice?token=getGeofenceList"
+	payload = {"project_id": str(settings.get("project_id") or "37")}
+	log = {
+		"doctype": _SYNC_LOG_DOCTYPE,
+		"sync_type": sync_type,
+		"sync_started_at": now_datetime(),
+		"request_url": url,
+		"request_body": json.dumps(payload),
+	}
+	try:
+		resp = requests.post(
+			url, json=payload, headers={"auth-code": token, "Content-Type": "application/json"}, timeout=120
+		)
+		log["http_status_code"] = resp.status_code
+		log["sync_completed_at"] = now_datetime()
+
+		if resp.status_code in (401, 403) and not force_token_refresh:
+			_save_sync_log({**log, "sync_status": "Failed", "error_message": f"HTTP {resp.status_code} — retrying with fresh token"})
+			return get_geofence_list(force_token_refresh=True, sync_type=sync_type)
+		if resp.status_code != 200:
+			raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:500]}")
+
+		data = resp.json()
+		# The body is hundreds of KB of coordinates; keep only the head for the log.
+		log["response_body"] = json.dumps(data)[:2000]
+		if isinstance(data, dict) and data.get("result") not in (1, "1", True) and not data.get("data"):
+			raise RuntimeError(f"API error: {data.get('message') or 'no data returned'}")
+		log["sync_status"] = "Success"
 	except Exception as exc:
 		log["sync_status"] = "Failed"
 		log["error_message"] = str(exc)

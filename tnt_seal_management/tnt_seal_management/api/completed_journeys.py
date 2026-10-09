@@ -201,20 +201,55 @@ _FIELDS = [
 
 
 @frappe.whitelist()
-def get_completed_journeys(from_date=None, to_date=None, customer=None):
-	"""Return Completed journeys grouped by customer, each with a billing
-	summary. Shape: {"customers": [...], "grand_total": {...} | None}."""
+def get_completed_journeys(from_date=None, to_date=None, customer=None, page=1, page_length=50):
+	"""Return Completed journeys grouped by customer (only customers with a
+	completed journey in the period), each with a billing summary.
+	Shape: {"customers": [...], "grand_total": {...} | None}.
+
+	When more than one customer matches, the journeys themselves come back as a
+	single newest-first list paged server-side (``rows`` — each journey tagged
+	with its ``customer`` — plus ``total_journeys``, ``page`` and
+	``page_length``) while the per-customer summaries still cover every matching
+	journey. A single customer keeps the full detail card, journeys included,
+	since billing it needs the complete set."""
 	_require_billing_permission()
 
+	page = max(cint(page), 1)
+	page_length = min(max(cint(page_length) or 50, 1), 200)
+
 	journeys = _fetch_journeys(from_date, to_date, customer)
-	return _build_customer_groups(journeys, customer)
+	result = _build_customer_groups(journeys, customer)
+
+	# The page lists customers with at least one completed journey in the period;
+	# ones that only carry a recurring subscription fee are left out (that fee is
+	# still picked up when a Sales Order is generated for the customer).
+	customers = [c for c in result.get("customers") or [] if c["journey_count"]]
+	result["customers"] = customers
+	result["grand_total"] = None
+	if len(customers) > 1:
+		result["grand_total"] = _sum_summaries([c["summary"] for c in customers])
+		result["grand_total"]["journey_count"] = sum(c["journey_count"] for c in customers)
+
+	if len(customers) > 1:
+		rows = [
+			{**j, "customer": c["customer"]}
+			for c in customers
+			for j in c.get("journeys") or []
+		]
+		rows.sort(key=lambda j: str(j.get("completion_date_time") or ""), reverse=True)
+		start = (page - 1) * page_length
+		result["rows"] = rows[start : start + page_length]
+		result["total_journeys"] = len(rows)
+		result["page"] = page
+		result["page_length"] = page_length
+		for c in customers:
+			c["journeys"] = []
+	return result
 
 
-@frappe.whitelist()
-@frappe.validate_and_sanitize_search_inputs
-def get_valid_customers_for_filter(doctype, txt, searchfield, start, page_len, filters):
-	from_date = filters.get("from_date")
-	to_date = filters.get("to_date")
+def _valid_filter_customers(from_date=None, to_date=None, include_recurring=True):
+	"""Customers with a completed journey in the period (and, unless
+	``include_recurring`` is off, those with only recurring fees)."""
 	to_datetime = f"{to_date} 23:59:59" if to_date else None
 
 	conditions = ["journey_status = 'Completed'"]
@@ -230,17 +265,29 @@ def get_valid_customers_for_filter(doctype, txt, searchfield, start, page_len, f
 		conditions.append("completion_date_time <= %s")
 		values.append(to_datetime)
 
-	condition_str = " and ".join(conditions) if conditions else "1=1"
-
 	journey_customers = frappe.db.sql(f"""
 		select distinct customer from `tabSeal Journey`
-		where {condition_str}
+		where {" and ".join(conditions)}
 	""", tuple(values), as_dict=True)
 
 	valid_customers = {r.customer for r in journey_customers if r.customer}
-	
-	recurring = _get_recurring_fees_by_customer(None)
-	valid_customers.update(recurring.keys())
+	if include_recurring:
+		valid_customers.update(_get_recurring_fees_by_customer(None).keys())
+	return valid_customers
+
+
+@frappe.whitelist()
+def get_filter_customers(from_date=None, to_date=None):
+	"""Customers with a completed journey in the period, for the page's searchable
+	Customer dropdown (the "All" option is added client-side)."""
+	_require_billing_permission()
+	return sorted(_valid_filter_customers(from_date or None, to_date or None, include_recurring=False))
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def get_valid_customers_for_filter(doctype, txt, searchfield, start, page_len, filters):
+	valid_customers = _valid_filter_customers(filters.get("from_date"), filters.get("to_date"))
 
 	if not valid_customers:
 		return []
@@ -281,7 +328,8 @@ def is_journey_sales_order(sales_order):
 def _fetch_journeys(from_date, to_date, customer):
 	conditions = {"journey_status": "Completed"}
 	if customer:
-		conditions["customer"] = customer
+		# Partial match: "kenya" finds every customer with kenya in its name.
+		conditions["customer"] = ["like", f"%{customer.strip()}%"]
 
 	to_datetime = f"{to_date} 23:59:59" if to_date else None
 	if from_date and to_datetime:
@@ -731,7 +779,7 @@ def _get_recurring_fees_by_customer(customer_filter=None):
 	its per-cycle amount (seal_count * rate)."""
 	sub_filters = {"party_type": "Customer", "status": ["!=", "Cancelled"]}
 	if customer_filter:
-		sub_filters["party"] = customer_filter
+		sub_filters["party"] = ["like", f"%{customer_filter.strip()}%"]
 
 	subs = frappe.get_all("Subscription", filters=sub_filters, fields=["name", "party"])
 	if not subs:

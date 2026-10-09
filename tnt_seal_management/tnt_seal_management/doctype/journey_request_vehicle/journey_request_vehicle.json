@@ -115,7 +115,7 @@
    "fieldtype": "Link",
    "label": "Return Warehouse",
    "read_only": 1,
-   "options": "Warehouse"
+   "options": "Custody Point"
   },
   {
    "fieldname": "seal_return_location",

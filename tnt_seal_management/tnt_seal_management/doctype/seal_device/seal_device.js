@@ -9,6 +9,11 @@ frappe.ui.form.on("Seal Device", {
 
 		if (!frm.is_new()) {
 			_add_sync_button(frm);
+			frm.add_custom_button(
+				__("Transfer Custody"),
+				() => window.tnt_transfer_seals([frm.doc.name], () => frm.reload_doc()),
+				__("Actions")
+			);
 		}
 	},
 });

@@ -4,6 +4,7 @@
 import math
 
 import frappe
+from frappe.utils import cint
 from frappe.model.document import Document
 
 EARTH_RADIUS_METERS = 6371000
@@ -57,4 +58,50 @@ def find_nearest_custody_point(latitude, longitude):
 	return {
 		"custody_point": best.name,
 		"distance_meters": round(best_distance, 1),
+	}
+
+
+@frappe.whitelist()
+def get_warehouse_list(search=None, status="All", page=1, page_length=25):
+	"""Custody Points for the Warehouses page. ``status`` is All / Active /
+	Inactive / Main; ``summary`` counts every status regardless of the search.
+	Honours Custody Point permissions via get_list."""
+	page = max(cint(page), 1)
+	page_length = min(max(cint(page_length) or 25, 1), 100)
+	search = (search or "").strip()
+
+	status_filters = {
+		"Active": {"active": 1},
+		"Inactive": {"active": 0},
+		"Main": {"is_main_warehouse": 1},
+	}
+	filters = status_filters.get(status, {})
+	or_filters = None
+	if search:
+		like = f"%{search}%"
+		or_filters = [[field, "like", like] for field in ("name", "custody_point_name", "region", "address_line")]
+
+	def count(f, of=None):
+		return len(frappe.get_list("Custody Point", filters=f, or_filters=of, pluck="name", limit_page_length=0))
+
+	warehouses = frappe.get_list(
+		"Custody Point",
+		filters=filters,
+		or_filters=or_filters,
+		fields=[
+			"name", "custody_point_name", "region", "is_main_warehouse", "active",
+			"address_line", "latitude", "longitude", "geofence_radius_meters",
+		],
+		order_by="is_main_warehouse desc, active desc, custody_point_name asc",
+		limit_start=(page - 1) * page_length,
+		limit_page_length=page_length,
+	)
+	return {
+		"warehouses": warehouses,
+		"total": count(filters, or_filters),
+		"summary": {
+			"All": count({}),
+			**{key: count(f) for key, f in status_filters.items()},
+		},
+		"can_create": frappe.has_permission("Custody Point", "create"),
 	}

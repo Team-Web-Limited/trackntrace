@@ -10,6 +10,7 @@ frappe.pages["completed-journeys"].on_page_load = function (wrapper) {
 		from_date: frappe.datetime.month_start(),
 		to_date: frappe.datetime.get_today(),
 		customer: "",
+		page: 1,
 	};
 
 	// Compact stats pills live in the Frappe page header (matching Journey
@@ -52,6 +53,8 @@ function _build_filters(page) {
 		default: page.cj_state.from_date,
 		change() {
 			page.cj_state.from_date = page.from_date_field.get_value();
+			page.cj_state.page = 1;
+			_refresh_customer_options(page);
 			_load(page);
 		},
 	});
@@ -63,27 +66,53 @@ function _build_filters(page) {
 		default: page.cj_state.to_date,
 		change() {
 			page.cj_state.to_date = page.to_date_field.get_value();
+			page.cj_state.page = 1;
+			_refresh_customer_options(page);
 			_load(page);
 		},
 	});
 
+	// Searchable dropdown: typing narrows the suggestions to similar names and
+	// picking one filters to that customer. "All" (the default) means everyone.
+	// The suggestions are the customers with completed journeys in the period.
 	page.customer_field = page.add_field({
 		fieldname: "customer",
 		label: __("Customer"),
-		fieldtype: "Link",
-		options: "Customer",
-		get_query: function() {
-			return {
-				query: "tnt_seal_management.tnt_seal_management.api.completed_journeys.get_valid_customers_for_filter",
-				filters: {
-					from_date: page.cj_state.from_date,
-					to_date: page.cj_state.to_date
-				}
-			};
-		},
+		fieldtype: "Autocomplete",
+		options: [CJ_ALL],
+		default: CJ_ALL,
 		change() {
-			page.cj_state.customer = page.customer_field.get_value();
+			const value = (page.customer_field.get_value() || "").trim();
+			// Half-typed text doesn't filter; only a suggestion (or All / empty) does.
+			if (value && value !== CJ_ALL && !(page.cj_customers || []).includes(value)) return;
+			const customer = !value || value === CJ_ALL ? "" : value;
+			if (customer === page.cj_state.customer) return;
+			page.cj_state.customer = customer;
+			page.cj_state.page = 1;
 			_load(page);
+		},
+	});
+	_refresh_customer_options(page);
+}
+
+const CJ_ALL = "All";
+
+// Reload the suggestions for the current dates; if the selected customer has
+// nothing in them, fall back to All.
+function _refresh_customer_options(page) {
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.completed_journeys.get_filter_customers",
+		args: { from_date: page.cj_state.from_date || null, to_date: page.cj_state.to_date || null },
+		callback(r) {
+			const customers = r.message || [];
+			page.cj_customers = customers;
+			page.customer_field.set_data([CJ_ALL, ...customers]);
+			if (page.cj_state.customer && !customers.includes(page.cj_state.customer)) {
+				page.cj_state.customer = "";
+				page.cj_state.page = 1;
+				page.customer_field.set_value(CJ_ALL);
+				_load(page);
+			}
 		},
 	});
 }
@@ -113,6 +142,8 @@ function _apply_period(page) {
 // Data
 // ---------------------------------------------------------------------------
 
+const CJ_PAGE_LENGTH = 50;
+
 function _load(page) {
 	_set_loading(page, true);
 	frappe.call({
@@ -121,6 +152,8 @@ function _load(page) {
 			from_date: page.cj_state.from_date || null,
 			to_date: page.cj_state.to_date || null,
 			customer: page.cj_state.customer || null,
+			page: page.cj_state.page,
+			page_length: CJ_PAGE_LENGTH,
 		},
 		callback(r) {
 			_set_loading(page, false);
@@ -149,6 +182,13 @@ function _build_skeleton(page) {
 			<div class="cj-spinner"></div>
 		</div>
 	`);
+
+	$(page.body).on("click", ".cj-page-btn", function () {
+		if ($(this).prop("disabled")) return;
+		page.cj_state.page = Number.parseInt($(this).data("page"), 10) || 1;
+		_load(page);
+		window.scrollTo({ top: 0, behavior: "smooth" });
+	});
 
 	$(page.body).on("click", ".cj-journey-link", function () {
 		const name = $(this).data("name");
@@ -185,31 +225,94 @@ function _render(page, data) {
 	_render_overview(page, customers, data.grand_total);
 
 	if (!customers.length) {
-		$(page.body).find(".cj-cards").html(
-			`<div class="cj-empty">${__("No completed journeys found for the selected filters.")}</div>`
-		);
+		const st = page.cj_state;
+		const from = st.from_date ? frappe.datetime.str_to_user(st.from_date) : "…";
+		const to = st.to_date ? frappe.datetime.str_to_user(st.to_date) : "…";
+		const message = st.customer
+			? __('No completed journeys found for "{0}" between {1} and {2}.', [frappe.utils.escape_html(st.customer), from, to])
+			: __("No completed journeys found between {0} and {1}.", [from, to]);
+		$(page.body).find(".cj-cards").html(`<div class="cj-empty">${message}</div>`);
 		return;
 	}
 
-	const hasSpecificCustomer = !!page.cj_state.customer;
 	let cardsHtml = "";
 	let summaryHtml = "";
 
-	if (hasSpecificCustomer) {
-		// When a customer is selected, show their detailed card, just like the initial design.
-		// The customer card inherently has its own summary at the bottom.
-		cardsHtml = customers.map((c, idx) => _customer_card_html(c, idx)).join("");
+	if (customers.length === 1) {
+		// One customer: their detailed card (summary, charges, Sales Order, export).
+		cardsHtml = _customer_card_html(customers[0], 0);
 	} else {
-		// When no customer is selected, show the 3 summary cards instead of the long list.
+		// All (or several customers): one list of the seal journeys, with the
+		// grand-total summary below it.
 		let g = data.grand_total;
-		if (!g && customers.length === 1) {
-			g = Object.assign({}, customers[0].summary);
-			g.journey_count = customers[0].journey_count;
-		}
 		summaryHtml = g ? _summary_cards_html(g, customers.length, false) : "";
+		cardsHtml = _all_journeys_html(data);
 	}
 
-	$(page.body).find(".cj-cards").html(summaryHtml + cardsHtml);
+	$(page.body).find(".cj-cards").html(cardsHtml + summaryHtml);
+}
+
+// One table of the seal journeys across the matching customers, a page of
+// CJ_PAGE_LENGTH at a time (the server pages it).
+function _all_journeys_html(data) {
+	const esc = frappe.utils.escape_html;
+	const journeys = data.rows || [];
+	if (!journeys.length) {
+		return `<div class="cj-empty">${__("No completed journeys found for the selected filters.")}</div>`;
+	}
+	const rows = journeys
+		.map((j) =>
+			_journey_row_html(j).replace(/<tr[^>]*>/, (tr) => `${tr}<td class="cj-col-customer">${esc(j.customer)}</td>`)
+		)
+		.join("");
+	return `
+		<section class="cj-card">
+			<div class="cj-table-wrap">
+				<table class="cj-table">
+					<thead>
+						<tr>
+							<th>${__("Customer")}</th>
+							<th>${__("Journey")}</th>
+							<th>${__("Container/Truck #")}</th>
+							<th>${__("Origin")}</th>
+							<th>${__("Destination")}</th>
+							<th>${__("Tagging Date")}</th>
+							<th>${__("Arrival Date")}</th>
+							<th>${__("Un-tagging Date")}</th>
+							<th class="cj-col-seal">${__("Seal Number")}</th>
+							<th>${__("File Number")}</th>
+							<th>${__("Hours/Days Taken")}</th>
+							<th>${__("Contact Person")}</th>
+							<th class="cj-col-departure">${__("Departure Card #")}</th>
+							<th class="cj-col-retrieval">${__("Retrieval Card #")}</th>
+							<th class="cj-col-amount">${__("Amount")}</th>
+						</tr>
+					</thead>
+					<tbody>${rows}</tbody>
+				</table>
+			</div>
+			${_all_journeys_pagination(data)}
+		</section>
+	`;
+}
+
+function _all_journeys_pagination(data) {
+	const total = data.total_journeys || 0;
+	const size = data.page_length || CJ_PAGE_LENGTH;
+	const pages = Math.max(1, Math.ceil(total / size));
+	const current = Math.min(data.page || 1, pages);
+	const first = total ? (current - 1) * size + 1 : 0;
+	const last = Math.min(current * size, total);
+	return `
+		<div class="cj-pagination">
+			<span>${__("Showing {0}-{1} of {2}", [first, last, total])}</span>
+			<div>
+				<button class="cj-page-btn" data-page="${current - 1}" ${current <= 1 ? "disabled" : ""}>${__("Previous")}</button>
+				<b>${__("Page {0} of {1}", [current, pages])}</b>
+				<button class="cj-page-btn" data-page="${current + 1}" ${current >= pages ? "disabled" : ""}>${__("Next")}</button>
+			</div>
+		</div>
+	`;
 }
 
 function _render_overview(page, customers, grand_total) {
@@ -844,8 +947,11 @@ function _inject_styles() {
 			background: #0284c7;
 		}
 		.cj-print-btn:hover, .cj-charges-btn:hover { border-color: var(--cj-blue); }
+		/* Fixed-height scroll area: long journey lists scroll inside the card with
+		   the column headings pinned, instead of stretching the page. */
 		.cj-table-wrap {
-			overflow-x: auto;
+			overflow: auto;
+			max-height: 60vh;
 		}
 		.cj-table {
 			width: 100%;
@@ -863,6 +969,9 @@ function _inject_styles() {
 			color: var(--text-color, #334155);
 		}
 		.cj-table th {
+			position: sticky;
+			top: 0;
+			z-index: 2;
 			background: #f0f9ff;
 			color: #0369a1;
 			font-size: 11px;
@@ -871,6 +980,30 @@ function _inject_styles() {
 			text-transform: uppercase;
 		}
 		.cj-col-amount { text-align: right; }
+		.cj-pagination {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			padding: 14px 18px;
+			background: #f0f9ff;
+			color: #0369a1;
+			font-size: 13px;
+		}
+		.cj-pagination div { display: flex; align-items: center; gap: 9px; }
+		.cj-page-btn {
+			padding: 6px 12px;
+			border: 1px solid #bae6fd;
+			border-radius: 8px;
+			background: var(--card-bg, #fff);
+			color: #075985;
+			font-size: 13px;
+			font-weight: 700;
+			cursor: pointer;
+		}
+		.cj-page-btn:disabled { cursor: default; opacity: .45; }
+		[data-theme="dark"] .cj-pagination { background: #0f172a; color: #7dd3fc; }
+		[data-theme="dark"] .cj-page-btn { background: #1e293b; border-color: #334155; color: #cbd5e1; }
 		.cj-journey-link {
 			color: var(--cj-blue);
 			cursor: pointer;
@@ -958,6 +1091,7 @@ function _inject_styles() {
 			background: var(--card-bg, #fff);
 			box-shadow: 0 4px 12px rgba(14, 165, 233, .05);
 			overflow: hidden;
+			margin-top: 16px;
 		}
 		.cj-summary-cards-header {
 			padding: 10px 16px;

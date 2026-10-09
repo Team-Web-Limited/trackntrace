@@ -143,12 +143,23 @@
    "write": 1
   },
   {
+   "create": 1,
    "email": 1,
    "print": 1,
    "read": 1,
    "report": 1,
    "role": "Field Technician",
    "share": 1
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "PCB Team Leader"
+  },
+  {
+   "read": 1,
+   "report": 1,
+   "role": "Account Manager"
   },
   {
    "create": 1,

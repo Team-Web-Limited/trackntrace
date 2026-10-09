@@ -1,0 +1,56 @@
+{
+ "actions": [],
+ "creation": "2026-10-09 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "modified": "2026-10-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "owner": "Administrator",
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "name": "Seal Custody Transfer Item",
+ "istable": 1,
+ "editable_grid": 0,
+ "field_order": [
+  "seal_device",
+  "from_custody_type",
+  "from_custodian",
+  "from_label"
+ ],
+ "fields": [
+  {
+   "fieldname": "seal_device",
+   "fieldtype": "Link",
+   "label": "Seal Device",
+   "options": "Seal Device",
+   "reqd": 1,
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "from_custody_type",
+   "fieldtype": "Data",
+   "label": "From Type",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "from_custodian",
+   "fieldtype": "Data",
+   "label": "From",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "from_label",
+   "fieldtype": "Data",
+   "label": "From (label)",
+   "read_only": 1,
+   "hidden": 1
+  }
+ ],
+ "permissions": []
+}

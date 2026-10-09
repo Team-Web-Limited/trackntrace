@@ -7,10 +7,12 @@ Also exposes @frappe.whitelist() methods for manual form buttons.
 
 import json
 import re
+import time
+from datetime import datetime
 
 import frappe
 from frappe import _
-from frappe.utils import cstr, get_datetime, now_datetime
+from frappe.utils import cint, cstr, get_datetime, now_datetime
 
 from tnt_seal_management.tnt_seal_management.api.seal_api_client import (
 	_save_sync_log,
@@ -207,9 +209,12 @@ def _reconcile_alert_log(device):
 
 	open_rows = frappe.get_all(
 		"Seal Alert Log",
-		filters={"seal_device": device.name, "alert_source": "System", "is_resolved": 0},
-		fields=["name", "alert_type"],
+		filters={"seal_device": device.name, "is_resolved": 0},
+		fields=["name", "alert_type", "alert_source"],
 	)
+	# An open incident of the same category from ANY source (Uffizio included)
+	# already covers this alert, so the system one is not raised again — and its
+	# occurrence count isn't bumped on every sync.
 	open_types = {r.alert_type for r in open_rows}
 
 	# Only Battery alerts auto-resolve from telemetry: when a seal's battery
@@ -218,7 +223,11 @@ def _reconcile_alert_log(device):
 	# Control Room user resolves them through the Resolution workflow, so a
 	# tamper or drop-out is never silently closed by a transient reading.
 	for row in open_rows:
-		if row.alert_type == "Battery" and row.alert_type not in current_types:
+		if (
+			row.alert_source == "System"
+			and row.alert_type == "Battery"
+			and row.alert_type not in current_types
+		):
 			frappe.db.set_value(
 				"Seal Alert Log", row.name, {"is_resolved": 1, "resolved_at": now_datetime()}
 			)
@@ -226,17 +235,17 @@ def _reconcile_alert_log(device):
 	for alert in alerts:
 		if alert["type"] in open_types:
 			continue
-		alert_doc = frappe.get_doc({
-			"doctype": "Seal Alert Log",
-			"alert_source": "System",
-			"alert_type": alert["type"],
-			"level": alert["level"].capitalize(),
-			"message": alert["message"],
-			"seal_device": device.name,
-			"seal_journey": seal_journey,
-			"journey_request": journey_request,
-			"occurred_at": now_datetime(),
-		}).insert(ignore_permissions=True)
+		from tnt_seal_management.tnt_seal_management.api.alert_incidents import record_alert
+
+		alert_doc = record_alert(
+			alert_source="System",
+			category=alert["type"],
+			level=alert["level"],
+			message=alert["message"],
+			seal_device=device.name,
+			seal_journey=seal_journey,
+			journey_request=journey_request,
+		)["doc"]
 
 		# Actively notify on a newly-opened critical alert (e.g. seal unlocked
 		# in transit). Only fires once per alert because the open/resolve
@@ -861,18 +870,37 @@ def manual_sync_seal_journey(seal_journey_name):
 
 # ---------------------------------------------------------------------------
 # Uffizio's own alert feed (getAlertData — Trakzee Premium, separate from the
-# locally-derived alerts in journey_monitoring.py). Manual-trigger only for
-# now: unverified against the live Seal API Settings account, so it is not
-# wired into hooks.py scheduler_events alongside the other syncs. Once a
-# manual run confirms real alert rows come back, add it to the cron block
-# next to scheduled_sync_active_journeys.
+# locally-derived alerts in journey_monitoring.py). Pulled on a cron in
+# hooks.py by scheduled_sync_alert_data, which re-reads a trailing window that
+# overlaps the previous run; the dedupe key below makes the overlap harmless.
 # ---------------------------------------------------------------------------
+
+# Uffizio refuses getAlertData windows longer than 24 hours.
+_ALERT_MAX_WINDOW_SECONDS = 24 * 60 * 60
+# Default trailing window for a sync with no explicit range — wider than the
+# cron interval so a slow or skipped run never leaves a gap.
+_ALERT_DEFAULT_WINDOW_SECONDS = 30 * 60
+# alert_generation comes back day-first ("08-10-2026 14:27:28"); frappe's
+# get_datetime would read that month-first, as 10 Aug.
+_ALERT_DATETIME_FORMAT = "%d-%m-%Y %H:%M:%S"
+
 
 def sync_alert_data(from_dt=None, to_dt=None, imei_nos=None, sync_type="Alert Data Sync"):
 	"""Pull Uffizio's getAlertData feed and persist new alerts to Seal Alert
 	Log with alert_source="Uffizio", deduplicated by source_alert_id so
-	re-running the sync never creates duplicate rows."""
+	re-running the sync never creates duplicate rows.
+
+	from_dt / to_dt: epoch seconds. Defaults to the trailing
+	_ALERT_DEFAULT_WINDOW_SECONDS; a longer range is clamped to the last 24h
+	of it, since Uffizio rejects anything wider.
+
+	Only alerts for IMEIs registered as a Seal Device are stored — the feed
+	covers every device on the company account, not just seals."""
 	from tnt_seal_management.tnt_seal_management.api.seal_api_client import get_alert_data
+
+	to_dt = cint(to_dt) or int(time.time())
+	from_dt = cint(from_dt) or to_dt - _ALERT_DEFAULT_WINDOW_SECONDS
+	from_dt = max(from_dt, to_dt - _ALERT_MAX_WINDOW_SECONDS)
 
 	raw = get_alert_data(imei_nos=imei_nos, from_dt=from_dt, to_dt=to_dt, sync_type=sync_type)
 	records = _normalize_alert_data_response(raw)
@@ -887,34 +915,120 @@ def sync_alert_data(from_dt=None, to_dt=None, imei_nos=None, sync_type="Alert Da
 		)
 		device_by_imei = {str(r.imei_number): r for r in rows}
 
+	from tnt_seal_management.tnt_seal_management.api.alert_incidents import (
+		get_alert_mappings,
+		is_duplicate_source,
+		record_alert,
+		resolve_mapping,
+	)
+
+	mappings = get_alert_mappings()
 	created = 0
+	merged = 0
+	milestones = 0
 	skipped = 0
+	ignored = 0
+	unknown = 0
 	for rec in records:
-		alert_id = rec.get("alert_id")
-		if alert_id and frappe.db.exists(
-			"Seal Alert Log", {"source_alert_id": str(alert_id), "alert_source": "Uffizio"}
-		):
+		device = device_by_imei.get(str(rec.get("imei"))) if rec.get("imei") else None
+		if not device:
+			unknown += 1
+			continue
+
+		source_id = _alert_source_id(rec)
+		if is_duplicate_source(source_id, "Uffizio"):
 			skipped += 1
 			continue
 
-		device = device_by_imei.get(str(rec.get("imei"))) if rec.get("imei") else None
-		frappe.get_doc({
-			"doctype": "Seal Alert Log",
-			"alert_source": "Uffizio",
-			"alert_type": rec.get("alert_type") or "Unknown",
-			"level": "Warning",
-			"message": rec.get("alert_info") or rec.get("alert_type") or _("Uffizio alert"),
-			"seal_device": device.name if device else None,
-			"seal_journey": device.current_journey if device else None,
-			"journey_request": device.current_journey_request if device else None,
-			"occurred_at": rec.get("alert_generation") or now_datetime(),
-			"source_alert_id": str(alert_id) if alert_id else None,
-			"raw_data": json.dumps(rec.get("_raw") or rec)[:5000],
-		}).insert(ignore_permissions=True)
-		created += 1
+		# Category/level come from Alert Type Mapping; an unmapped type still
+		# gets stored (category "Other") so nothing is silently dropped.
+		journey_status = (
+			frappe.db.get_value("Seal Journey", device.current_journey, "journey_status")
+			if device.current_journey
+			else None
+		)
+		mapping = resolve_mapping(mappings, rec.get("alert_id"), rec.get("alert_info"), journey_status)
+		if mapping and mapping.ignore:
+			ignored += 1
+			continue
+		# Place events (arrived / departed / entered / exited) are journey
+		# milestones, not alerts.
+		if mapping and mapping.get("as_milestone"):
+			from tnt_seal_management.tnt_seal_management.api.journey_milestones import record_milestone
+
+			if device.current_journey and record_milestone(
+				device.current_journey, rec, source_id, _parse_alert_datetime(rec.get("alert_generation"))
+			):
+				milestones += 1
+			else:
+				ignored += 1
+			continue
+		message = rec.get("alert_info") or rec.get("alert_type") or _("Uffizio alert")
+		result = record_alert(
+			alert_source="Uffizio",
+			category=mapping.category if mapping else "Other",
+			level=mapping.level if mapping else "Warning",
+			message=message,
+			seal_device=device.name,
+			seal_journey=device.current_journey,
+			journey_request=device.current_journey_request,
+			occurred_at=_parse_alert_datetime(rec.get("alert_generation")),
+			source_alert_id=source_id,
+			source_alert_type=rec.get("alert_type"),
+			uffizio_alert_id=cstr(rec.get("alert_id")) or None,
+			raw_data=json.dumps(rec.get("_raw") or rec)[:5000],
+		)
+		doc = result["doc"]
+		created += 1 if result["created"] else 0
+		merged += 0 if result["created"] else 1
+		# A new or escalated critical incident (e.g. a cut e-lock string) pages the
+		# Control Room just like a locally-derived critical alert.
+		if doc.level == "Critical" and (result["created"] or result["escalated"]):
+			_notify_critical_alert(
+				doc.alert_type, doc.message, device.name, doc.seal_journey, doc.journey_request,
+				alert_name=doc.name,
+			)
 
 	frappe.db.commit()
-	return {"created": created, "skipped": skipped, "total": len(records)}
+	return {
+		"created": created,
+		"merged": merged,
+		"milestones": milestones,
+		"skipped": skipped,
+		"ignored": ignored,
+		"unknown_device": unknown,
+		"total": len(records),
+	}
+
+
+def scheduled_sync_alert_data():
+	"""Scheduler entry point (cron in hooks.py): pull the trailing alert window.
+	Silently does nothing while the Seal API is disabled; any other failure is
+	already recorded on the Seal API Sync Log by the client."""
+	if not frappe.db.get_single_value("Seal API Settings", "enabled"):
+		return
+	try:
+		sync_alert_data(sync_type="Alert Data Sync")
+	except Exception as exc:
+		frappe.log_error("Seal Alert Data Sync", f"Scheduled alert data sync failed: {exc}")
+
+
+def _alert_source_id(rec):
+	"""Dedupe key for one alert occurrence. Uffizio's alert_id identifies the
+	alert *type* (16 = OverStay for every OverStay), not the event, so it is
+	combined with the device and generation time."""
+	return "|".join(
+		cstr(rec.get(k)) for k in ("imei", "alert_id", "alert_type", "alert_generation")
+	)[:140]
+
+
+def _parse_alert_datetime(value):
+	if not value:
+		return None
+	try:
+		return datetime.strptime(cstr(value).strip(), _ALERT_DATETIME_FORMAT)
+	except ValueError:
+		return None
 
 
 def _normalize_alert_data_response(response_json):
@@ -933,8 +1047,8 @@ def _normalize_alert_data_response(response_json):
 		normalised.append({
 			"imei": _pick(rec, ["imei", "Imeino", "imei_no", "IMEI"]),
 			"alert_id": _pick(rec, ["alert_id", "Alert_Id", "AlertId"]),
-			"alert_type": _pick(rec, ["alert_type", "Alert_Type", "AlertType"]),
-			"alert_info": _pick(rec, ["alert_info", "Alert_Info", "description", "Description"]),
+			"alert_type": cstr(_pick(rec, ["alert_type", "Alert_Type", "AlertType"])).strip() or None,
+			"alert_info": cstr(_pick(rec, ["alert_info", "Alert_Info", "description", "Description"])).strip() or None,
 			"alert_generation": _pick(rec, ["alert_generation", "Alert_Generation", "AlertGeneration"]),
 			"alert_location": _pick(rec, ["alert_location", "Alert_Location"]),
 			"_raw": rec,
@@ -1161,40 +1275,6 @@ def export_excel(rows, filename):
 	frappe.local.response.filename = f"{filename}.xlsx"
 	frappe.local.response.filecontent = xlsx_file.getvalue()
 	frappe.local.response.type = "binary"
-
-
-# Matches the seal-tracking-dashboard Page's own role list — distinct from
-# _DASHBOARD_ROLES (which gates the Seal Device Dashboard) because this page
-# additionally grants Managing Director but not PCB Team Leader.
-_TRACKING_DASHBOARD_ROLES = {"System Manager", "Operations Control Room", "Management", "Managing Director"}
-
-
-@frappe.whitelist()
-def export_tracking_pdf(html, filename):
-	"""Render the Seal Tracking Dashboard's currently filtered table (built
-	client-side, same approach as the Seal Device Dashboard's export) to a PDF."""
-	from frappe.utils.pdf import get_pdf
-
-	if not set(frappe.get_roles(frappe.session.user)) & _TRACKING_DASHBOARD_ROLES:
-		frappe.throw(
-			_("You do not have permission to export the seal tracking dashboard."),
-			frappe.PermissionError,
-		)
-
-	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
-
-	options = {
-		"page-size": "A4",
-		"orientation": "Landscape",
-		"margin-top": "15mm",
-		"margin-right": "15mm",
-		"margin-bottom": "15mm",
-		"margin-left": "15mm",
-	}
-
-	frappe.local.response.filename = f"{filename}.pdf"
-	frappe.local.response.filecontent = get_pdf(html, options=options)
-	frappe.local.response.type = "pdf"
 
 
 def _get_tnt_logo_img_tag():

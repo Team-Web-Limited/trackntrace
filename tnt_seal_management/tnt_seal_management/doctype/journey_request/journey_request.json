@@ -525,10 +525,10 @@
   {
    "fieldname": "return_warehouse",
    "fieldtype": "Link",
-   "options": "Warehouse",
+   "options": "Custody Point",
    "label": "Warehouse",
    "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
-   "description": "Warehouse the seal is returned to. Logged with the captured GPS location, in brackets, for audit."
+   "description": "Warehouse (Custody Point) the seal is returned to. Logged with the captured GPS location, in brackets, for audit."
   },
   {
    "fieldname": "jr_seal_return_row2_column",

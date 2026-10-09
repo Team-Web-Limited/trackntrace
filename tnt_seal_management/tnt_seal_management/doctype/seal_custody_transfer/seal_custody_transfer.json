@@ -1,0 +1,128 @@
+{
+ "actions": [],
+ "creation": "2026-10-09 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "modified": "2026-10-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "owner": "Administrator",
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "name": "Seal Custody Transfer",
+ "autoname": "format:SCT-{YYYY}-{MM}-{#####}",
+ "allow_rename": 0,
+ "field_order": [
+  "transfer_date_time",
+  "transferred_by",
+  "column_break_1",
+  "to_custody_type",
+  "to_custodian",
+  "to_label",
+  "section_1",
+  "seals",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "transfer_date_time",
+   "fieldtype": "Datetime",
+   "label": "Transferred At",
+   "read_only": 1,
+   "in_list_view": 1,
+   "default": "Now"
+  },
+  {
+   "fieldname": "transferred_by",
+   "fieldtype": "Link",
+   "label": "Transferred By",
+   "options": "User",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "to_custody_type",
+   "fieldtype": "Select",
+   "label": "To Type",
+   "options": "Custody Point\nUser",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "to_custodian",
+   "fieldtype": "Dynamic Link",
+   "label": "To",
+   "options": "to_custody_type",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "to_label",
+   "fieldtype": "Data",
+   "label": "To (label)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_1",
+   "fieldtype": "Section Break",
+   "label": "Seals"
+  },
+  {
+   "fieldname": "seals",
+   "fieldtype": "Table",
+   "label": "Seals",
+   "options": "Seal Custody Transfer Item",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks",
+   "read_only": 1
+  }
+ ],
+ "track_changes": 0,
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "create": 1,
+   "write": 1,
+   "delete": 1,
+   "export": 1,
+   "print": 1
+  },
+  {
+   "role": "Operations Control Room",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "PCB Team Leader",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Management",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Managing Director",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Field Technician",
+   "read": 1,
+   "report": 1
+  }
+ ]
+}

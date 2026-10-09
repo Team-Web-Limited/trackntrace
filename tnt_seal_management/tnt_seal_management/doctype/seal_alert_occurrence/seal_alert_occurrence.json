@@ -1,0 +1,55 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-10-09 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "modified": "2026-10-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "owner": "Administrator",
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "istable": 1,
+ "editable_grid": 1,
+ "name": "Seal Alert Occurrence",
+ "field_order": [
+  "source_alert_id",
+  "alert_source",
+  "occurred_at",
+  "message"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_alert_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Source Alert ID",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "alert_source",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Source",
+   "read_only": 1
+  },
+  {
+   "fieldname": "occurred_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Occurred At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Small Text",
+   "label": "Message",
+   "read_only": 1
+  }
+ ],
+ "permissions": []
+}

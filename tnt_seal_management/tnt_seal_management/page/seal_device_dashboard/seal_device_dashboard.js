@@ -55,6 +55,10 @@ function _build_seal_device_page(page) {
 		["assigned", __("Assigned")],
 		["issues", __("Issues")],
 		["excluded", __("Deassigned")],
+		["active", __("Active")],
+		["moving", __("Moving Now")],
+		["in_transit", __("In Transit")],
+		["offline", __("Offline")],
 	];
 
 	$(page.body).html(`
@@ -83,7 +87,6 @@ function _build_seal_device_page(page) {
 						</div>
 
 						<label class="sd-field sd-branch-field">
-							<span>${__("Branch")}</span>
 							<select class="sd-branch-filter" aria-label="${__("Filter by branch")}">
 								<option value="">${__("All Branches")}</option>
 							</select>
@@ -324,7 +327,31 @@ function _seal_device_filter_counts(devices) {
 		assigned: devices.filter(d => ["Assigned", "In Journey"].includes(d.current_status || "")).length,
 		issues: devices.filter(d => ["Damaged", "Lost", "Inactive"].includes(d.current_status || "") || ["Damaged", "Lost"].includes(d.condition || "")).length,
 		excluded: devices.filter(_is_sync_excluded).length,
+		active: devices.filter(d => _api_bucket(d) === "active").length,
+		moving: devices.filter(_is_moving_now).length,
+		in_transit: devices.filter(d => Boolean(d.current_journey)).length,
+		offline: devices.filter(d => _api_bucket(d) === "offline").length,
 	};
+}
+
+// Tracker-reported state, same mapping as seal_sync._API_STATUS_MAP: RUNNING /
+// MOVING / ON / ACTIVE are moving, STOP / STOPPED / IDLE are online but still,
+// and everything else (INACTIVE, OFFLINE, blank) is offline.
+const _SD_MOVING_STATUSES = ["RUNNING", "MOVING", "ON", "ACTIVE"];
+const _SD_ONLINE_STATUSES = [..._SD_MOVING_STATUSES, "STOP", "STOPPED", "IDLE"];
+
+function _api_status_key(d) {
+	return (d.last_api_status || "").trim().toUpperCase();
+}
+
+function _api_bucket(d) {
+	return _SD_ONLINE_STATUSES.includes(_api_status_key(d)) ? "active" : "offline";
+}
+
+// Moving is the reported status, not the speed field: an INACTIVE device echoes
+// a stale last-known speed.
+function _is_moving_now(d) {
+	return _SD_MOVING_STATUSES.includes(_api_status_key(d));
 }
 
 function _clear_seal_device_filters(page) {
@@ -383,14 +410,18 @@ function _render_seal_device_table(page) {
 				<tr>
 					<th>${__("Seal")}</th>
 					<th>${__("Status")}</th>
+					<th>${__("API Status")}</th>
+					<th>${__("Lock Status")}</th>
 					<th>${__("Warehouse")}</th>
 					<th>${__("Journey")}</th>
 					<th>${__("Technician")}</th>
 					<th>${__("Vehicle")}</th>
 					<th>${__("Coordinates")}</th>
 					<th>${__("Location")}</th>
+					<th>${__("Speed")}</th>
 					<th>${__("Battery")}</th>
 					<th>${__("Last Sync")}</th>
+					<th>${__("Error")}</th>
 				</tr>
 			</thead>
 			<tbody>${visibleDevices.map(_seal_device_row_html).join("")}</tbody>
@@ -423,19 +454,34 @@ function _seal_device_row_html(d) {
 				${parseFloat(d.latitude).toFixed(5)}, ${parseFloat(d.longitude).toFixed(5)}
 		   </a>`
 		: "—";
+	// Tracking columns: raw API status, lock, speed, sync error.
+	const esc = frappe.utils.escape_html;
+	const apiStatus = d.last_api_status
+		? `<span class="sd-badge sd-badge--${_seal_device_status_class(d.last_api_status)}">${esc(d.last_api_status)}</span>`
+		: "—";
+	const lockClass = d.lock_status === "Locked" ? "available" : d.lock_status === "Unlocked" ? "issue" : "neutral";
+	const lockHtml = d.lock_status ? `<span class="sd-badge sd-badge--${lockClass}">${esc(d.lock_status)}</span>` : "—";
+	const speed = d.speed != null ? `${d.speed} km/h` : "—";
+	const errorHtml = d.api_error_message
+		? `<span title="${esc(d.api_error_message)}">${esc(d.api_error_message.slice(0, 80))}</span>`
+		: "—";
 
 	return `
 		<tr class="sd-device-row" data-name="${frappe.utils.escape_html(d.name)}">
 			<td><span class="sd-strong">${frappe.utils.escape_html(d.name)}</span>${excludedBadge}</td>
 			<td><span class="sd-badge sd-badge--${statusClass}">${frappe.utils.escape_html(status)}</span></td>
+			<td>${apiStatus}</td>
+			<td>${lockHtml}</td>
 			<td>${frappe.utils.escape_html(d.api_branch || "—")}</td>
 			<td>${d.current_journey ? frappe.utils.escape_html(d.current_journey) : "—"}</td>
 			<td>${d.current_technician ? frappe.utils.escape_html(d.current_technician) : "—"}</td>
 			<td>${frappe.utils.escape_html(d.journey_vehicle || d.current_vehicle || "—")}</td>
 			<td>${coordLine}</td>
 			<td class="sd-cell-location">${locationHtml}</td>
+			<td>${esc(speed)}</td>
 			<td>${battery}</td>
 			<td>${frappe.utils.escape_html(lastSync)}</td>
+			<td>${errorHtml}</td>
 		</tr>
 	`;
 }
@@ -633,7 +679,11 @@ function _get_filtered_seal_devices(page) {
 			(filter === "available" && status === "Available") ||
 			(filter === "assigned" && ["Assigned", "In Journey"].includes(status)) ||
 			(filter === "issues" && (["Damaged", "Lost", "Inactive"].includes(status) || ["Damaged", "Lost"].includes(condition))) ||
-			(filter === "excluded" && _is_sync_excluded(d));
+			(filter === "excluded" && _is_sync_excluded(d)) ||
+			(filter === "active" && _api_bucket(d) === "active") ||
+			(filter === "moving" && _is_moving_now(d)) ||
+			(filter === "in_transit" && Boolean(d.current_journey)) ||
+			(filter === "offline" && _api_bucket(d) === "offline");
 
 		if (!matchesFilter) return false;
 		if (branch && (d.api_branch || "") !== branch) return false;
@@ -901,7 +951,7 @@ function _inject_seal_device_styles() {
 		}
 		.sd-clear-btn:hover { background: #f8fafc; border-color: #94a3b8; }
 
-		.sd-table { width: max-content; min-width: 1180px; border-collapse: collapse; table-layout: auto; }
+		.sd-table { width: max-content; min-width: 1600px; border-collapse: collapse; table-layout: auto; }
 		.sd-table th,
 		.sd-table td {
 			padding: 10px 12px;

@@ -155,12 +155,16 @@ def ensure_seed_current_customers():
 	return created
 
 
+# The Current Customers page lists only customers of this Branch (Customer.custom_division).
+CURRENT_CUSTOMER_DIVISION = "ECTS Division"
+
+
 @frappe.whitelist()
 def get_current_customer_list(search=None, status=None, page=1, page_length=25):
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length), 1), 100)
 
-	filters = []
+	filters = [["custom_division", "=", CURRENT_CUSTOMER_DIVISION]]
 	if status == "Active":
 		filters.append(["disabled", "=", 0])
 	elif status == "Disabled":
@@ -231,7 +235,7 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25):
 			ifnull(disabled, 0) as disabled,
 			count(*) as count
 		from `tabCustomer`
-		where 1 = 1
+		where custom_division = %(division)s
 			{search_clause}
 		group by ifnull(disabled, 0)
 		""".format(
@@ -244,7 +248,7 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25):
 			)
 			"""
 		),
-		{"txt": f"%{search.strip()}%"} if search else {},
+		{"division": CURRENT_CUSTOMER_DIVISION, **({"txt": f"%{search.strip()}%"} if search else {})},
 		as_dict=True,
 	)
 	for row in summary_rows:

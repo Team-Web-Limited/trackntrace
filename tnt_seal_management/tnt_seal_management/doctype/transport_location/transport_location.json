@@ -13,6 +13,11 @@
   "column_break_main",
   "location_type",
   "is_active",
+  "geofence_section",
+  "uffizio_geofence",
+  "geofence_column",
+  "latitude",
+  "longitude",
   "section_break_notes",
   "remarks"
  ],
@@ -73,6 +78,38 @@
    "fieldname": "remarks",
    "fieldtype": "Small Text",
    "label": "Remarks"
+  },
+  {
+   "fieldname": "geofence_section",
+   "fieldtype": "Section Break",
+   "label": "Uffizio Geofence"
+  },
+  {
+   "fieldname": "uffizio_geofence",
+   "fieldtype": "Link",
+   "label": "Uffizio Geofence",
+   "options": "Uffizio Geofence",
+   "description": "The geofence on Uffizio that marks this place. Lets geofence alerts resolve to this location."
+  },
+  {
+   "fieldname": "geofence_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "latitude",
+   "fieldtype": "Float",
+   "label": "Latitude",
+   "precision": "9",
+   "read_only": 1,
+   "fetch_from": "uffizio_geofence.latitude"
+  },
+  {
+   "fieldname": "longitude",
+   "fieldtype": "Float",
+   "label": "Longitude",
+   "precision": "9",
+   "read_only": 1,
+   "fetch_from": "uffizio_geofence.longitude"
   }
  ],
  "index_web_pages_for_search": 1,

@@ -242,13 +242,23 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
-	"List/Warehouse/List": {
-		"doctype": "Warehouse",
+	# Warehouses are dynamic Custody Points now (the main store is just the one
+	# flagged is_main_warehouse), so the card counts active Custody Points.
+	"warehouse-list": {
+		"doctype": "Custody Point",
 		"rules": [
 			{
-				"roles": ["Operations Control Room", "System Manager", "Management", "Managing Director"],
-				"label": "Total warehouses",
-				"filters": {"is_group": 0, "disabled": 0},
+				"roles": [
+					"Operations Control Room",
+					"System Manager",
+					"Management",
+					"Managing Director",
+					"PCB Team Leader",
+					"Field Technician",
+					"Account Manager",
+				],
+				"label": "Active warehouses",
+				"filters": {"active": 1},
 			},
 		],
 	},

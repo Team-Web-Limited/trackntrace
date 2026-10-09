@@ -115,3 +115,118 @@ frappe.router.on('change', () => {
 	});
 })();
 
+
+const TNT_CUSTODY_SEALS_CLASS = "tnt-warehouse-seals";
+
+// Shared by the Warehouse and Custody Point forms: lists the seals held at
+// (custody_type, frm.doc.name).
+window.tnt_render_custody_seals = function (frm, custody_type, title) {
+	const e0 = frappe.utils.escape_html;
+	const $wrapper = $(frm.layout.wrapper);
+	$wrapper.find(`.${TNT_CUSTODY_SEALS_CLASS}`).remove();
+	if (frm.is_new()) return;
+
+	const $box = $(`
+		<div class="${TNT_CUSTODY_SEALS_CLASS} form-section card-section" style="margin-top: 15px;">
+			<div class="section-head">${e0(title)}</div>
+			<div class="wh-seals-body text-muted">${__("Loading...")}</div>
+		</div>
+	`).appendTo($wrapper);
+
+	const name = frm.doc.name;
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device.get_custody_seals",
+		args: { custody_type, custodian: name },
+		callback(r) {
+			// Ignore a late response after navigating to another Warehouse.
+			if (frm.doc.name !== name) return;
+			const rows = (r && r.message) || [];
+			const $body = $box.find(".wh-seals-body");
+			if (!rows.length) {
+				$body.text(__("No seals are currently held in this warehouse."));
+				return;
+			}
+			const e = frappe.utils.escape_html;
+			const tr = rows
+				.map(
+					(d) => `<tr>
+						<td><input type="checkbox" class="tnt-cs-pick" data-seal="${e(d.name)}"></td>
+						<td><a href="/app/seal-device/${encodeURIComponent(d.name)}">${e(d.seal_number || d.name)}</a></td>
+						<td>${e(d.device_id || "")}</td>
+						<td>${e(d.current_status || "")}</td>
+						<td>${e(d.lock_status || "")}</td>
+						<td>${e(d.condition || "")}</td>
+						<td>${d.current_custody_since ? frappe.datetime.str_to_user(d.current_custody_since) : ""}</td>
+					</tr>`
+				)
+				.join("");
+			$body.removeClass("text-muted").html(`
+				<p class="text-muted">${__("{0} seal(s)", [rows.length])}
+					<button class="btn btn-xs btn-default tnt-cs-transfer" style="margin-left:10px">${__("Transfer selected")}</button></p>
+				<div class="table-responsive">
+					<table class="table table-bordered table-sm">
+						<thead><tr>
+							<th></th><th>${__("Seal Number")}</th><th>${__("Device ID")}</th><th>${__("Status")}</th>
+							<th>${__("Lock Status")}</th><th>${__("Condition")}</th><th>${__("In Custody Since")}</th>
+						</tr></thead>
+						<tbody>${tr}</tbody>
+					</table>
+				</div>`);
+			$body.find(".tnt-cs-transfer").on("click", () => {
+				const picked = $body.find(".tnt-cs-pick:checked").map((_i, el) => $(el).data("seal")).get();
+				window.tnt_transfer_seals(picked, () => window.tnt_render_custody_seals(frm, custody_type, title));
+			});
+		},
+	});
+};
+
+
+// Hand seals over to a person or a location (Custody Point, e.g. Stores - TD).
+// One step: custody moves as soon as this is confirmed. `onDone` runs afterwards.
+window.tnt_transfer_seals = function (seals, onDone) {
+	if (!seals || !seals.length) {
+		frappe.msgprint(__("Select at least one seal first."));
+		return;
+	}
+	const d = new frappe.ui.Dialog({
+		title: __("Transfer {0} seal(s)", [seals.length]),
+		fields: [
+			{
+				fieldname: "to_custody_type",
+				fieldtype: "Select",
+				label: __("Hand over to"),
+				options: "User\nCustody Point",
+				default: "User",
+				reqd: 1,
+				onchange() {
+					const type = d.get_value("to_custody_type");
+					d.set_df_property("to_user", "hidden", type !== "User");
+					d.set_df_property("to_user", "reqd", type === "User");
+					d.set_df_property("to_point", "hidden", type !== "Custody Point");
+					d.set_df_property("to_point", "reqd", type === "Custody Point");
+				},
+			},
+			{ fieldname: "to_user", fieldtype: "Link", options: "User", label: __("Person"), reqd: 1,
+				get_query: () => ({ filters: { enabled: 1, user_type: "System User" } }) },
+			{ fieldname: "to_point", fieldtype: "Link", options: "Custody Point", label: __("Location"), hidden: 1,
+				get_query: () => ({ filters: { active: 1 } }) },
+			{ fieldname: "remarks", fieldtype: "Small Text", label: __("Remarks (Optional)") },
+		],
+		primary_action_label: __("Transfer"),
+		primary_action(values) {
+			const to = values.to_custody_type === "User" ? values.to_user : values.to_point;
+			frappe.call({
+				method: "tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device.transfer_custody",
+				args: { seals, to_custody_type: values.to_custody_type, to_custodian: to, remarks: values.remarks },
+				freeze: true,
+				callback(r) {
+					if (!r.message) return;
+					d.hide();
+					frappe.show_alert({ message: __("{0} seal(s) handed to {1}", [r.message.transferred, to]), indicator: "green" });
+					if (onDone) onDone(r.message);
+				},
+			});
+		},
+	});
+	d.show();
+};

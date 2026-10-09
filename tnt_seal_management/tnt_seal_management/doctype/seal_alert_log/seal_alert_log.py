@@ -121,7 +121,7 @@ def get_escalation_email(docname):
 
 	row = {"seal_device": doc.seal_device, "seal_journey": doc.seal_journey}
 	_attach_alert_locations([row])
-	target = alert_notification_target(doc.seal_device)
+	target = alert_notification_target(doc.seal_device, doc.seal_journey)
 
 	details = [
 		(_("Alert"), doc.message),
@@ -196,11 +196,47 @@ def _customer_email(customer):
 	return rows[0][0] if rows else None
 
 
-def alert_notification_target(seal_device):
+def _team_lead_email(seal_device, seal_journey=None):
+	"""(email, full name) of the PCB Team Leader responsible for this seal: the
+	alert's own journey, else the seal's current journey, else the latest journey
+	it was on. None when no team lead can be found or they have no address."""
+	candidates = [seal_journey]
+	candidates.append(frappe.db.get_value("Seal Device", seal_device, "current_journey"))
+	candidates.append(
+		frappe.db.get_value(
+			"Seal Journey",
+			{"assigned_seal": seal_device, "assigned_team_lead": ["is", "set"]},
+			"name",
+			order_by="creation desc",
+		)
+	)
+	for journey in candidates:
+		lead = journey and frappe.db.get_value("Seal Journey", journey, "assigned_team_lead")
+		if not lead:
+			continue
+		user = frappe.db.get_value("User", lead, ["email", "full_name", "enabled"], as_dict=True)
+		if user and user.enabled and (user.email or lead):
+			return (user.email or lead), _("Team Leader {0}").format(user.full_name or lead)
+
+	# No journey to read a team lead from (e.g. a seal that has only ever sat in
+	# stock): fall back to everyone holding the PCB Team Leader role. The
+	# Control Room reviews and edits the draft before it is sent.
+	from tnt_seal_management.tnt_seal_management.api.notifications import get_users_with_role
+
+	emails = sorted({email for _user, email in get_users_with_role("PCB Team Leader") if "@" in (email or "")})
+	if emails:
+		return ", ".join(emails), _("PCB Team Leaders")
+	return None
+
+
+def alert_notification_target(seal_device, seal_journey=None):
 	"""Who a critical alert about this seal should go to — whoever is holding it
 	right now, per the seal's live custody pointer. Returns an empty dict when
 	the seal has no custodian, and an entry with no ``email`` when the custodian
-	is known but has no address on file."""
+	is known but has no address on file.
+
+	A seal resting at a Custody Point has nobody to email there (Custody Points
+	hold no contact), so the alert goes to the seal's PCB Team Leader instead."""
 	if not seal_device:
 		return {}
 
@@ -213,11 +249,18 @@ def alert_notification_target(seal_device):
 	if not info or not info.current_custody_type or not info.current_custodian:
 		return {}
 
+	label = info.current_custody_label or info.current_custodian
+	email = _custodian_email(info.current_custody_type, info.current_custodian)
+	if not email and info.current_custody_type == "Custody Point":
+		lead = _team_lead_email(seal_device, seal_journey)
+		if lead:
+			email = lead[0]
+			label = _("{0} (emailing {1})").format(label, lead[1])
 	return {
 		"custody_type": info.current_custody_type,
 		"custodian": info.current_custodian,
-		"label": info.current_custody_label or info.current_custodian,
-		"email": _custodian_email(info.current_custody_type, info.current_custodian),
+		"label": label,
+		"email": email,
 	}
 
 
@@ -279,15 +322,20 @@ def _build_alert_filters(search=None, level=None, alert_type=None, status="open"
 def _attach_alert_locations(rows):
 	device_names = list({r["seal_device"] for r in rows if r.get("seal_device")})
 	loc_map = {}
+	coord_map = {}
 	if device_names:
+		from tnt_seal_management.tnt_seal_management.api.journey_monitoring import _coords
+
 		for d in frappe.get_all(
 			"Seal Device",
 			filters={"name": ["in", device_names]},
-			fields=["name", "last_known_api_location", "current_location"],
+			fields=["name", "last_known_api_location", "current_location", "latitude", "longitude"],
 		):
 			loc_map[d.name] = d.last_known_api_location or d.current_location or ""
+			coord_map[d.name] = _coords(d.latitude, d.longitude)
 	for r in rows:
 		r["seal_location"] = loc_map.get(r.get("seal_device"), "")
+		r["latitude"], r["longitude"] = coord_map.get(r.get("seal_device"), (None, None))
 	_attach_alert_journey_details(rows)
 
 
@@ -355,6 +403,7 @@ def get_alert_queue(
 		"name", "alert_source", "alert_type", "level", "message",
 		"seal_device", "seal_journey", "journey_request",
 		"occurred_at", "is_resolved", "resolved_at",
+		"occurrence_count", "last_occurred_at", "source_alert_type",
 		"resolution_status",
 		"acknowledged", "acknowledged_by", "acknowledged_at", "acknowledgement_remarks",
 	]
@@ -380,7 +429,7 @@ def get_alert_queue(
 			continue
 		device = r["seal_device"]
 		if device not in target_cache:
-			target_cache[device] = alert_notification_target(device)
+			target_cache[device] = alert_notification_target(device, r.get("seal_journey"))
 		r["notify_target"] = target_cache[device]
 
 	total = len(
@@ -429,6 +478,7 @@ def get_alert_queue(
 		"summary": summary,
 		"filter_options": filter_options,
 		"message_groups": open_alert_message_groups(),
+		"type_groups": open_alert_type_groups(),
 	}
 
 
@@ -560,6 +610,33 @@ def alert_message_group(message):
 	while words and words[-1].lower() in _GROUP_TRAILING_WORDS:
 		words.pop()
 	return " ".join(words) or text
+
+
+def open_alert_type_groups():
+	"""Counts of open alerts per alert type (the Alert tab's Type filter), worst
+	level first, for the Control Room's pills. Units in transit only."""
+	devices = in_transit_seal_devices()
+	if not devices:
+		return []
+	rows = frappe.db.sql(
+		"""
+		select alert_type, level, count(*) as count
+		from `tabSeal Alert Log`
+		where is_resolved = 0 and ifnull(alert_type, '') != '' and seal_device in %(devices)s
+		group by alert_type, level
+		""",
+		{"devices": tuple(devices)},
+		as_dict=True,
+	)
+
+	groups = {}
+	for row in rows:
+		group = groups.setdefault(row.alert_type, {"label": row.alert_type, "count": 0, "level": None})
+		group["count"] += row.count
+		if _LEVEL_RANK.get(row.level, 0) > _LEVEL_RANK.get(group["level"], 0):
+			group["level"] = row.level
+
+	return sorted(groups.values(), key=lambda g: (-_LEVEL_RANK.get(g["level"], 0), -g["count"]))
 
 
 def open_alert_message_groups():

@@ -30,6 +30,7 @@ frappe.ui.form.on("Journey Request", {
 		// Origin/Destination are the journey's start/end points, so only
 		// Terminal-type locations belong there; Checkpoints are the
 		// intermediate stops in the table below.
+		frm.set_query("return_warehouse", () => ({ filters: { active: 1 } }));
 		frm.set_query("origin", () => ({ filters: { location_role: "Terminal" } }));
 		frm.set_query("destination", () => ({ filters: { location_role: "Terminal" } }));
 		frm.set_query("checkpoint", "checkpoints", () => ({
@@ -558,7 +559,7 @@ function _jr_prompt_confirm_seal_return(frm, vehicleRow = null) {
 					reqd: 1,
 				},
 				{ fieldname: "retrieval_card_number", fieldtype: "Data", label: __("Retrieval Card Number"), reqd: 1 },
-				{ fieldname: "return_warehouse", fieldtype: "Link", options: "Warehouse", label: __("Warehouse"), reqd: 1 },
+				{ fieldname: "return_warehouse", fieldtype: "Link", options: "Custody Point", label: __("Warehouse"), reqd: 1, get_query: () => ({ filters: { active: 1 } }) },
 				{ fieldname: "remarks", fieldtype: "Small Text", label: __("Remarks (Optional)") },
 			],
 			(values) => {

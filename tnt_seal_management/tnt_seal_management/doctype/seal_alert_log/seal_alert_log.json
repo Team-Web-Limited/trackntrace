@@ -36,7 +36,14 @@
   "acknowledgement_remarks",
   "source_section",
   "source_alert_id",
-  "raw_data"
+  "raw_data",
+  "merge_section",
+  "occurrence_count",
+  "last_occurred_at",
+  "merge_col",
+  "source_alert_type",
+  "uffizio_alert_id",
+  "occurrences"
  ],
  "fields": [
   {
@@ -63,7 +70,7 @@
    "in_list_view": 1,
    "label": "Alert Type",
    "read_only": 1,
-   "description": "Category \u2014 e.g. Security, Connectivity, Battery for System alerts, or Uffizio's own alert_type category for Uffizio alerts."
+   "description": "Category — e.g. Security, Connectivity, Battery for System alerts, or Uffizio's own alert_type category for Uffizio alerts."
   },
   {
    "fieldname": "level_section",
@@ -215,6 +222,52 @@
    "fieldtype": "Long Text",
    "label": "Raw Data",
    "read_only": 1
+  },
+  {
+   "fieldname": "merge_section",
+   "fieldtype": "Section Break",
+   "label": "Merged Occurrences",
+   "collapsible": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "occurrence_count",
+   "fieldtype": "Int",
+   "label": "Occurrences",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "last_occurred_at",
+   "fieldtype": "Datetime",
+   "label": "Last Occurred At",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "merge_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "source_alert_type",
+   "fieldtype": "Data",
+   "label": "Source Alert Type",
+   "read_only": 1,
+   "description": "The provider's own name for the alert (e.g. Uffizio's 'ELock Open Back Cap'); Type above is the shared category."
+  },
+  {
+   "fieldname": "uffizio_alert_id",
+   "fieldtype": "Data",
+   "label": "Uffizio Alert ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "occurrences",
+   "fieldtype": "Table",
+   "label": "Occurrences",
+   "options": "Seal Alert Occurrence",
+   "read_only": 1,
+   "no_copy": 1
   }
  ],
  "grid_page_length": 50,

@@ -9,7 +9,6 @@ TARGET_PAGES = (
 	"current_customer_list",
 	"vehicle_list",
 	"seal_device_dashboard",
-	"seal_tracking_dashboard",
 )
 
 

@@ -1,0 +1,215 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:geofence_id",
+ "creation": "2026-10-09 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "modified": "2026-10-09 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Uffizio Geofence",
+ "owner": "Administrator",
+ "row_format": "Dynamic",
+ "sort_field": "geofence_name",
+ "sort_order": "ASC",
+ "states": [],
+ "search_fields": "geofence_group,shape",
+ "title_field": "geofence_name",
+ "show_title_field_in_link": 1,
+ "field_order": [
+  "geofence_id",
+  "geofence_name",
+  "geofence_group",
+  "geofence_type",
+  "column_break_1",
+  "category",
+  "shape",
+  "is_ours",
+  "company_name",
+  "location_section",
+  "latitude",
+  "longitude",
+  "column_break_2",
+  "radius",
+  "tolerance",
+  "point_count",
+  "link_section",
+  "transport_locations",
+  "sync_section",
+  "last_synced",
+  "coordinates"
+ ],
+ "fields": [
+  {
+   "fieldname": "geofence_id",
+   "fieldtype": "Data",
+   "label": "Geofence ID",
+   "reqd": 1,
+   "unique": 1,
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "geofence_name",
+   "fieldtype": "Data",
+   "label": "Geofence Name",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "geofence_group",
+   "fieldtype": "Data",
+   "label": "Group",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "geofence_type",
+   "fieldtype": "Data",
+   "label": "Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Data",
+   "label": "Category",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "shape",
+   "fieldtype": "Select",
+   "label": "Shape",
+   "options": "\nCircle\nRectangle\nPolygon\nRoute",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "is_ours",
+   "fieldtype": "Check",
+   "label": "Our Account's Geofence",
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "description": "Drawn on our own Uffizio account (Company Name set), not part of the shared pool."
+  },
+  {
+   "fieldname": "company_name",
+   "fieldtype": "Data",
+   "label": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "location_section",
+   "fieldtype": "Section Break",
+   "label": "Location"
+  },
+  {
+   "fieldname": "latitude",
+   "fieldtype": "Float",
+   "label": "Centroid Latitude",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "longitude",
+   "fieldtype": "Float",
+   "label": "Centroid Longitude",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "radius",
+   "fieldtype": "Float",
+   "label": "Radius",
+   "read_only": 1,
+   "description": "Circles only, as returned by Uffizio (unit unconfirmed)."
+  },
+  {
+   "fieldname": "tolerance",
+   "fieldtype": "Int",
+   "label": "Tolerance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "point_count",
+   "fieldtype": "Int",
+   "label": "Boundary Points",
+   "read_only": 1
+  },
+  {
+   "fieldname": "link_section",
+   "fieldtype": "Section Break",
+   "label": "Transport Location"
+  },
+  {
+   "fieldname": "transport_locations",
+   "fieldtype": "Small Text",
+   "label": "Linked Transport Locations",
+   "read_only": 1,
+   "description": "Transport Locations pointing at this geofence."
+  },
+  {
+   "fieldname": "sync_section",
+   "fieldtype": "Section Break",
+   "label": "Sync",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1
+  },
+  {
+   "fieldname": "coordinates",
+   "fieldtype": "Long Text",
+   "label": "Coordinates (JSON, [lat, lng])",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "email": 1,
+   "print": 1,
+   "share": 1
+  },
+  {
+   "role": "Operations Control Room",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Management",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Field Technician",
+   "read": 1
+  },
+  {
+   "role": "Managing Director",
+   "read": 1,
+   "report": 1
+  }
+ ]
+}

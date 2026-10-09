@@ -212,7 +212,10 @@ function _customer_load(page) {
 
 function _customer_apply_permissions(page) {
 	if (page.customer_state.can_create_customer) {
-		page.set_primary_action(__("New Customer"), () => frappe.new_doc("Customer"));
+		// New customers start in the ECTS Division so they show up on this page.
+		page.set_primary_action(__("New Customer"), () =>
+			frappe.new_doc("Customer", { custom_division: "ECTS Division" })
+		);
 		return;
 	}
 

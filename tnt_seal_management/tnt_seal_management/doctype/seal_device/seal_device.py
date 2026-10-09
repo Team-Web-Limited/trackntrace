@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.utils import now_datetime
 
@@ -224,8 +225,147 @@ def set_seal_custody(seal_device, custody_type, custodian, remarks=None, journey
 		)
 
 
+_TRANSFER_TARGET_TYPES = ("Custody Point", "User")
+# Roles that may hand over ANY seal (a Field Technician may only hand over
+# seals they are currently holding).
+_TRANSFER_SUPERVISOR_ROLES = ("System Manager", "Operations Control Room", "PCB Team Leader")
+
+
 @frappe.whitelist()
-def assign_custody(seal_device, custody_type, custodian, remarks=None):
-	"""Whitelisted wrapper so custody can be set from a form button or client call."""
-	set_seal_custody(seal_device, custody_type, custodian, remarks=remarks)
-	return frappe.db.get_value(_DOCTYPE, seal_device, "current_custody_label")
+def transfer_custody(seals, to_custody_type, to_custodian, remarks=None):
+	"""Hand seals over to a live person (User) or a location (Custody Point such as
+	the main store). One step: custody moves as soon as this is submitted, and a
+	Seal Custody Transfer record keeps who moved what from whom to whom.
+
+	Seals held by a Customer move only through the journey workflow, and a seal on
+	a journey that is In Transit can't be handed over."""
+	seals = frappe.parse_json(seals) if isinstance(seals, str) else seals
+	seals = list(dict.fromkeys(seals or []))
+	if not seals:
+		frappe.throw(_("Select at least one seal to transfer."))
+	if to_custody_type not in _TRANSFER_TARGET_TYPES:
+		frappe.throw(_("Seals can only be handed to a person or a location (Custody Point)."))
+	if not to_custodian or not frappe.db.exists(to_custody_type, to_custodian):
+		frappe.throw(_("Select who is receiving the seals."))
+	if to_custody_type == "User" and not frappe.db.get_value("User", to_custodian, "enabled"):
+		frappe.throw(_("{0} is not an active user.").format(to_custodian))
+	if to_custody_type == "Custody Point" and not frappe.db.get_value("Custody Point", to_custodian, "active"):
+		frappe.throw(_("Custody Point {0} is not active.").format(to_custodian))
+
+	user = frappe.session.user
+	supervisor = user == "Administrator" or bool(set(frappe.get_roles(user)) & set(_TRANSFER_SUPERVISOR_ROLES))
+
+	rows = []
+	for seal in seals:
+		info = frappe.db.get_value(
+			_DOCTYPE,
+			seal,
+			["current_custody_type", "current_custodian", "current_custody_label", "current_journey"],
+			as_dict=True,
+		)
+		if not info:
+			frappe.throw(_("Seal {0} not found.").format(seal))
+		if not supervisor and not (info.current_custody_type == "User" and info.current_custodian == user):
+			frappe.throw(
+				_("You can only hand over seals you are currently holding ({0} is not with you).").format(seal),
+				frappe.PermissionError,
+			)
+		if info.current_custody_type == "Customer":
+			frappe.throw(_("Seal {0} is with a customer; it moves back through the journey workflow.").format(seal))
+		if info.current_custody_type == to_custody_type and info.current_custodian == to_custodian:
+			frappe.throw(_("Seal {0} is already with {1}.").format(seal, to_custodian))
+		if info.current_journey and frappe.db.get_value("Seal Journey", info.current_journey, "journey_status") == "In Transit":
+			frappe.throw(_("Seal {0} is on a journey in transit and can't be handed over.").format(seal))
+		rows.append(
+			{
+				"seal_device": seal,
+				"from_custody_type": info.current_custody_type,
+				"from_custodian": info.current_custodian,
+				"from_label": info.current_custody_label,
+			}
+		)
+
+	for row in rows:
+		set_seal_custody(
+			row["seal_device"],
+			to_custody_type,
+			to_custodian,
+			remarks=remarks or _("Handed over by {0}").format(user),
+		)
+	to_label = _custody_label(to_custody_type, to_custodian)
+	transfer = frappe.get_doc(
+		{
+			"doctype": "Seal Custody Transfer",
+			"transfer_date_time": now_datetime(),
+			"transferred_by": user,
+			"to_custody_type": to_custody_type,
+			"to_custodian": to_custodian,
+			"to_label": to_label,
+			"remarks": remarks,
+			"seals": rows,
+		}
+	).insert(ignore_permissions=True)
+	for row in rows:
+		_append_transfer_history(
+			row["seal_device"],
+			row["from_label"] or _("(no custodian)"),
+			to_label,
+			_("{0}{1}").format(transfer.name, f" — {remarks}" if remarks else ""),
+		)
+	return {"transfer": transfer.name, "transferred": len(rows)}
+
+
+def _append_transfer_history(seal_device, from_label, to_label, note):
+	"""A "Seal Transfer" row in the seal's Status History: any movement outside a
+	journey's own custody path (handover, custody to custody, stock distribution)."""
+	# Inserted directly rather than via a Seal Device save: older seals can carry
+	# legacy history rows (e.g. entry_type "Handoff") that would fail validation
+	# on a full save.
+	idx = frappe.db.sql(
+		"select ifnull(max(idx), 0) from `tabSeal Status History` where parent = %s and parenttype = %s",
+		(seal_device, _DOCTYPE),
+	)[0][0]
+	frappe.get_doc(
+		{
+			"doctype": "Seal Status History",
+			"parent": seal_device,
+			"parenttype": _DOCTYPE,
+			"parentfield": "status_history",
+			"idx": idx + 1,
+			"seal": seal_device,
+			"entry_type": "Seal Transfer",
+			"status_date_time": now_datetime(),
+			"updated_by": frappe.session.user,
+			"remarks": f"{from_label} → {to_label} ({note})",
+		}
+	).db_insert()
+
+
+@frappe.whitelist()
+def get_custody_seals(custody_type, custodian):
+	"""Seals whose live custody pointer is the given location right now
+	(set_seal_custody moves a seal in on return and away on dispatch). Used by
+	the "Seals in this ..." tables on the Custody Point and Warehouse forms."""
+	if not custody_type or not custodian:
+		return []
+	return frappe.get_list(
+		_DOCTYPE,
+		filters={"current_custody_type": custody_type, "current_custodian": custodian},
+		fields=[
+			"name",
+			"seal_number",
+			"device_id",
+			"current_status",
+			"lock_status",
+			"condition",
+			"current_custody_since",
+		],
+		order_by="current_custody_since desc, seal_number asc",
+		limit_page_length=0,
+	)
+
+
+@frappe.whitelist()
+def get_warehouse_seals(warehouse):
+	"""ERPNext Warehouse variant of get_custody_seals."""
+	return get_custody_seals("Warehouse", warehouse)

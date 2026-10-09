@@ -101,6 +101,8 @@
   "control_room_approver",
   "control_room_approval_date_time",
   "control_room_remarks",
+  "milestones_section",
+  "milestones",
   "arrival_tab",
   "arrival_row_1_section",
   "arrival_date_time",
@@ -711,7 +713,7 @@
    "label": "Seal Unlock Method",
    "options": "\nPhysical\nRemote\nRemote - Seal Retained\nEnded - No Collection",
    "read_only": 1,
-   "description": "How the seal was unlocked at arrival. Physical unlock routes through the untagging cycle; Remote unlock skips untagging and goes straight to seal return; Remote - Seal Retained is used when the destination is too far to collect from \u2014 the seal stays on the vehicle, the journey completes at unlock and the seal returns to the pool for the vehicle's next tagging booking; Ended - No Collection is used when nobody at the destination can unlock or collect anything at all \u2014 same outcome as Remote - Seal Retained, recorded under its own reason."
+   "description": "How the seal was unlocked at arrival. Physical unlock routes through the untagging cycle; Remote unlock skips untagging and goes straight to seal return; Remote - Seal Retained is used when the destination is too far to collect from — the seal stays on the vehicle, the journey completes at unlock and the seal returns to the pool for the vehicle's next tagging booking; Ended - No Collection is used when nobody at the destination can unlock or collect anything at all — same outcome as Remote - Seal Retained, recorded under its own reason."
   },
   {
    "fieldname": "arrival_row_3_section",
@@ -1132,6 +1134,19 @@
    "fieldtype": "Data",
    "label": "Tagging Location",
    "read_only": 1
+  },
+  {
+   "fieldname": "milestones_section",
+   "fieldtype": "Section Break",
+   "label": "Journey Milestones"
+  },
+  {
+   "fieldname": "milestones",
+   "fieldtype": "Table",
+   "label": "Milestones",
+   "options": "Seal Journey Milestone",
+   "read_only": 1,
+   "no_copy": 1
   }
  ],
  "grid_page_length": 50,

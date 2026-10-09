@@ -1,22 +1,18 @@
 # Copyright (c) 2026, teamweb and contributors
 # For license information, please see license.txt
 """
-Journey monitoring — control-room view over Seal Journey records.
-
-Exposes a single whitelisted method that returns journeys filterable by
-status (all / active / completed), date-wise, with the current location,
-seal lock status, and a set of *derived* alerts computed from the live API
-fields already synced onto each Seal Journey (no extra tracking endpoint).
+Per-seal journey details shared by the Control Room's journey lists and the
+seal sync: the seals on each journey, their *derived* alerts (computed from the
+live API fields already synced onto each Seal Journey), how long a journey has
+run past its allowance, and who currently holds the seal.
 """
 
 import frappe
 from frappe import _
-from frappe.utils import cstr, flt, get_datetime, now_datetime, today
+from frappe.utils import flt, get_datetime, now_datetime
 
 from tnt_seal_management.tnt_seal_management.billing import get_applicable_billing_rule
 from tnt_seal_management.tnt_seal_management.api.seal_sync import (
-	_get_tnt_logo_img_tag,
-	_require_dashboard_permission,
 	normalize_api_status,
 	normalize_elock_status,
 )
@@ -87,220 +83,6 @@ _CUSTODY_CUSTOMER_STATUSES = frozenset({
 })
 # Seal return complete — custody is back with the warehouse (the seal's location).
 _CUSTODY_RETURNED_STATUSES = frozenset({"Completed"})
-
-
-@frappe.whitelist()
-def get_journey_monitoring_data(
-	view="all", search=None, from_date=None, to_date=None, page=1, page_length=30
-):
-	"""Return Seal Journeys for the monitoring page.
-
-	view: "all" | "active" (incomplete) | "completed"
-	Returns {journeys, total, page, page_length, summary}.
-	"""
-	_require_dashboard_permission()
-
-	page = max(1, int(page or 1))
-	page_length = max(1, min(int(page_length or 30), 100))
-
-	filters = _build_filters(view, from_date, to_date)
-	or_filters = _build_or_filters(search)
-
-	if view == "alerts":
-		# Alerts are derived dynamically, so we must fetch all matching active rows
-		# and filter in Python, then manually paginate.
-		active_filters = _build_filters("active", from_date, to_date)
-		all_active = frappe.db.get_all(
-			"Seal Journey",
-			filters=active_filters,
-			or_filters=or_filters or None,
-			fields=_FIELDS,
-			order_by="modified desc",
-		)
-		_attach_seals(all_active)
-		journeys_with_alerts = [j for j in all_active if j.get("alert_level")]
-
-		total = len(journeys_with_alerts)
-		start = (page - 1) * page_length
-		journeys = journeys_with_alerts[start : start + page_length]
-		_attach_longer_in_journey(journeys)
-		_attach_custodian(journeys)
-		_attach_batch(journeys)
-	else:
-		total = frappe.db.count("Seal Journey", filters=_count_filters(filters, or_filters))
-
-		journeys = frappe.db.get_all(
-			"Seal Journey",
-			filters=filters,
-			or_filters=or_filters or None,
-			fields=_FIELDS,
-			order_by="modified desc",
-			limit_start=(page - 1) * page_length,
-			limit_page_length=page_length,
-		)
-		_attach_seals(journeys)
-		_attach_longer_in_journey(journeys)
-		_attach_custodian(journeys)
-		_attach_batch(journeys)
-
-	return {
-		"journeys": [dict(j) for j in journeys],
-		"total": total,
-		"page": page,
-		"page_length": page_length,
-		"summary": _summary(from_date, to_date),
-	}
-
-
-@frappe.whitelist()
-def get_all_journeys_for_export(view="all", search=None, from_date=None, to_date=None):
-	"""Same filters as get_journey_monitoring_data but unpaginated, for the PDF export."""
-	_require_dashboard_permission()
-
-	filters = _build_filters(view, from_date, to_date)
-	or_filters = _build_or_filters(search)
-
-	if view == "alerts":
-		active_filters = _build_filters("active", from_date, to_date)
-		journeys = frappe.db.get_all(
-			"Seal Journey",
-			filters=active_filters,
-			or_filters=or_filters or None,
-			fields=_FIELDS,
-			order_by="modified desc",
-		)
-		_attach_seals(journeys)
-		journeys = [j for j in journeys if j.get("alert_level")]
-	else:
-		journeys = frappe.db.get_all(
-			"Seal Journey",
-			filters=filters,
-			or_filters=or_filters or None,
-			fields=_FIELDS,
-			order_by="modified desc",
-		)
-		_attach_seals(journeys)
-
-	_attach_longer_in_journey(journeys)
-	_attach_custodian(journeys)
-	_attach_batch(journeys)
-	return [dict(j) for j in journeys]
-
-
-@frappe.whitelist()
-def export_pdf(html, filename):
-	"""Render the Journey Monitoring list's currently filtered table (built
-	client-side, same approach as the Seal Device Dashboard's export) to a PDF."""
-	from frappe.utils.pdf import get_pdf
-
-	_require_dashboard_permission()
-
-	html = html.replace("{{TNT_LOGO}}", _get_tnt_logo_img_tag())
-
-	options = {
-		"page-size": "A4",
-		"orientation": "Landscape",
-		"margin-top": "15mm",
-		"margin-right": "15mm",
-		"margin-bottom": "15mm",
-		"margin-left": "15mm",
-	}
-
-	frappe.local.response.filename = f"{filename}.pdf"
-	frappe.local.response.filecontent = get_pdf(html, options=options)
-	frappe.local.response.type = "pdf"
-
-
-# Short role tag per custodian_type — mirrors JM_CUSTODY_BADGE in journey_monitoring.js.
-_CUSTODY_TAGS = {
-	"Warehouse": "Warehouse",
-	"Team Lead": "Team Lead",
-	"Field Technician": "Field Tech",
-	"Customer": "Customer",
-}
-
-# (label, fieldname, column width). Warehouse/Seal/Lock/Battery/Location/Alerts
-# are computed per seal at export time — one row per seal, same as the PDF
-# report's per-seal row expansion (_journey_pdf_rows_html on the client).
-_EXPORT_COLUMNS = (
-	("Journey", "name", 20),
-	("Client", "customer", 26),
-	("Vehicle", "vehicle_plate_number", 16),
-	("Booking", "tagging_booking", 20),
-	("Container", "container_number", 18),
-	("Origin", "origin", 22),
-	("Destination", "destination", 22),
-	("Status", "journey_status", 24),
-	("Warehouse", "_warehouse", 26),
-	("Seal", "_seal_number", 16),
-	("Lock", "_lock", 12),
-	("Battery", "_battery", 10),
-	("Location", "_location", 22),
-	("Alerts", "_alerts", 34),
-)
-
-
-@frappe.whitelist()
-def export_excel(view="all", search=None, from_date=None, to_date=None, filename=None):
-	"""Render the Journey Monitoring list's currently filtered rows to an .xlsx
-	workbook — the spreadsheet counterpart of export_pdf. One row per seal,
-	matching the PDF report's per-seal row expansion."""
-	from frappe.utils.xlsxutils import make_xlsx
-
-	_require_dashboard_permission()
-
-	journeys = get_all_journeys_for_export(view, search, from_date, to_date)
-	if not journeys:
-		frappe.throw(_("No journeys match the current filters."))
-
-	data = [[_(label) for label, fieldname, width in _EXPORT_COLUMNS]]
-	for journey in journeys:
-		data.extend(_journey_export_rows(journey))
-
-	xlsx_file = make_xlsx(
-		data,
-		"Journey Monitoring",
-		column_widths=[width for label, fieldname, width in _EXPORT_COLUMNS],
-	)
-
-	filename = filename or f"Journey Monitoring Report - {today()}"
-	frappe.local.response.filename = f"{filename}.xlsx"
-	frappe.local.response.filecontent = xlsx_file.getvalue()
-	frappe.local.response.type = "binary"
-
-
-def _journey_export_rows(journey):
-	warehouse_holder = journey.get("current_warehouse")
-	if warehouse_holder:
-		tag = _CUSTODY_TAGS.get(journey.get("custodian_type"))
-		warehouse = f"{tag} - {warehouse_holder}" if tag else warehouse_holder
-	else:
-		warehouse = ""
-
-	seals = journey.get("seals") or [{}]
-	rows = []
-	for seal in seals:
-		battery = seal.get("battery_level")
-		alerts = "; ".join(a.get("message", "") for a in (seal.get("alerts") or []))
-
-		values = {
-			"name": journey.get("name"),
-			"customer": journey.get("customer"),
-			"vehicle_plate_number": journey.get("vehicle_plate_number"),
-			"tagging_booking": journey.get("tagging_booking"),
-			"container_number": journey.get("container_number"),
-			"origin": journey.get("origin"),
-			"destination": journey.get("destination"),
-			"journey_status": journey.get("journey_status"),
-			"_warehouse": warehouse,
-			"_seal_number": seal.get("seal_number"),
-			"_lock": seal.get("lock_status"),
-			"_battery": f"{battery}%" if battery or battery == 0 else "",
-			"_location": seal.get("api_location"),
-			"_alerts": alerts,
-		}
-		rows.append([cstr(values.get(fieldname)) for label, fieldname, width in _EXPORT_COLUMNS])
-	return rows
 
 
 # ---------------------------------------------------------------------------
@@ -657,43 +439,6 @@ def _derive_seal_alerts(journey_status, seal, lock):
 # Filters
 # ---------------------------------------------------------------------------
 
-def _build_filters(view, from_date, to_date):
-	filters = []
-	if view == "active":
-		filters.append(["journey_status", "not in", _TERMINAL_STATUSES])
-	elif view == "completed":
-		filters.append(["journey_status", "=", "Completed"])
-	elif view == "in_transit":
-		filters.append(["journey_status", "=", "In Transit"])
-
-	if from_date:
-		filters.append(["creation", ">=", f"{from_date} 00:00:00"])
-	if to_date:
-		filters.append(["creation", "<=", f"{to_date} 23:59:59"])
-	return filters
-
-
-def _build_or_filters(search):
-	if not search:
-		return []
-	like = f"%{search}%"
-	return [
-		["name", "like", like],
-		["customer", "like", like],
-		["vehicle_plate_number", "like", like],
-		["tagging_booking", "like", like],
-		["container_number", "like", like],
-		["assigned_seal", "like", like],
-		["api_device_location", "like", like],
-	]
-
-
-def _count_filters(filters, or_filters):
-	# frappe.db.count does not accept or_filters; when a search is active we
-	# cannot cheaply express the OR, so fall back to counting the AND filters
-	# only. The list query itself still honours the search for the page rows.
-	return filters or {}
-
 
 _LEVEL_RANK = {"critical": 3, "warning": 2, "info": 1}
 
@@ -718,32 +463,3 @@ def _parse_number(value):
 # Summary (whole dataset, not just current page)
 # ---------------------------------------------------------------------------
 
-def _summary(from_date, to_date):
-	base = _build_filters("all", from_date, to_date)
-
-	def count(extra=None):
-		return frappe.db.count("Seal Journey", filters=(base + extra) if extra else (base or {}))
-
-	all_count = count()
-	completed = count([["journey_status", "=", "Completed"]])
-	active = count([["journey_status", "not in", _TERMINAL_STATUSES]])
-	in_transit = count([["journey_status", "=", "In Transit"]])
-
-	# Alert count: how many active journeys currently carry at least one seal alert.
-	active_rows = frappe.db.get_all(
-		"Seal Journey",
-		filters=(base + [["journey_status", "not in", _TERMINAL_STATUSES]]),
-		fields=_FIELDS,
-	)
-	_attach_seals(active_rows)
-	alerts = sum(
-		1 for r in active_rows if any(s["alerts"] for s in r.get("seals", []))
-	)
-
-	return {
-		"all": all_count,
-		"active": active,
-		"in_transit": in_transit,
-		"completed": completed,
-		"alerts": alerts,
-	}
