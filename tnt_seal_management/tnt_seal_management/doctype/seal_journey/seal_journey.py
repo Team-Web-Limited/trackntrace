@@ -592,6 +592,19 @@ def _confirm_remote_unlock(doc):
 	doc.journey_status = "Awaiting Seal Return"
 	doc.save()
 
+	# Return Trip: raise the vehicle's next booking when the original asked for it.
+	try:
+		from tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking import (
+			create_return_trip_booking,
+		)
+
+		create_return_trip_booking(doc.name)
+	except Exception as exc:
+		frappe.log_error(
+			f"Return trip booking failed for {doc.name}: {exc}",
+			"Return Trip Booking",
+		)
+
 	try:
 		from tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment import (
 			create_seal_return_request,

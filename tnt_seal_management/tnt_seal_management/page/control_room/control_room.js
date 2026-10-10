@@ -682,7 +682,7 @@ function _control_room_arrivals_section_html(state) {
 
 	return `
 		<section class="cr-arrivals">
-			<h3 class="cr-section-title">${__("Arrivals — Confirm Seal Unlocked")}</h3>
+			<h3 class="cr-section-title">${__("Arrivals")}</h3>
 			<div class="cr-arrival-table-wrap cr-arrival-scroll">
 				<table class="cr-arrival-table">
 					<thead>
@@ -769,13 +769,7 @@ function _control_room_arrival_card(journey) {
 						${__("Physical Unlock — Send for Untagging")}
 					</button>
 					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--remote" data-name="${frappe.utils.escape_html(journey.name)}" data-method="remote">
-						${__("Remote Unlock — Skip to Seal Return")}
-					</button>
-					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--retained" data-name="${frappe.utils.escape_html(journey.name)}" data-method="remote_retained">
-						${__("Remote Unlock — Seal Stays on Vehicle")}
-					</button>
-					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--end" data-name="${frappe.utils.escape_html(journey.name)}" data-method="end_journey">
-						${__("End Journey")}
+						${__("Remote Unlock — Pending Seal Return")}
 					</button>
 				</div>
 			</footer>
@@ -784,10 +778,9 @@ function _control_room_arrival_card(journey) {
 }
 
 function _control_room_confirm_arrival(page, docname, method, $btn) {
-	// Four ways an arrival closes out, picked by the Control Room on the call:
-	// physical untagging, remote unlock with the seal collected from the client,
-	// or remote unlock at a destination too far to collect from — where the seal
-	// rides home on the vehicle and the journey ends right here.
+	// Two ways an arrival closes out, picked by the Control Room on the call:
+	// physical untagging, or remote unlock with the seal collected from the
+	// client afterwards (pending seal return).
 	const messages = {
 		physical: __(
 			"Confirm arrival for {0} with a PHYSICAL unlock? An untagging assignment will be raised for the PCB Team Leader to assign a Tag Operator. Location will be captured live from the seal's GPS. This cannot be undone.",
@@ -797,23 +790,10 @@ function _control_room_confirm_arrival(page, docname, method, $btn) {
 			"Confirm arrival for {0} with a REMOTE unlock? Untagging will be skipped and a seal return assignment will be raised for the PCB Team Leader to assign a Tag Operator. Location will be captured live from the seal's GPS. This cannot be undone.",
 			[docname]
 		),
-		remote_retained: __(
-			"Confirm arrival for {0} with a REMOTE unlock and the seal LEFT ON THE VEHICLE?",
-			[docname]
-		),
-		end_journey: __("End {0} now?", [docname]),
 	};
 	const notes = {
 		physical: __("{0}: arrival confirmed (physical unlock) — sent for untagging", [docname]),
-		remote: __("{0}: arrival confirmed (remote unlock) — sent for seal return", [docname]),
-		remote_retained: __(
-			"{0}: arrival confirmed (remote unlock, seal retained) — journey completed, seal released for re-tagging",
-			[docname]
-		),
-		end_journey: __(
-			"{0}: journey ended — no collection at destination, seal released, custody retained by customer",
-			[docname]
-		),
+		remote: __("{0}: arrival confirmed (remote unlock) — pending seal return", [docname]),
 	};
 	const message = messages[method] || messages.physical;
 
@@ -2905,18 +2885,6 @@ function _control_room_inject_styles() {
 			border-color: #c4b5fd;
 		}
 		.cr-arrival-unlock-btn--remote:hover:not(:disabled) { background: #f5f3ff; }
-		.cr-arrival-unlock-btn--retained {
-			background: #fff;
-			color: #9a3412;
-			border-color: #fdba74;
-		}
-		.cr-arrival-unlock-btn--retained:hover:not(:disabled) { background: #fff7ed; }
-		.cr-arrival-unlock-btn--end {
-			background: #fff;
-			color: #991b1b;
-			border-color: #fca5a5;
-		}
-		.cr-arrival-unlock-btn--end:hover:not(:disabled) { background: #fef2f2; }
 
 		/* Cap tall lists at ~30 rows (row height x 30 + sticky header); the body scrolls. */
 		.cr-queue-scroll, .cr-alert-table-wrap { max-height: calc(30 * 52px + 44px); overflow-y: auto; }
@@ -3156,8 +3124,6 @@ function _control_room_inject_styles() {
 		[data-theme="dark"] .cr-arrival-unlock-prompt { color: #7dd3fc; }
 		[data-theme="dark"] .cr-arrival-unlock-btn--remote { background: #1e293b; color: #c4b5fd; border-color: #6d28d9; }
 		[data-theme="dark"] .cr-arrival-unlock-btn--remote:hover:not(:disabled) { background: #2e1065; }
-		[data-theme="dark"] .cr-arrival-unlock-btn--retained { background: #1e293b; color: #fdba74; border-color: #9a3412; }
-		[data-theme="dark"] .cr-arrival-unlock-btn--retained:hover:not(:disabled) { background: #431407; }
 		[data-theme="dark"] .cr-arrival-dialog .modal-header { background: #082f49; border-color: #075985; }
 		[data-theme="dark"] .cr-arrival-dialog .modal-title { color: #bae6fd; }
 		[data-theme="dark"] .cr-arrivals { border-color: #334155; }
@@ -3167,8 +3133,6 @@ function _control_room_inject_styles() {
 		[data-theme="dark"] .cr-arrival-table tbody tr:hover td { background: #0b3a52; }
 		[data-theme="dark"] .cr-arrival-journey { color: #f8fafc !important; }
 		[data-theme="dark"] .cr-arrival-open { background: #082f49; border-color: #0284c7; color: #bae6fd; }
-		[data-theme="dark"] .cr-arrival-unlock-btn--end { background: #1e293b; color: #fca5a5; border-color: #991b1b; }
-		[data-theme="dark"] .cr-arrival-unlock-btn--end:hover:not(:disabled) { background: #450a0a; }
 		[data-theme="dark"] .cr-section-title { color: #f8fafc; }
 		[data-theme="dark"] .cr-req-id, [data-theme="dark"] .cr-queue-head h3,
 		[data-theme="dark"] .cr-empty h3 { color: #f8fafc; }

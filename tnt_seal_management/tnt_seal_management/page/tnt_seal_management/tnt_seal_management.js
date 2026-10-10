@@ -86,38 +86,6 @@ const TNT_DASHBOARD_CARDS = [
 		],
 	},
 	{
-		title: "Billing Rates",
-		icon: "💰",
-		route: "seal-billing-rate-list",
-		// Single card for Billing Rates and Completed Journeys. Users allowed both
-		// get a modal to pick one; users allowed only one go straight there.
-		roles: [],
-		choices: [
-			{
-				title: "Billing Rates",
-				icon: "💰",
-				route: "seal-billing-rate-list",
-				description: "Rates charged per journey type and customer",
-				roles: ["System Manager", "Finance PCB", "Management", "Managing Director"],
-			},
-			{
-				title: "Completed Journeys",
-				icon: "📄",
-				route: "completed-journeys",
-				description: "Finished journeys and their billing",
-				roles: [
-					"System Manager",
-					"Finance PCB",
-					"Management",
-					"Managing Director",
-					"Accounts Manager",
-					"Accounts User",
-					"Account Manager",
-				],
-			},
-		],
-	},
-	{
 		title: "Seal Journeys",
 		icon: "🚚",
 		route: "seal-journey-list",
@@ -125,9 +93,9 @@ const TNT_DASHBOARD_CARDS = [
 		roles: ["System Manager", "Finance PCB", "Operations Control Room", "Managing Director", "Account Manager"],
 	},
 	{
-		title: "Current Customers",
-		icon: "🏢",
-		route: "current-customer-list",
+		title: "Customer Billing",
+		icon: "🧾",
+		route: "customer-billing",
 		roles: [
 			"System Manager",
 			"Account Manager",
@@ -156,7 +124,6 @@ const CARDS_WITHOUT_COUNT_LABELS = new Set([
 	"tagging-booking-list",
 	"vehicle-list",
 	"seal-device-dashboard",
-	"seal-billing-rate-list",
 	"completed-journeys",
 ]);
 

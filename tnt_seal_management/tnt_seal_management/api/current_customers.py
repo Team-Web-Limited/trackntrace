@@ -43,6 +43,40 @@ def _get_customer_level_assignment_map(customer_names):
 	return mapping
 
 
+def _customers_by_billing_type():
+	"""{billing_type: {customer, ...}} from each customer's active customer-level
+	assignment (the primary rule, as shown in the Billing Type column)."""
+	assignments = frappe.get_all(
+		"Customer Billing Assignment",
+		filters={"assignment_type": "Customer", "active": 1, "is_extra_billing": 0},
+		fields=["customer", "billing_rule"],
+		order_by="priority asc, modified asc",
+	)
+	rule_types = {
+		r.name: r.billing_type
+		for r in frappe.get_all(
+			"Seal Billing Rate",
+			filters={"name": ["in", list({a.billing_rule for a in assignments if a.billing_rule}) or [""]]},
+			fields=["name", "billing_type"],
+		)
+	}
+	# Later rows (higher priority, more recent) win, matching
+	# _get_customer_level_assignment_map.
+	customer_type = {a.customer: rule_types.get(a.billing_rule) for a in assignments}
+	result = {}
+	for customer, rate_type in customer_type.items():
+		if rate_type:
+			result.setdefault(rate_type, set()).add(customer)
+	return result
+
+
+def _can_approve_billing_rate():
+	# Managing Director approves/rejects billing rules (same gate as the
+	# Seal Billing Rate approve/reject actions).
+	roles = set(frappe.get_roles())
+	return "Managing Director" in roles or "System Manager" in roles or frappe.session.user == "Administrator"
+
+
 def _get_rule_label_map(rule_names):
 	"""Return {rule_name: (billing_rule_name, billing_type)} for display labels."""
 	names = list({r for r in rule_names if r})
@@ -155,20 +189,36 @@ def ensure_seed_current_customers():
 	return created
 
 
-# The Current Customers page lists only customers of this Branch (Customer.custom_division).
-CURRENT_CUSTOMER_DIVISION = "ECTS Division"
+# The Current Customers page lists customers of this Branch (Customer.custom_division),
+# including those flagged "Both" (served by FMS and ECTS).
+CURRENT_CUSTOMER_DIVISIONS = ("ECTS Division", "Both")
+
+
+def get_billing_customer_names():
+	"""Names of the customers listed on Customer Billing (ECTS Division or Both).
+	Other pages that should only deal with these customers (e.g. the Vehicle
+	list) filter on this."""
+	return frappe.get_all(
+		"Customer", filters={"custom_division": ["in", CURRENT_CUSTOMER_DIVISIONS]}, pluck="name"
+	)
 
 
 @frappe.whitelist()
-def get_current_customer_list(search=None, status=None, page=1, page_length=25):
+def get_current_customer_list(search=None, status=None, page=1, page_length=25, billing_type=None):
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length), 1), 100)
 
-	filters = [["custom_division", "=", CURRENT_CUSTOMER_DIVISION]]
+	filters = [["custom_division", "in", CURRENT_CUSTOMER_DIVISIONS]]
 	if status == "Active":
 		filters.append(["disabled", "=", 0])
 	elif status == "Disabled":
 		filters.append(["disabled", "=", 1])
+
+	# "Rates" filter: customers whose primary billing rule is of this type
+	# (Subscription / Leasing), same vocabulary as the Seal Billing Rates list.
+	customers_by_type = _customers_by_billing_type()
+	if billing_type in ("Subscription", "Leasing"):
+		filters.append(["name", "in", list(customers_by_type.get(billing_type) or []) or [""]])
 
 	or_filters = []
 	if search:
@@ -201,12 +251,49 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25):
 	# so display the rule from that assignment (not the resolved hierarchy).
 	assignment_map = _get_customer_level_assignment_map([c.name for c in customers])
 	rule_label_map = _get_rule_label_map(assignment_map.values())
+	approval_map = dict(
+		frappe.get_all(
+			"Seal Billing Rate",
+			filters={"name": ["in", list(set(assignment_map.values())) or [""]]},
+			fields=["name", "approval_status"],
+			as_list=True,
+		)
+	)
+	# Journey types a customer's rule covers: its own, plus any Import/Export
+	# sibling sharing the rule name (see _find_customer_rule).
+	rule_info = {
+		r.name: r
+		for r in frappe.get_all(
+			"Seal Billing Rate",
+			filters={"name": ["in", list(set(assignment_map.values())) or [""]]},
+			fields=["name", "billing_rule_name", "journey_type", "first_period_amount", "extra_day_rate", "currency"],
+		)
+	}
+	journey_types_by_rule_name = {}
+	rule_names = {r.billing_rule_name for r in rule_info.values() if r.billing_rule_name}
+	if rule_names:
+		for r in frappe.get_all(
+			"Seal Billing Rate",
+			filters={"billing_rule_name": ["in", list(rule_names)], "active": 1},
+			fields=["billing_rule_name", "journey_type"],
+		):
+			journey_types_by_rule_name.setdefault(r.billing_rule_name, set()).add(r.journey_type or JOURNEY_TYPE_LOCAL)
 	for customer in customers:
 		rule_name = assignment_map.get(customer.name)
 		customer.billing_type = rule_name  # rule docname (kept for compatibility)
 		info = rule_label_map.get(rule_name) if rule_name else None
 		customer.billing_label = info[0] if info else None
 		customer.billing_kind = info[1] if info else None
+		customer.billing_rule = rule_name
+		rule = rule_info.get(rule_name)
+		customer.first_period_amount = rule.first_period_amount if rule else None
+		customer.extra_day_rate = rule.extra_day_rate if rule else None
+		customer.currency = rule.currency if rule else None
+		types = journey_types_by_rule_name.get(rule.billing_rule_name, set()) if rule else set()
+		if rule:
+			types = types | {rule.journey_type or JOURNEY_TYPE_LOCAL}
+		customer.journey_types = [t for t in JOURNEY_TYPE_BUCKETS if t in types]
+		customer.approval_status = (approval_map.get(rule_name) or "Pending Approval") if rule_name else None
 
 	can_read_billing_rates = frappe.has_permission("Seal Billing Rate", "read")
 	can_edit_billing = can_read_billing_rates and frappe.has_permission("Customer", "write")
@@ -235,7 +322,7 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25):
 			ifnull(disabled, 0) as disabled,
 			count(*) as count
 		from `tabCustomer`
-		where custom_division = %(division)s
+		where custom_division in %(divisions)s
 			{search_clause}
 		group by ifnull(disabled, 0)
 		""".format(
@@ -248,13 +335,20 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25):
 			)
 			"""
 		),
-		{"division": CURRENT_CUSTOMER_DIVISION, **({"txt": f"%{search.strip()}%"} if search else {})},
+		{"divisions": CURRENT_CUSTOMER_DIVISIONS, **({"txt": f"%{search.strip()}%"} if search else {})},
 		as_dict=True,
 	)
 	for row in summary_rows:
 		label = "Disabled" if cint(row.disabled) else "Active"
 		summary[label] = cint(row.count)
 		summary["All"] += cint(row.count)
+
+	division_customers = set(
+		frappe.get_all("Customer", filters={"custom_division": ["in", CURRENT_CUSTOMER_DIVISIONS]}, pluck="name")
+	)
+	summary["RatesAll"] = len(division_customers)
+	for rate_type in ("Subscription", "Leasing"):
+		summary[rate_type] = len(division_customers & set(customers_by_type.get(rate_type) or ()))
 
 	return {
 		"customers": customers,
@@ -268,6 +362,7 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25):
 			"can_create_customer": can_create_customer,
 			"can_edit_billing": can_edit_billing,
 			"can_grant_portal_access": can_edit_billing,
+			"can_approve_billing": _can_approve_billing_rate(),
 		},
 	}
 
@@ -537,6 +632,8 @@ JOURNEY_TYPE_BUCKET = {
 	"Local": JOURNEY_TYPE_LOCAL,
 	"Import": JOURNEY_TYPE_IMPORT_EXPORT,
 	"Export": JOURNEY_TYPE_IMPORT_EXPORT,
+	# The UI calls the Import/Export set "International".
+	"International": JOURNEY_TYPE_IMPORT_EXPORT,
 	JOURNEY_TYPE_IMPORT_EXPORT: JOURNEY_TYPE_IMPORT_EXPORT,
 }
 
@@ -803,6 +900,9 @@ def set_customer_billing(
 				owned_seal_count=owned_seal_count,
 			)
 
+		if is_primary_journey_type:
+			_ensure_international_defaults(customer_name, rule_name)
+
 		# Runs for both journey types: the Import/Export rate set has no
 		# assignment of its own, but it's still one of the customer's active
 		# rules — see _customer_billing_fully_approved, which now checks for
@@ -865,6 +965,9 @@ def set_customer_billing(
 			owned_seal_count=owned_seal_count,
 		)
 
+	if is_primary_journey_type:
+		_ensure_international_defaults(customer_name, rule_name)
+
 	# Runs for both journey types — see the mirroring comment in the Leasing
 	# branch above.
 	_gate_customer_on_rule_approval(customer)
@@ -879,6 +982,56 @@ def set_customer_billing(
 		"billing_rule_name": rule.billing_rule_name,
 		"billing_type": rule.billing_type,
 	}
+
+
+_INTERNATIONAL_COPY_FIELDS = (
+	"billing_type",
+	"rate_type",
+	"computation_method",
+	"billing_period_type",
+	"first_period_days",
+	"first_period_amount",
+	"extra_day_rate",
+	"currency",
+	"owned_rate_per_seal",
+	"lease_rate_per_seal",
+)
+
+
+def _ensure_international_defaults(customer_name, local_rule_name):
+	"""A customer's International (stored "Import/Export") rates default to
+	their Local rates: the first time Local billing is set and no International
+	set exists yet, copy it across. After that the two sets are independent —
+	International is edited on its own via Set Billing -> Journey Type, and later
+	Local changes never overwrite it. The copy goes through the normal approval
+	gate like any other rule."""
+	expected_name = _customer_rule_name(customer_name)
+	if frappe.db.exists(
+		"Seal Billing Rate",
+		{"billing_rule_name": expected_name, "journey_type": JOURNEY_TYPE_IMPORT_EXPORT},
+	):
+		return
+
+	local = frappe.db.get_value(
+		"Seal Billing Rate", local_rule_name, list(_INTERNATIONAL_COPY_FIELDS), as_dict=True
+	)
+	if not local:
+		return
+
+	frappe.flags.in_import = True
+	try:
+		frappe.get_doc(
+			{
+				"doctype": "Seal Billing Rate",
+				"billing_rule_name": expected_name,
+				"journey_type": JOURNEY_TYPE_IMPORT_EXPORT,
+				"active": 1,
+				"is_global_default": 0,
+				**local,
+			}
+		).insert(ignore_permissions=True)
+	finally:
+		frappe.flags.in_import = False
 
 
 def _gate_customer_on_rule_approval(customer):

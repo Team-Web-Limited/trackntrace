@@ -197,6 +197,9 @@ _FIELDS = [
 	# the Sales Order's billing type has to be read off the journeys rather
 	# than off the customer (see _get_customer_billing_type).
 	"billing_rule", "journey_type",
+	# How the seal was unlocked at arrival — drives the Un-tagging Date, see
+	# _effective_untagging_date.
+	"seal_unlock_method",
 ]
 
 
@@ -325,6 +328,18 @@ def is_journey_sales_order(sales_order):
 	)
 
 
+def _effective_untagging_date(journey):
+	"""Only a physical unlock goes through the untagging cycle, which is what
+	stamps untagging_completed_date_time. Every other unlock option (Remote,
+	Remote - Seal Retained, Ended - No Collection) unlocks at the moment arrival
+	is confirmed, so that moment is the Un-tagging Date."""
+	if journey.get("untagging_completed_date_time"):
+		return journey["untagging_completed_date_time"]
+	if journey.get("seal_unlock_method") not in (None, "", "Physical"):
+		return journey.get("arrival_date_time")
+	return None
+
+
 def _fetch_journeys(from_date, to_date, customer):
 	conditions = {"journey_status": "Completed"}
 	if customer:
@@ -354,6 +369,7 @@ def _fetch_journeys(from_date, to_date, customer):
 		j["container_number"] = j.get("container_number") or j.get("vehicle_plate_number")
 		# Prefer the concatenated list of journey seals; fall back to the primary seal.
 		j["seal_number"] = seals_by_journey.get(j["name"]) or j.get("assigned_seal")
+		j["untagging_completed_date_time"] = _effective_untagging_date(j)
 
 	return journeys
 

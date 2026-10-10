@@ -18,8 +18,6 @@ frappe.pages["tagging-booking-list"].on_page_load = function (wrapper) {
 	};
 
 	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
-	page.add_inner_button(__("Excel"), () => _export_tagging_bookings_excel(page), __("Download Report"));
-	page.add_inner_button(__("PDF"), () => _export_tagging_bookings_pdf(page), __("Download Report"));
 	page.add_inner_button(__("Refresh"), () => _load_tagging_bookings(page));
 	page.set_primary_action(__("New Booking"), () => frappe.new_doc("Tagging Booking"));
 
@@ -68,11 +66,6 @@ function _build_tagging_booking_page(page) {
 							</div>
 						</div>
 
-						<label class="tb-field tb-customer-field">
-							<span>${__("Client")}</span>
-							<div class="tb-customer-filter"></div>
-						</label>
-
 						<label class="tb-field tb-date-field">
 							<span>${__("From")}</span>
 							<input class="tb-from-date" type="date">
@@ -83,6 +76,13 @@ function _build_tagging_booking_page(page) {
 						</label>
 						<div class="tb-actions">
 							<button class="tb-clear-btn">${__("Clear filters")}</button>
+							<div class="tb-report-dropdown">
+								<button class="tb-clear-btn tb-report-btn">${__("Download")} <span class="tb-filter-arrow">&#9662;</span></button>
+								<div class="tb-report-menu">
+									<div class="tb-report-item" data-format="excel">${__("Excel")}</div>
+									<div class="tb-report-item" data-format="pdf">${__("PDF")}</div>
+								</div>
+							</div>
 						</div>
 					</div>
 				</div>
@@ -97,17 +97,6 @@ function _build_tagging_booking_page(page) {
 		</div>
 	`);
 
-	page.tb_customer_control = frappe.ui.form.make_control({
-		parent: $(page.body).find(".tb-customer-filter"),
-		df: {
-			fieldname: "customer",
-			fieldtype: "Link",
-			options: "Customer",
-			placeholder: __("All clients"),
-		},
-		render_input: true,
-	});
-
 	const delayedSearch = _tb_debounce(() => {
 		page.tb_state.search = ($(page.body).find(".tb-search").val() || "").trim();
 		page.tb_state.page = 1;
@@ -115,11 +104,6 @@ function _build_tagging_booking_page(page) {
 	}, 350);
 
 	$(page.body).on("input", ".tb-search", delayedSearch);
-	page.tb_customer_control.$input.on("change", () => {
-		page.tb_state.customer = page.tb_customer_control.get_value() || "";
-		page.tb_state.page = 1;
-		_load_tagging_bookings(page);
-	});
 
 	$(page.body).on("change", ".tb-from-date, .tb-to-date", () => {
 		page.tb_state.from_date = $(page.body).find(".tb-from-date").val() || "";
@@ -149,8 +133,24 @@ function _build_tagging_booking_page(page) {
 		_load_tagging_bookings(page);
 	});
 
-	$(document).on("click.tb-dropdown", function () {
+	$(page.body).on("click", ".tb-report-btn", function (e) {
+		e.stopPropagation();
+		const $menu = $(page.body).find(".tb-report-menu");
 		$(page.body).find(".tb-filter-menu").removeClass("open");
+		if (!$menu.hasClass("open")) {
+			const rect = this.getBoundingClientRect();
+			$menu.css({ top: rect.bottom + 6, left: rect.left });
+		}
+		$menu.toggleClass("open");
+	});
+	$(page.body).on("click", ".tb-report-item", function () {
+		$(page.body).find(".tb-report-menu").removeClass("open");
+		if ($(this).data("format") === "pdf") _export_tagging_bookings_pdf(page);
+		else _export_tagging_bookings_excel(page);
+	});
+
+	$(document).on("click.tb-dropdown", function () {
+		$(page.body).find(".tb-filter-menu, .tb-report-menu").removeClass("open");
 	});
 
 	$(page.body).on("click", ".tb-clear-btn", () => _clear_tagging_booking_filters(page));
@@ -461,7 +461,6 @@ function _clear_tagging_booking_filters(page) {
 	$(page.body).find(".tb-filter-item").removeClass("active");
 	$(page.body).find('.tb-filter-item[data-status="All"]').addClass("active");
 	$(page.body).find(".tb-filter-btn-label").text(__("All"));
-	page.tb_customer_control.set_value("");
 
 	_load_tagging_bookings(page);
 }
@@ -568,7 +567,7 @@ function _inject_tagging_booking_styles() {
 		.tb-toolbar { padding: 18px; border-bottom: 1px solid #e0f2fe; background: #f0f9ff; }
 		.tb-toolbar-top {
 			display: flex;
-			align-items: center;
+			align-items: flex-end;
 			gap: 12px;
 		}
 		.tb-search-inline {
@@ -624,6 +623,27 @@ function _inject_tagging_booking_styles() {
 			font-weight: 800;
 		}
 		.tb-filter-arrow { color: #94a3b8; font-size: 11px; }
+		.tb-report-dropdown { position: relative; display: inline-block; }
+		.tb-report-menu {
+			display: none;
+			position: fixed;
+			min-width: 150px;
+			border: 1px solid #bae6fd;
+			border-radius: 12px;
+			background: var(--card-bg, #fff);
+			box-shadow: 0 8px 24px rgba(14, 165, 233, .12);
+			z-index: 1000;
+			overflow: hidden;
+		}
+		.tb-report-menu.open { display: block; }
+		.tb-report-item {
+			padding: 10px 16px;
+			font-size: 13px;
+			font-weight: 600;
+			color: #334155;
+			cursor: pointer;
+		}
+		.tb-report-item:hover { background: #f0f9ff; }
 		.tb-filter-menu {
 			display: none;
 			position: fixed;
@@ -710,9 +730,10 @@ function _inject_tagging_booking_styles() {
 		.tb-customer-filter .help-box { display: none; }
 
 		/* ---- actions ---- */
-		.tb-actions { display: flex; gap: 8px; padding-top: 20px; }
+		.tb-actions { display: flex; gap: 8px; }
 		.tb-clear-btn {
-			padding: 9px 16px;
+			height: 38px;
+			padding: 0 16px;
 			border: 1px solid #cbd5e1;
 			border-radius: 10px;
 			background: var(--card-bg, #fff);

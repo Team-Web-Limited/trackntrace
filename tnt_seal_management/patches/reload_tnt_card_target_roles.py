@@ -6,7 +6,6 @@ TARGET_PAGES = (
 	"journey_request_list",
 	"pcb_job_order_list",
 	"assignment_list",
-	"current_customer_list",
 	"vehicle_list",
 	"seal_device_dashboard",
 )

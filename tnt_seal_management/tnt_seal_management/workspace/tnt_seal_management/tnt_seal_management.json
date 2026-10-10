@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"1ef16df34c\",\"type\":\"header\",\"data\":{\"text\":\"Dashboards\",\"col\":12}},{\"id\":\"1c9aa373c0\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Main Dashboard\",\"col\":4}},{\"id\":\"header_operations\",\"type\":\"header\",\"data\":{\"text\":\"Operations\",\"col\":12}},{\"id\":\"d9c07b2397\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Seal Journey List\",\"col\":4}},{\"id\":\"e21a0429ed\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Assignment List\",\"col\":4}},{\"id\":\"ff39b89d65\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Journey Request List\",\"col\":4}},{\"id\":\"4a4acf138e\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Vehicle List\",\"col\":4}},{\"id\":\"sc_seal_journey\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Seal Journey\",\"col\":4}},{\"id\":\"sc_control_room\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Control Room\",\"col\":4}},{\"id\":\"header_inventory\",\"type\":\"header\",\"data\":{\"text\":\"Inventory & Billing\",\"col\":12}},{\"id\":\"16adab3741\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Tagging Booking List\",\"col\":4}},{\"id\":\"sc_seal_device\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Seal Device\",\"col\":4}},{\"id\":\"sc_seal_billing_rate\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Seal Billing Rate\",\"col\":4}},{\"id\":\"header_customers\",\"type\":\"header\",\"data\":{\"text\":\"Customers\",\"col\":12}},{\"id\":\"sc_current_customers\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Current Customers\",\"col\":4}},{\"id\":\"card_customers\",\"type\":\"card\",\"data\":{\"card_name\":\"Customers\",\"col\":4}},{\"id\":\"header_settings\",\"type\":\"header\",\"data\":{\"text\":\"Settings\",\"col\":12}},{\"id\":\"sc_seal_api_settings\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Seal Settings\",\"col\":4}}]",
+ "content": "[{\"id\":\"1ef16df34c\",\"type\":\"header\",\"data\":{\"text\":\"Dashboards\",\"col\":12}},{\"id\":\"1c9aa373c0\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Main Dashboard\",\"col\":4}},{\"id\":\"header_operations\",\"type\":\"header\",\"data\":{\"text\":\"Operations\",\"col\":12}},{\"id\":\"d9c07b2397\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Seal Journey List\",\"col\":4}},{\"id\":\"e21a0429ed\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Assignment List\",\"col\":4}},{\"id\":\"ff39b89d65\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Journey Request List\",\"col\":4}},{\"id\":\"4a4acf138e\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Vehicle List\",\"col\":4}},{\"id\":\"sc_seal_journey\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Seal Journey\",\"col\":4}},{\"id\":\"sc_control_room\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Control Room\",\"col\":4}},{\"id\":\"header_inventory\",\"type\":\"header\",\"data\":{\"text\":\"Inventory & Billing\",\"col\":12}},{\"id\":\"16adab3741\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Tagging Booking List\",\"col\":4}},{\"id\":\"sc_seal_device\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Seal Device\",\"col\":4}},{\"id\":\"sc_seal_billing_rate\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Seal Billing Rate\",\"col\":4}},{\"id\":\"header_customers\",\"type\":\"header\",\"data\":{\"text\":\"Customers\",\"col\":12}},{\"id\":\"sc_customer_billing\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Customer Billing\",\"col\":4}},{\"id\":\"header_settings\",\"type\":\"header\",\"data\":{\"text\":\"Settings\",\"col\":12}},{\"id\":\"sc_seal_api_settings\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Seal Settings\",\"col\":4}}]",
  "creation": "2026-06-17 10:47:03.394613",
  "custom_blocks": [],
  "docstatus": 0,
@@ -12,27 +12,7 @@
  "is_hidden": 0,
  "is_standard": 1,
  "label": "TNT Sealmanagement",
- "links": [
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Customers",
-   "link_count": 1,
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Current Customers",
-   "link_count": 0,
-   "link_to": "current-customer-list",
-   "link_type": "Page",
-   "onboard": 0,
-   "type": "Link"
-  }
- ],
+ "links": [],
  "modified": "2026-06-21 14:59:15.588934",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
@@ -71,10 +51,10 @@
    "type": "DocType"
   },
   {
-   "color": "#059669",
+   "color": "#7c3aed",
    "doc_view": "",
-   "label": "Current Customers",
-   "link_to": "current-customer-list",
+   "label": "Customer Billing",
+   "link_to": "customer-billing",
    "type": "Page"
   },
   {

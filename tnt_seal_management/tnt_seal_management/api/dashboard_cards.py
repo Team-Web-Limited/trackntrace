@@ -238,7 +238,28 @@ CARD_COUNT_RULES = {
 			{
 				"roles": ["Field Technician", "System Manager", "Management", "Managing Director"],
 				"label": "Active vehicles",
-				"filters": {"vehicle_status": "Active"},
+				# Only vehicles owned by the customers listed on Customer Billing.
+				"filters": lambda: {
+					"vehicle_status": "Active",
+					"customer": ["in", _billing_customers() or [""]],
+				},
+			},
+		],
+	},
+	"customer-billing": {
+		"doctype": "Customer",
+		"rules": [
+			{
+				"roles": [
+					"System Manager",
+					"Account Manager",
+					"Finance PCB",
+					"Management",
+					"Managing Director",
+					"Operations Control Room",
+				],
+				"label": "Customers",
+				"filters": lambda: {"name": ["in", _billing_customers() or [""]]},
 			},
 		],
 	},
@@ -278,17 +299,6 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
-
-	"seal-billing-rate-list": {
-		"doctype": "Seal Billing Rate",
-		"rules": [
-			{
-				"roles": ["System Manager", "Finance PCB", "Management", "Managing Director"],
-				"label": "Active rates",
-				"filters": {"active": 1},
-			},
-		],
-	},
 }
 
 
@@ -307,7 +317,8 @@ def get_card_counts():
 			continue
 
 		try:
-			count = frappe.db.count(config["doctype"], rule["filters"])
+			filters = rule["filters"]() if callable(rule["filters"]) else rule["filters"]
+			count = frappe.db.count(config["doctype"], filters)
 		except Exception:
 			# A missing doctype/field should never break the whole dashboard.
 			frappe.log_error(
@@ -319,6 +330,12 @@ def get_card_counts():
 		result[route] = {"count": count, "label": rule["label"]}
 
 	return result
+
+
+def _billing_customers():
+	from tnt_seal_management.tnt_seal_management.api.current_customers import get_billing_customer_names
+
+	return get_billing_customer_names()
 
 
 def _first_matching_rule(rules, user_roles):

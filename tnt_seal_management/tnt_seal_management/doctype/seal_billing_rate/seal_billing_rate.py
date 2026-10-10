@@ -131,7 +131,18 @@ class SealBillingRate(Document):
 			return
 
 		previous = self.get_doc_before_save()
-		if not previous or previous.approval_status != "Approved":
+		if not previous:
+			return
+
+		# Saving a Rejected rule again (Finance revising the billing after a
+		# rejection) resubmits it for approval.
+		if previous.approval_status == "Rejected":
+			self.approval_status = "Pending Approval"
+			self.approved_by = None
+			self.approved_on = None
+			return
+
+		if previous.approval_status != "Approved":
 			return
 
 		if any(frappe.utils.cstr(previous.get(f)) != frappe.utils.cstr(self.get(f)) for f in APPROVAL_WATCHED_FIELDS):
@@ -153,7 +164,7 @@ def _ensure_managing_director_role():
 
 
 @frappe.whitelist()
-def approve_seal_billing_rate(name):
+def approve_seal_billing_rate(name, remarks=None):
 	_ensure_managing_director_role()
 	doc = frappe.get_doc("Seal Billing Rate", name)
 	if doc.approval_status == "Approved":
@@ -169,7 +180,7 @@ def approve_seal_billing_rate(name):
 	doc.approval_status = "Approved"
 	doc.approved_by = frappe.session.user
 	doc.approved_on = now_datetime()
-	doc.approval_remarks = None
+	doc.approval_remarks = remarks or None
 	# billing_type's Select options only list "Subscription" — Leasing rules are
 	# a deliberate exception written through frappe.flags.in_import (see
 	# current_customers._upsert_customer_leasing_rule) since they're created

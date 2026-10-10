@@ -79,7 +79,11 @@ def get_vehicle_list(search=None, status=None, page=1, page_length=25):
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length), 1), 100)
 
-	filters = []
+	# Only vehicles owned by the customers listed on Customer Billing.
+	from tnt_seal_management.tnt_seal_management.api.current_customers import get_billing_customer_names
+
+	customer_filter = ["customer", "in", get_billing_customer_names() or [""]]
+	filters = [customer_filter]
 	if status and status != "All":
 		filters.append(["vehicle_status", "=", status])
 
@@ -128,7 +132,7 @@ def get_vehicle_list(search=None, status=None, page=1, page_length=25):
 	summary_rows = frappe.get_list(
 		"Vehicle",
 		fields=["vehicle_status", "count(*) as count"],
-		filters=[],
+		filters=[customer_filter],
 		or_filters=or_filters,
 		group_by="vehicle_status",
 		limit_page_length=0,

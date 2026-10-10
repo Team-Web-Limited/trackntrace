@@ -36,12 +36,12 @@ frappe.ui.form.on("Seal Billing Rate", {
 			const $back_btn = $(back_btn_html);
 			$back_btn.insertBefore(print_btn);
 			$back_btn.on("click", () => {
-				frappe.set_route("seal-billing-rate-list");
+				frappe.set_route("customer-billing");
 			});
 		} else {
 			// Fallback: If no print button is found, add it as a standard custom button
 			frm.add_custom_button(__("Back"), () => {
-				frappe.set_route("seal-billing-rate-list");
+				frappe.set_route("customer-billing");
 			});
 		}
 	},

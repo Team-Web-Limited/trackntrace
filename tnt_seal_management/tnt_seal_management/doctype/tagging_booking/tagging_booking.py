@@ -489,6 +489,86 @@ def _ensure_account_manager_role():
 		)
 
 
+def create_return_trip_booking(journey_name):
+	"""Return Trip: when the Tagging Booking behind this Seal Journey has Return
+	Trip ticked and the Control Room remote-unlocks the journey, raise the
+	vehicle's next booking automatically and carry it through Account Manager
+	submission and Finance approval, so it ends up as a Pending tagging PCB
+	Assignment waiting for the PCB Team Leader. Returns the new booking's name,
+	or None when nothing applies.
+
+	It runs as Administrator because the Control Room user can't submit or
+	approve bookings, and only once per journey (``return_trip_from``). If it
+	can't finish — e.g. several Team Leaders and none known — the booking is left
+	at the stage it reached rather than failing the unlock."""
+	from tnt_seal_management.tnt_seal_management.doctype.pcb_job_order.pcb_job_order import (
+		get_enabled_team_leaders,
+	)
+
+	journey = frappe.db.get_value(
+		"Seal Journey",
+		journey_name,
+		["name", "tagging_booking", "destination"],
+		as_dict=True,
+	)
+	if not journey or not journey.tagging_booking:
+		return None
+
+	original = frappe.get_doc("Tagging Booking", journey.tagging_booking)
+	if not cint(original.return_trip):
+		return None
+	if frappe.db.exists("Tagging Booking", {"return_trip_from": journey.name}):
+		return None
+
+	vehicle = next((row.vehicle for row in original.seal_journeys if row.seal_journey == journey.name), None)
+
+	# Same Team Leader as the outbound leg, when still enabled.
+	team_leader = None
+	if original.pcb_job_order_reference:
+		leader = frappe.db.get_value(
+			"PCB Job Order", original.pcb_job_order_reference, "assigned_pcb_team_leader"
+		)
+		if leader in [user for user, _name in get_enabled_team_leaders()]:
+			team_leader = leader
+
+	previous_user = frappe.session.user
+	frappe.set_user("Administrator")
+	try:
+		booking = frappe.get_doc(
+			{
+				"doctype": "Tagging Booking",
+				"client_name": original.client_name,
+				"branch": original.branch,  # mandatory on the first trip
+				"booking_source": "Account Manager",
+				"account_manager": original.account_manager,
+				"location": journey.destination or original.location,
+				"booking_date_time": now_datetime(),
+				"contact_person_name": original.contact_person_name,
+				"contact_person_phone": original.contact_person_phone,
+				"return_trip_from": journey.name,
+				"vehicles": [{"vehicle": vehicle}] if vehicle else [],
+			}
+		).insert(ignore_permissions=True)
+		# Committed before the approval steps so a failure there can't lose it.
+		frappe.db.commit()
+
+		submit_to_finance(booking.name)
+		approve_booking(
+			booking.name,
+			remarks=_("Return trip of {0} — approved automatically after remote unlock.").format(journey.name),
+			pcb_team_leader=team_leader,
+		)
+	except Exception:
+		frappe.log_error(
+			title="Return trip booking incomplete",
+			message=f"journey={journey.name}\n{frappe.get_traceback()}",
+		)
+	finally:
+		frappe.set_user(previous_user)
+
+	return booking.name if "booking" in locals() else None
+
+
 @frappe.whitelist()
 def assign_to_me(docname):
 	_ensure_account_manager_role()

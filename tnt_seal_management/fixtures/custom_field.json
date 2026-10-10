@@ -38,7 +38,7 @@
   "name": "Customer-custom_division",
   "no_copy": 0,
   "non_negative": 0,
-  "options": "\nFMS Division\nECTS Division",
+  "options": "\nFMS Division\nECTS Division\nBoth",
   "permlevel": 0,
   "placeholder": null,
   "precision": "",

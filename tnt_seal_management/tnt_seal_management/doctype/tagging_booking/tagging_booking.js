@@ -9,7 +9,12 @@ frappe.ui.form.on("Tagging Booking", {
 		}
 	},
 	setup(frm) {
+		// Bookings are for the customers listed on Customer Billing: ECTS Division or Both.
+		frm.set_query("client_name", () => ({
+			filters: { custom_division: ["in", ["ECTS Division", "Both"]] },
+		}));
 		setup_vehicle_query(frm);
+		inject_return_trip_styles();
 	},
 	client_name(frm) {
 		drop_other_clients_vehicles(frm);
@@ -373,7 +378,20 @@ function set_default_phone_country(frm, tries = 20) {
 		if (tries > 0) setTimeout(() => set_default_phone_country(frm, tries - 1), 100);
 		return;
 	}
-	if (field.country_codes[country] && !field.$wrapper.find(".selected-phone .country").length) {
+	// Older builds render an empty .country span up front, so test its text, not its existence.
+	if (field.country_codes[country] && !field.$wrapper.find(".selected-phone .country").text().trim()) {
 		picker.on_change(country, false);
 	}
+}
+
+// Larger Return Trip checkbox and label.
+function inject_return_trip_styles() {
+	if (document.getElementById("tb-return-trip-styles")) return;
+	const style = document.createElement("style");
+	style.id = "tb-return-trip-styles";
+	style.textContent = `
+		[data-fieldname="return_trip"] .checkbox label { font-size: 16px; font-weight: 700; }
+		[data-fieldname="return_trip"] input[type="checkbox"] { width: 22px; height: 22px; margin-top: 0; }
+	`;
+	document.head.appendChild(style);
 }
