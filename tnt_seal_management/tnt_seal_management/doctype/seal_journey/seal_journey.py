@@ -9,6 +9,7 @@ from frappe.utils.data import cstr
 from frappe.utils import get_datetime, getdate, now_datetime, today
 from frappe.desk.search import validate_and_sanitize_search_inputs
 
+from tnt_seal_management.tnt_seal_management.api.geofence_arrivals import arrival_queue_journey_names
 from tnt_seal_management.tnt_seal_management.billing import (
 	ACTIVE_JOURNEY_STATUSES,
 	BILLABLE_JOURNEY_STATUSES,
@@ -692,7 +693,10 @@ def get_arrival_queue(search=None, page=1, page_length=30, from_date=None, to_da
 	page_length = min(max(cint(page_length) or 30, 1), 100)
 	search = (search or "").strip()
 
-	filters = {"journey_status": "In Transit"}
+	# Only journeys whose seal has entered the destination geofence (or whose
+	# destination has no geofence to detect) are awaiting arrival.
+	queue_names = arrival_queue_journey_names()
+	filters = {"journey_status": "In Transit", "name": ["in", queue_names or [""]]}
 	# Created-between filter, same as the other Control Room lists.
 	if from_date and to_date:
 		filters["creation"] = ["between", [f"{from_date} 00:00:00", f"{to_date} 23:59:59"]]
@@ -712,7 +716,12 @@ def get_arrival_queue(search=None, page=1, page_length=30, from_date=None, to_da
 		]
 
 	overall = len(
-		frappe.get_list("Seal Journey", filters={"journey_status": "In Transit"}, pluck="name", limit_page_length=0)
+		frappe.get_list(
+			"Seal Journey",
+			filters={"journey_status": "In Transit", "name": ["in", queue_names or [""]]},
+			pluck="name",
+			limit_page_length=0,
+		)
 	)
 	total = len(
 		frappe.get_list(
@@ -725,7 +734,7 @@ def get_arrival_queue(search=None, page=1, page_length=30, from_date=None, to_da
 		or_filters=or_filters,
 		fields=[
 			"name", "customer", "vehicle_plate_number", "container_number",
-			"origin", "destination", "assigned_seal",
+			"origin", "destination", "assigned_seal", "destination_entered_date_time",
 			"journey_start_date_time", "current_seal_status",
 			"api_device_location", "api_last_update_time",
 			"api_latitude", "api_longitude", "assigned_technician", "journey_request",
@@ -1252,7 +1261,7 @@ def resolve_seal_journey_mirror_values(seal_journey):
 	)
 	if booking:
 		put("customer", booking.client_name)
-		put("origin", booking.location)
+		put("booking_location", booking.location)
 		put("contact_person_name", booking.contact_person_name)
 		put("contact_person_phone", booking.contact_person_phone)
 		put("finance_pcb_approval_status", booking.finance_pcb_approval_status)
@@ -1349,7 +1358,7 @@ def resolve_seal_journey_mirror_values(seal_journey):
 			put("container_number", jr.container_number)
 			put("file_number", jr.file_number)
 			put("departure_card_number", jr.departure_card_number)
-			put("origin", jr.origin)  # JR origin overrides booking.location once set
+			put("origin", jr.origin)
 			put("destination", jr.destination)
 			put("assigned_technician", jr.assigned_technician)
 			cr = vehicle_row or jr

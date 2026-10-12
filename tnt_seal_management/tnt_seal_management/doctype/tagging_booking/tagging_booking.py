@@ -143,7 +143,10 @@ class TaggingBooking(Document):
 					"customer": self.client_name,
 					"tagging_booking": self.name,
 					"journey_status": "Draft",
-					"origin": self.location,
+					# Free text from the booking, kept apart from the route: Origin and
+					# Destination are the geofenced Transport Locations picked on the
+					# Journey Request at tagging.
+					"booking_location": self.location,
 					"vehicle_plate_number": plate,
 				}
 			).insert(ignore_permissions=True, ignore_mandatory=True)

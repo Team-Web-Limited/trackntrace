@@ -3,7 +3,7 @@ import re
 
 import frappe
 from frappe import _
-from frappe.utils import cstr, now_datetime
+from frappe.utils import cint, cstr, now_datetime
 
 _SHAPES = {1: "Circle", 2: "Rectangle", 3: "Polygon", 4: "Route"}
 _NONE = ("", "--", None)
@@ -94,10 +94,19 @@ def scheduled_sync_geofences():
 		frappe.log_error("Geofence Sync", f"Scheduled geofence sync failed: {exc}")
 
 
+_GEOFENCE_ADMIN_ROLES = {"System Manager", "Operations Control Room"}
+
+
+def _ensure_geofence_admin():
+	if not _GEOFENCE_ADMIN_ROLES.intersection(frappe.get_roles()):
+		frappe.throw(
+			_("Only the Control Room or a System Manager can manage geofences."), frappe.PermissionError
+		)
+
+
 @frappe.whitelist()
 def manual_sync_geofences():
-	if "System Manager" not in frappe.get_roles():
-		frappe.throw(_("Only a System Manager can sync geofences."), frappe.PermissionError)
+	_ensure_geofence_admin()
 	try:
 		return {"status": "success", **sync_geofences()}
 	except Exception as exc:
@@ -208,3 +217,114 @@ def get_geofence_suggestions(transport_location):
 		scored.append((score + (0.5 if g.is_ours else 0), g))
 	scored.sort(key=lambda x: (-x[0], x[1].geofence_name))
 	return [g for _s, g in scored[:15]]
+
+
+@frappe.whitelist()
+def create_transport_locations(geofences, location_role, country, location_type):
+	"""Bulk 'Create Transport Locations' from the Uffizio Geofence list: one
+	Transport Location per selected geofence, named after it and linked to it, so
+	it can be picked as a Journey Request origin/destination/checkpoint. A
+	location that already exists under that name is linked instead when it has no
+	geofence yet; routes and geofences already linked are skipped."""
+	_ensure_geofence_admin()
+	geofences = frappe.parse_json(geofences) if isinstance(geofences, str) else geofences
+	created, linked, skipped = [], [], []
+	for gid in geofences or []:
+		g = frappe.db.get_value(
+			"Uffizio Geofence", gid, ["name", "geofence_name", "shape", "transport_locations"], as_dict=True
+		)
+		name = cstr(g.geofence_name).strip() if g else ""
+		if not g or not name or g.shape == "Route" or g.transport_locations:
+			skipped.append(name or gid)
+			continue
+		existing = frappe.db.get_value("Transport Location", name, "uffizio_geofence")
+		if frappe.db.exists("Transport Location", name):
+			if existing:
+				skipped.append(name)
+				continue
+			loc = frappe.get_doc("Transport Location", name)
+			loc.uffizio_geofence = g.name
+			loc.save()
+			linked.append(name)
+		else:
+			frappe.get_doc(
+				{
+					"doctype": "Transport Location",
+					"location_name": name,
+					"location_role": location_role,
+					"country": country,
+					"location_type": location_type,
+					"is_active": 1,
+					"uffizio_geofence": g.name,
+				}
+			).insert()
+			created.append(name)
+	return {"created": created, "linked": linked, "skipped": skipped}
+
+
+@frappe.whitelist()
+def get_geofence_page(search=None, scope="ours", link="all", page=1, page_length=25):
+	"""Rows and counts for the Uffizio Geofences page. ``scope`` is ours (the ECTS
+	account's own), shared (other accounts') or all; ``link`` is all, linked or
+	unlinked (to a Transport Location). Counts in ``summary`` ignore ``link`` so
+	the filter chips keep showing what each choice would give."""
+	frappe.has_permission("Uffizio Geofence", "read", throw=True)
+	page = max(cint(page), 1)
+	page_length = min(max(cint(page_length), 1), 100)
+
+	base = []
+	if scope == "ours":
+		base.append(["is_ours", "=", 1])
+	elif scope == "shared":
+		base.append(["is_ours", "=", 0])
+	or_filters = None
+	if search:
+		like = f"%{search.strip()}%"
+		or_filters = [
+			[field, "like", like]
+			for field in ("geofence_name", "geofence_id", "geofence_group", "category", "transport_locations")
+		]
+
+	link_filters = {
+		"all": [],
+		"linked": [["transport_locations", "is", "set"]],
+		"unlinked": [["transport_locations", "is", "not set"]],
+	}
+
+	def count(link_key):
+		return len(
+			frappe.get_list(
+				"Uffizio Geofence",
+				filters=base + link_filters[link_key],
+				or_filters=or_filters,
+				pluck="name",
+				limit_page_length=0,
+			)
+		)
+
+	link = link if link in link_filters else "all"
+	filters = base + link_filters[link]
+
+	rows = frappe.get_list(
+		"Uffizio Geofence",
+		filters=filters,
+		or_filters=or_filters,
+		fields=[
+			"name", "geofence_name", "geofence_group", "category", "shape", "is_ours", "company_name",
+			"latitude", "longitude", "radius", "point_count", "transport_locations", "last_synced",
+		],
+		order_by="geofence_name asc",
+		limit_start=(page - 1) * page_length,
+		limit_page_length=page_length,
+	)
+	return {
+		"geofences": rows,
+		"total": count(link),
+		"summary": {key: count(key) for key in link_filters},
+		"scope_counts": {
+			"ours": frappe.db.count("Uffizio Geofence", {"is_ours": 1}),
+			"shared": frappe.db.count("Uffizio Geofence", {"is_ours": 0}),
+		},
+		"last_synced": frappe.db.get_value("Uffizio Geofence", {}, "max(last_synced)"),
+		"can_manage": bool(_GEOFENCE_ADMIN_ROLES.intersection(frappe.get_roles())),
+	}

@@ -542,6 +542,13 @@ function _control_room_render(page) {
 			if (j) _control_room_show_journey_seals(j);
 		});
 
+	// On the document, not page.body: request cards are also shown in a dialog.
+	$(document)
+		.off("click.crEntries")
+		.on("click.crEntries", ".cr-entries-btn", function () {
+			_control_room_show_entry_numbers(this.dataset.title, _cr_split_entry_numbers(this.dataset.entries));
+		});
+
 	$(page.body)
 		.off("click", ".cr-journey-alerts-btn")
 		.on("click", ".cr-journey-alerts-btn", function () {
@@ -690,6 +697,8 @@ function _control_room_arrivals_section_html(state) {
 							<th>${__("Journey")}</th>
 							<th>${__("Vehicle")}</th>
 							<th>${__("Seal Device")}</th>
+							<th>${__("Destination")}</th>
+							<th>${__("Entered Destination")}</th>
 							<th>${__("Last Location")}</th>
 							<th class="cr-arrival-action-col">${__("Action")}</th>
 						</tr>
@@ -708,6 +717,8 @@ function _control_room_arrival_row(journey) {
 			<td class="cr-arrival-journey">${frappe.utils.escape_html(journey.name)}</td>
 			<td>${frappe.utils.escape_html(journey.vehicle_plate_number || "—")}</td>
 			<td>${frappe.utils.escape_html(journey.assigned_seal || "—")}</td>
+			<td>${frappe.utils.escape_html(journey.destination || "—")}</td>
+			<td>${_cr_entered_destination(journey)}</td>
 			<td class="cr-arrival-location">${_cr_location_html(journey)}</td>
 			<td class="cr-arrival-action-col">
 				<button class="cr-arrival-open" data-name="${frappe.utils.escape_html(journey.name)}">${__("View")}</button>
@@ -737,6 +748,14 @@ function _control_room_open_arrival_dialog(page, journey) {
 	dialog.show();
 }
 
+// When the seal sync saw the seal inside the destination geofence; blank for a
+// destination with no geofence, which is listed for confirming by hand.
+function _cr_entered_destination(journey) {
+	return journey.destination_entered_date_time
+		? frappe.utils.escape_html(frappe.datetime.str_to_user(journey.destination_entered_date_time))
+		: `<span class="text-muted">${__("No geofence")}</span>`;
+}
+
 function _control_room_arrival_card(journey) {
 	const route = `${frappe.utils.escape_html(journey.origin || "—")} → ${frappe.utils.escape_html(journey.destination || "—")}`;
 	const started = journey.journey_start_date_time
@@ -748,16 +767,13 @@ function _control_room_arrival_card(journey) {
 
 	return `
 		<article class="cr-arrival" data-name="${frappe.utils.escape_html(journey.name)}">
-			<header class="cr-arrival-head">
-				<span class="cr-req-id">${frappe.utils.escape_html(journey.name)}</span>
-				<span class="cr-arrival-status">${__("In Transit")}</span>
-			</header>
 			<div class="cr-meta">
 				${_cr_meta(__("Customer"), frappe.utils.escape_html(journey.customer || "—"))}
 				${_cr_meta(__("Vehicle"), frappe.utils.escape_html(journey.vehicle_plate_number || "—"))}
 				${_cr_meta(__("Container"), frappe.utils.escape_html(journey.container_number || "—"))}
 				${_cr_meta(__("Seal Device"), frappe.utils.escape_html(journey.assigned_seal || "—"))}
 				${_cr_meta(__("Route"), route, true)}
+				${_cr_meta(__("Entered Destination"), _cr_entered_destination(journey))}
 				${_cr_meta(__("Last Known Location"), _cr_location_html(journey), true)}
 				${_cr_meta(__("Journey Started"), started)}
 				${_cr_meta(__("Last API Update"), lastSeen)}
@@ -914,7 +930,7 @@ function _control_room_request_card(req, kind = "tagging") {
 				${_cr_meta(__("Vehicle"), req.vehicle || "—")}
 				${_cr_meta(__("Driver"), req.driver_contact || "—")}
 				${_cr_meta(__("Route"), `${frappe.utils.escape_html(req.origin || "—")} → ${frappe.utils.escape_html(req.destination || "—")}`, true)}
-				${_cr_meta(__("Entry / Container"), `${frappe.utils.escape_html(req.entry_number || "—")} / ${frappe.utils.escape_html(req.container_number || "—")}`, true)}
+				${_cr_meta(__("Entry / Container"), `${_cr_entry_numbers_html(req.entry_number, req.name)} / ${frappe.utils.escape_html(req.container_number || "—")}`, true)}
 			</div>
 
 			${vehicleBlock}
@@ -1341,7 +1357,7 @@ function _cr_journey_rows_html(j, completed) {
 		<td${span} class="cr-nowrap"><a href="/app/seal-journey/${encodeURIComponent(j.name)}" target="_blank" rel="noopener">${esc(j.name)}</a></td>
 		<td${span}>${esc(j.customer || dash)}</td>
 		<td${span} class="cr-nowrap">${j.vehicle_plate_number ? esc(j.vehicle_plate_number) + batch : dash}</td>
-		<td${span} class="cr-nowrap">${esc(j.entry_number || dash)}</td>
+		<td${span} class="cr-nowrap">${_cr_entry_numbers_html(j.entry_number, j.name)}</td>
 		<td${span} class="cr-nowrap">${esc(j.container_number || dash)}</td>
 		<td${span}>${esc(j.origin || dash)}</td>
 		<td${span}>${esc(j.destination || dash)}</td>
@@ -1365,6 +1381,8 @@ function _cr_journey_rows_html(j, completed) {
 			const loc = s && (s.latitude != null || s.api_location)
 				? _cr_location_html({ location: s.api_location, latitude: s.latitude, longitude: s.longitude })
 				: _cr_location_html(j);
+			const syncTime = (s && s.api_last_update_time) || j.api_last_update_time;
+			const lastSync = syncTime ? esc(frappe.datetime.str_to_user(syncTime)) : dash;
 			const alerts = s && s.alert_count
 				? `<button class="cr-journey-alerts-btn" data-device="${esc(s.seal_device)}" title="${__("View alerts")}">${s.alert_count}</button>`
 				: dash;
@@ -1372,7 +1390,7 @@ function _cr_journey_rows_html(j, completed) {
 				<tr>
 					${idx === 0 ? journeyCells : ""}
 					<td class="cr-nowrap">${sealNo}</td>
-					${completed ? "" : `<td>${lock}</td><td>${battery}</td><td class="cr-nowrap">${loc}</td><td>${alerts}</td>`}
+					${completed ? "" : `<td>${lock}</td><td>${battery}</td><td class="cr-nowrap">${loc}</td><td class="cr-nowrap">${lastSync}</td><td>${alerts}</td>`}
 					${idx === 0 ? taggedBy : ""}
 				</tr>
 			`;
@@ -1381,6 +1399,38 @@ function _cr_journey_rows_html(j, completed) {
 }
 
 // Seal numbers of a completed journey with several seals, each linked to its record.
+// Several entry numbers are typed into the one Entry Number field, separated
+// by commas, semicolons or new lines.
+function _cr_split_entry_numbers(value) {
+	return String(value || "")
+		.split(/[,;\n]+/)
+		.map((v) => v.trim())
+		.filter(Boolean);
+}
+
+// The first entry number, plus a "+N" button that opens the full list.
+function _cr_entry_numbers_html(value, title) {
+	const esc = frappe.utils.escape_html;
+	const entries = _cr_split_entry_numbers(value);
+	if (!entries.length) return "—";
+	if (entries.length === 1) return esc(entries[0]);
+	return `${esc(entries[0])} <button class="cr-seals-btn cr-entries-btn" data-entries="${esc(value)}" data-title="${esc(title || "")}" title="${__("View all {0} entry numbers", [entries.length])}">+${entries.length - 1}</button>`;
+}
+
+function _control_room_show_entry_numbers(title, entries) {
+	const esc = frappe.utils.escape_html;
+	const dialog = new frappe.ui.Dialog({
+		title: title ? __("Entry Numbers — {0}", [title]) : __("Entry Numbers"),
+		fields: [{ fieldname: "entries_html", fieldtype: "HTML" }],
+	});
+	dialog.fields_dict.entries_html.$wrapper.html(
+		`<table class="cr-queue-table"><thead><tr><th>#</th><th>${__("Entry Number")}</th></tr></thead><tbody>${entries
+			.map((e, i) => `<tr><td>${i + 1}</td><td>${esc(e)}</td></tr>`)
+			.join("")}</tbody></table>`
+	);
+	dialog.show();
+}
+
 function _control_room_show_journey_seals(journey) {
 	const esc = frappe.utils.escape_html;
 	const rows = (journey.seals || [])
@@ -1431,7 +1481,7 @@ function _control_room_journey_table(journeys, completed) {
 					${completed ? "" : `<th>${__("Status")}</th>`}
 					${completed ? "" : `<th>${__("Warehouse")}</th><th>${__("Longer in Journey")}</th>`}
 					<th>${__("Seal Number")}</th>
-					${completed ? "" : `<th>${__("Lock")}</th><th>${__("Battery")}</th><th>${__("Current Location")}</th><th>${__("Alerts")}</th>`}
+					${completed ? "" : `<th>${__("Lock")}</th><th>${__("Battery")}</th><th>${__("Current Location")}</th><th>${__("Last Signal Sync")}</th><th>${__("Alerts")}</th>`}
 					<th>${__("Tagged By")}</th>
 				</tr>
 			</thead>
@@ -1552,8 +1602,15 @@ function _control_room_tab_report(state) {
 			base,
 			"journeys"
 		).then((js) => ({
-			columns: [__("Journey"), __("Vehicle"), __("Seal Device"), __("Last Location")],
-			rows: js.map((j) => [j.name, j.vehicle_plate_number, j.assigned_seal, j.location]),
+			columns: [__("Journey"), __("Vehicle"), __("Seal Device"), __("Destination"), __("Entered Destination"), __("Last Location")],
+			rows: js.map((j) => [
+				j.name,
+				j.vehicle_plate_number,
+				j.assigned_seal,
+				j.destination,
+				j.destination_entered_date_time ? frappe.datetime.str_to_user(j.destination_entered_date_time) : "",
+				j.location,
+			]),
 		}));
 	}
 

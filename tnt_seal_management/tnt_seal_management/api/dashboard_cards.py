@@ -150,16 +150,16 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
-	# Third badge on the Control Room card — Seal Journeys sitting at
-	# "In Transit", i.e. the Arrivals section of the Approve tab
-	# (get_arrival_queue). Same generic rules system, different doctype/filter.
+	# Third badge on the Control Room card — the Arrivals section of the Approve
+	# tab (get_arrival_queue): In Transit journeys whose seal has entered the
+	# destination geofence. Same generic rules system, different doctype/filter.
 	"control-room-arrivals": {
 		"doctype": "Seal Journey",
 		"rules": [
 			{
 				"roles": ["Operations Control Room", "System Manager", "Management", "Managing Director"],
 				"label": "Awaiting arrival confirmation",
-				"filters": {"journey_status": "In Transit"},
+				"filters": lambda: {"name": ["in", _arrival_queue() or [""]]},
 			},
 		],
 	},
@@ -336,6 +336,12 @@ def _billing_customers():
 	from tnt_seal_management.tnt_seal_management.api.current_customers import get_billing_customer_names
 
 	return get_billing_customer_names()
+
+
+def _arrival_queue():
+	from tnt_seal_management.tnt_seal_management.api.geofence_arrivals import arrival_queue_journey_names
+
+	return arrival_queue_journey_names()
 
 
 def _first_matching_rule(rules, user_roles):

@@ -9,8 +9,36 @@ frappe.ui.form.on("Seal API Settings", {
 		});
 		_configure_checklist_template(frm);
 		_add_test_connection_button(frm);
+		_render_uffizio_geofence_summary(frm);
+	},
+
+	open_uffizio_geofences() {
+		frappe.set_route("uffizio-geofence-list");
 	},
 });
+
+// One line of counts beside the "Open Uffizio Geofences" button.
+function _render_uffizio_geofence_summary(frm) {
+	const $wrapper = frm.get_field("uffizio_geofence_summary").$wrapper;
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.geofence_sync.get_geofence_page",
+		args: { scope: "ours", page_length: 1 },
+		callback(r) {
+			const d = r.message || {};
+			const s = d.summary || {};
+			const synced = d.last_synced ? frappe.datetime.prettyDate(d.last_synced) : __("never");
+			$wrapper.html(`
+				<div class="text-muted small">
+					${__("{0} of our geofences, {1} linked to a Transport Location, {2} not linked.", [s.all || 0, s.linked || 0, s.unlinked || 0])}
+					<br>${__("{0} shared from other accounts. Last synced {1}.", [(d.scope_counts || {}).shared || 0, frappe.utils.escape_html(synced)])}
+				</div>
+			`);
+		},
+		error() {
+			$wrapper.empty();
+		},
+	});
+}
 
 function _configure_checklist_template(frm) {
 	const canManageTemplate = frappe.user.has_role("System Manager");

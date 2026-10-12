@@ -281,7 +281,8 @@ function _all_journeys_html(data) {
 							<th>${__("Un-tagging Date")}</th>
 							<th class="cj-col-seal">${__("Seal Number")}</th>
 							<th>${__("File Number")}</th>
-							<th>${__("Hours/Days Taken")}</th>
+							<th>${__("Days Taken")}</th>
+							<th>${__("Hours Taken")}</th>
 							<th>${__("Contact Person")}</th>
 							<th class="cj-col-departure">${__("Departure Card #")}</th>
 							<th class="cj-col-retrieval">${__("Retrieval Card #")}</th>
@@ -383,7 +384,8 @@ function _customer_card_html(c, idx) {
 							<th>${__("Un-tagging Date")}</th>
 							<th class="cj-col-seal">${__("Seal Number")}</th>
 							<th>${__("File Number")}</th>
-							<th>${__("Hours/Days Taken")}</th>
+							<th>${__("Days Taken")}</th>
+							<th>${__("Hours Taken")}</th>
 							<th>${__("Contact Person")}</th>
 							<th class="cj-col-departure">${__("Departure Card #")}</th>
 							<th class="cj-col-retrieval">${__("Retrieval Card #")}</th>
@@ -421,6 +423,15 @@ function _recurring_html(fees) {
 	`;
 }
 
+// Whole days and leftover hours (1 dp) from the decimal days_taken; null for
+// both when the journey has no duration yet.
+function _cj_split_duration(j) {
+	if (!j.days_taken_display) return { days: null, hours: null };
+	const total = Number(j.days_taken) || 0;
+	const days = Math.floor(total);
+	return { days, hours: Math.round((total - days) * 24 * 10) / 10 };
+}
+
 function _journey_row_html(j) {
 	const esc = frappe.utils.escape_html;
 	const dash = `<span class="cj-muted">—</span>`;
@@ -447,7 +458,8 @@ function _journey_row_html(j) {
 			<td>${dt(j.untagging_completed_date_time)}</td>
 			<td class="cj-col-seal">${j.seal_number ? esc(j.seal_number) : dash}</td>
 			<td>${j.file_number ? esc(j.file_number) : dash}</td>
-			<td>${j.days_taken_display ? esc(j.days_taken_display) : dash}</td>
+			<td>${_cj_split_duration(j).days ?? dash}</td>
+			<td>${_cj_split_duration(j).hours ?? dash}</td>
 			<td>${j.contact_person_name ? esc(j.contact_person_name) : dash}</td>
 			<td class="cj-col-departure">${j.departure_card_number ? esc(j.departure_card_number) : dash}</td>
 			<td class="cj-col-retrieval">${j.retrieval_card_number ? esc(j.retrieval_card_number) : dash}</td>
@@ -691,14 +703,14 @@ function _export_excel(page, idx) {
 		["Total Journeys", c.journey_count],
 		["Total Days Taken", num(c.total_days_taken)],
 		[],
-		["Journey", "Container/Truck #", "Origin", "Destination", "Tagging Date", "Arrival Date", "Un-tagging Date", "Seal Number", "File Number", "Hours/Days Taken", "Contact Person", "Departure Card #", "Retrieval Card #", "Amount"]
+		["Journey", "Container/Truck #", "Origin", "Destination", "Tagging Date", "Arrival Date", "Un-tagging Date", "Seal Number", "File Number", "Days Taken", "Hours Taken", "Contact Person", "Departure Card #", "Retrieval Card #", "Amount"]
 	];
 
 	c.journeys.forEach(j => {
 		data.push([
 			j.name, j.container_number, j.origin, j.destination,
 			dt(j.tagging_date_time), dt(j.arrival_date_time), dt(j.untagging_completed_date_time),
-			j.seal_number, j.file_number, j.days_taken_display,
+			j.seal_number, j.file_number, _cj_split_duration(j).days, _cj_split_duration(j).hours,
 			j.contact_person_name, j.departure_card_number, j.retrieval_card_number,
 			num(j.total_charge)
 		]);

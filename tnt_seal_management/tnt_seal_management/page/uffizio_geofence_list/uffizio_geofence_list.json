@@ -1,0 +1,32 @@
+{
+ "content": null,
+ "creation": "2026-10-12 00:00:00",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-10-12 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "uffizio-geofence-list",
+ "owner": "Administrator",
+ "page_name": "uffizio-geofence-list",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Operations Control Room"
+  },
+  {
+   "role": "Management"
+  },
+  {
+   "role": "Managing Director"
+  }
+ ],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "Uffizio Geofences"
+}

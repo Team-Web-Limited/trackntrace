@@ -22,9 +22,9 @@ frappe.pages["assignment-list"].on_page_load = function (wrapper) {
 	page.add_inner_button(__("PDF"), () => _asg_export_pdf(page), __("Download Report"));
 	page.add_inner_button(__("Refresh"), () => _asg_load(page));
 
-	const $statsBar = $('<div class="asg-header-stats"></div>');
-	$(wrapper).find('.page-head .page-actions').before($statsBar);
-	page.asg_stats_bar = $statsBar;
+	// Header switch to the other work list; per-status counts stay in the
+	// status filter dropdown.
+	window.tnt_render_work_tabs?.(wrapper, "assignment-list");
 
 	_asg_inject_styles();
 	_asg_build_page(page);
@@ -410,36 +410,6 @@ function _asg_print_styles() {
 }
 
 function _asg_render_stats(page, summary) {
-	const html = `
-		<div class="asg-stat-card">
-			<div class="asg-stat-label">${__("All")}</div>
-			<div class="asg-stat-value">${summary.All || 0}</div>
-		</div>
-		<div class="asg-stat-card asg-stat--pending">
-			<div class="asg-stat-label">${__("Awaiting Assignment")}</div>
-			<div class="asg-stat-value">${summary.Pending || 0}</div>
-		</div>
-		<div class="asg-stat-card asg-stat--assigned">
-			<div class="asg-stat-label">${__("Assigned")}</div>
-			<div class="asg-stat-value">${summary.Assigned || 0}</div>
-		</div>
-		<div class="asg-stat-card asg-stat--untagging">
-			<div class="asg-stat-label">${__("Pending Untagging Assignment")}</div>
-			<div class="asg-stat-value">${summary["Pending Untagging Assignment"] || 0}</div>
-		</div>
-		<div class="asg-stat-card asg-stat--seal-return">
-			<div class="asg-stat-label">${__("Pending Seal Return Assignment")}</div>
-			<div class="asg-stat-value">${summary["Pending Seal Return Assignment"] || 0}</div>
-		</div>
-		<div class="asg-stat-card asg-stat--cancelled">
-			<div class="asg-stat-label">${__("Cancelled")}</div>
-			<div class="asg-stat-value">${summary.Cancelled || 0}</div>
-		</div>
-	`;
-	if (page.asg_stats_bar) {
-		page.asg_stats_bar.html(html);
-	}
-
 	const countMap = {
 		"All": summary.All || 0,
 		"Pending": summary.Pending || 0,

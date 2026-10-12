@@ -14,6 +14,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, cstr, get_datetime, now_datetime
 
+from tnt_seal_management.tnt_seal_management.api.geofence_arrivals import check_destination_entry
 from tnt_seal_management.tnt_seal_management.api.seal_api_client import (
 	_save_sync_log,
 	generate_access_token,
@@ -1470,6 +1471,17 @@ def _apply_to_journey(journey_name, rec):
 
 	frappe.db.set_value("Seal Journey", journey_name, upd)
 	frappe.db.commit()
+
+	# Puts the journey into the Control Room Arrivals once the seal is inside
+	# its destination geofence.
+	if rec.get("latitude") is not None and rec.get("longitude") is not None:
+		try:
+			check_destination_entry(journey_name, rec["latitude"], rec["longitude"])
+		except Exception as exc:
+			frappe.log_error(
+				f"Destination geofence check failed for {journey_name}: {exc}",
+				"Seal Journey Destination Geofence",
+			)
 
 
 def _apply_to_journey_request_seal(row_name, rec):

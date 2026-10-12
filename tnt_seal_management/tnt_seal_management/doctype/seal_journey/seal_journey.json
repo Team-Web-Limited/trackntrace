@@ -26,6 +26,7 @@
   "client_and_transport_details_tab",
   "vehicle_plate_number",
   "container_number",
+  "booking_location",
   "origin",
   "destination",
   "file_number",
@@ -105,6 +106,7 @@
   "milestones",
   "arrival_tab",
   "arrival_row_1_section",
+  "destination_entered_date_time",
   "arrival_date_time",
   "arrival_row_1_column",
   "arrival_remarks",
@@ -244,6 +246,13 @@
    "in_list_view": 1,
    "label": "Container Number",
    "read_only": 1
+  },
+  {
+   "fieldname": "booking_location",
+   "fieldtype": "Data",
+   "label": "Booking Location",
+   "read_only": 1,
+   "description": "Location typed on the Tagging Booking. Origin and Destination come from the Journey Request at tagging."
   },
   {
    "fieldname": "origin",
@@ -668,6 +677,13 @@
   {
    "fieldname": "arrival_row_1_section",
    "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "destination_entered_date_time",
+   "fieldtype": "Datetime",
+   "label": "Entered Destination Geofence",
+   "read_only": 1,
+   "description": "Set by the seal sync when the seal's GPS is first inside the destination's Uffizio geofence; the journey then shows in the Control Room Arrivals."
   },
   {
    "fieldname": "arrival_date_time",
@@ -1152,7 +1168,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-14 12:45:00.000000",
+ "modified": "2026-10-12 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Journey",

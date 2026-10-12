@@ -21,9 +21,9 @@ frappe.pages["journey-request-list"].on_page_load = function (wrapper) {
 	page.add_inner_button(__("PDF"), () => _jrl_export_pdf(page), __("Download Report"));
 	page.add_inner_button(__("Refresh"), () => _jrl_load(page));
 
-	const $statsBar = $('<div class="jrl-header-stats"></div>');
-	$(wrapper).find('.page-head .page-actions').before($statsBar);
-	page.jrl_stats_bar = $statsBar;
+	// Header switch to the other work list; per-status counts stay in the
+	// status filter dropdown.
+	window.tnt_render_work_tabs?.(wrapper, "journey-request-list");
 
 	_jrl_inject_styles();
 	_jrl_build_page(page);
@@ -342,28 +342,6 @@ function _jrl_print_styles() {
 }
 
 function _jrl_render_stats(page, summary) {
-	const html = `
-		<div class="jrl-stat-card">
-			<div class="jrl-stat-label">${__("All")}</div>
-			<div class="jrl-stat-value">${summary.All || 0}</div>
-		</div>
-		<div class="jrl-stat-card jrl-stat--pending">
-			<div class="jrl-stat-label">${__("Pending CR")}</div>
-			<div class="jrl-stat-value">${summary["Pending Control Room Approval"] || 0}</div>
-		</div>
-		<div class="jrl-stat-card jrl-stat--ready">
-			<div class="jrl-stat-label">${__("Journey Ready")}</div>
-			<div class="jrl-stat-value">${summary["Journey Ready"] || 0}</div>
-		</div>
-		<div class="jrl-stat-card jrl-stat--untagging">
-			<div class="jrl-stat-label">${__("Untagging")}</div>
-			<div class="jrl-stat-value">${summary["Untagging"] || 0}</div>
-		</div>
-	`;
-	if (page.jrl_stats_bar) {
-		page.jrl_stats_bar.html(html);
-	}
-
 	$(page.body).find(".jrl-fcount").each(function () {
 		const key = $(this).data("fcount");
 		$(this).text(summary[key] ?? 0);

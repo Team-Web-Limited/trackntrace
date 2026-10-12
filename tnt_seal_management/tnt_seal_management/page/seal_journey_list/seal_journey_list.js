@@ -695,6 +695,7 @@ function _sjl_inject_styles() {
 			padding: 14px 18px;
 			border-bottom: 1px solid #e2e8f0;
 			vertical-align: top;
+			white-space: nowrap;
 		}
 		.sjl-table th {
 			position: sticky;

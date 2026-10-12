@@ -148,6 +148,7 @@ def _attach_seals(journeys):
 				"battery_level": r.get("battery_level"),
 				"api_device_status": r.get("api_device_status"),
 				"api_location": r.get("api_location"),
+				"api_last_update_time": r.get("api_last_update_time"),
 				"latitude": lat,
 				"longitude": lng,
 				"alerts": alerts,

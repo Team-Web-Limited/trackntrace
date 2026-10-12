@@ -2767,6 +2767,19 @@ function _cjv_build_skeleton(page) {
 		if (name) frappe.set_route("Form", "Seal Journey", name);
 	});
 
+	$(page.body).on("click", ".cj-seals-btn", function () {
+		const seals = String($(this).data("seals") || "").split(",").map((x) => x.trim()).filter(Boolean);
+		const rows = seals.map((n) => `<tr><td>${frappe.utils.escape_html(n)}</td></tr>`).join("");
+		const dialog = new frappe.ui.Dialog({
+			title: __("Seals — {0}", [$(this).data("journey")]),
+			fields: [{ fieldname: "seals_html", fieldtype: "HTML" }],
+		});
+		dialog.fields_dict.seals_html.$wrapper.html(
+			`<table class="table table-bordered"><thead><tr><th>${__("Seal Number")}</th></tr></thead><tbody>${rows}</tbody></table>`
+		);
+		dialog.show();
+	});
+
 	$(page.body).on("click", ".cj-export-pdf", function (e) {
 		e.preventDefault();
 		const idx = $(this).data("idx");
@@ -3008,6 +3021,13 @@ function _cjv_journey_row_html(j) {
 		`;
 	}
 
+	const sealList = String(j.seal_number || "").split(",").map((x) => x.trim()).filter(Boolean);
+	const sealCell = sealList.length > 1
+		? `<button class="cj-seals-btn" data-journey="${esc(j.name)}" data-seals="${esc(sealList.join(","))}" title="${__("View seals")}">${__("{0} seals", [sealList.length])}</button>`
+		: sealList.length
+		? esc(sealList[0])
+		: dash;
+
 	return `
 		<tr>
 			<td>${journey_cell}</td>
@@ -3017,7 +3037,7 @@ function _cjv_journey_row_html(j) {
 			<td>${dt(j.tagging_date_time)}</td>
 			<td>${dt(j.arrival_date_time)}</td>
 			<td>${dt(j.untagging_completed_date_time)}</td>
-			<td class="cj-col-seal">${j.seal_number ? esc(j.seal_number) : dash}</td>
+			<td class="cj-col-seal">${sealCell}</td>
 			<td>${j.file_number ? esc(j.file_number) : dash}</td>
 			<td>${j.days_taken_display ? esc(j.days_taken_display) : dash}</td>
 			<td>${j.contact_person_name ? esc(j.contact_person_name) : dash}</td>
@@ -3583,6 +3603,8 @@ function _cjv_inject_styles() {
 		}
 		.cj-journey-link:hover { text-decoration: underline; }
 		.cj-muted { color: #94a3b8; }
+		.cj-seals-btn { padding: 2px 10px; border: 1px solid #7dd3fc; border-radius: 10px; background: #e0f2fe; color: #075985; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+		.cj-seals-btn:hover { background: #bae6fd; }
 		.cj-no-journeys {
 			padding: 18px 20px;
 			color: #64748b;

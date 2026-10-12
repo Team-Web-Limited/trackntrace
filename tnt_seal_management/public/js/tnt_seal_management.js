@@ -22,6 +22,17 @@ frappe.router.on('change', () => {
 	frappe.set_route(TNT_LANDING_PAGE);
 });
 
+// /app/uffizio-geofence is the DocType's list route, which the router matches
+// before any Page, so the custom "uffizio-geofence-list" page takes over by
+// bouncing the list view there. Forms (/app/uffizio-geofence/<id>) are untouched.
+frappe.router.on('change', () => {
+	const route = frappe.router.current_route || [];
+	if (route[0] !== 'List' || route[1] !== 'Uffizio Geofence') return;
+
+	frappe.route_flags.replace_route = true;
+	frappe.set_route('uffizio-geofence-list');
+});
+
 (function () {
 	const SESSION_EXPIRED_PATTERNS = [
 		/Login to access/i,
@@ -230,3 +241,57 @@ window.tnt_transfer_seals = function (seals, onDone) {
 	});
 	d.show();
 };
+
+// Assignments <-> Journey Requests switch, shown in the page header (where the
+// status chips used to be) of both list pages, styled like the Customer Billing
+// Customers / Completed Journeys tabs. Each tab routes to its own page; the
+// switch only appears for users allowed to open both.
+const TNT_WORK_TABS = [
+	['assignment-list', 'Assignments'],
+	['journey-request-list', 'Journey Requests'],
+];
+
+window.tnt_render_work_tabs = function (wrapper, active) {
+	const allowed = frappe.boot.page_info || {};
+	if (!TNT_WORK_TABS.every(([name]) => allowed[name])) return;
+
+	tnt_inject_work_tab_styles();
+	const $tabs = $(`
+		<div class="tnt-work-tabs">
+			${TNT_WORK_TABS.map(
+				([name, label]) =>
+					`<button class="tnt-work-tab ${name === active ? 'active' : ''}" data-page="${name}">${__(label)}</button>`
+			).join('')}
+		</div>
+	`);
+	$tabs.on('click', '.tnt-work-tab', function () {
+		const target = $(this).data('page');
+		if (target !== active) frappe.set_route(target);
+	});
+	$(wrapper).find('.page-head .page-actions').before($tabs);
+};
+
+function tnt_inject_work_tab_styles() {
+	if (document.getElementById('tnt-work-tab-styles')) return;
+	const style = document.createElement('style');
+	style.id = 'tnt-work-tab-styles';
+	style.textContent = `
+		.tnt-work-tabs { display: flex; align-items: center; gap: 8px; flex: 1; padding: 0 20px; overflow-x: auto; }
+		.tnt-work-tab {
+			flex-shrink: 0;
+			padding: 7px 18px;
+			border: 1px solid rgba(14, 165, 233, .3);
+			border-radius: 999px;
+			background: var(--card-bg, #fff);
+			color: #0369a1;
+			font-weight: 700;
+			font-size: 13px;
+			white-space: nowrap;
+			cursor: pointer;
+		}
+		.tnt-work-tab:hover { background: #f0f9ff; }
+		.tnt-work-tab.active { background: #0284c7; border-color: #0284c7; color: #fff; }
+		[data-theme="dark"] .tnt-work-tab:not(.active) { background: #1e293b; border-color: #334155; color: #7dd3fc; }
+	`;
+	document.head.appendChild(style);
+}

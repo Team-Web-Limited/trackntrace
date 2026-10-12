@@ -41,6 +41,10 @@
   "last_failed_sync_time",
   "failure_col",
   "last_error_message",
+  "uffizio_geofence_section",
+  "uffizio_geofence_summary",
+  "uffizio_geofence_col",
+  "open_uffizio_geofences",
   "checklist_section",
   "pre_tagging_checklist_template",
   "remarks"
@@ -237,6 +241,26 @@
    "read_only": 1
   },
   {
+   "fieldname": "uffizio_geofence_section",
+   "fieldtype": "Section Break",
+   "label": "Uffizio Geofences"
+  },
+  {
+   "fieldname": "uffizio_geofence_summary",
+   "fieldtype": "HTML",
+   "label": "Uffizio Geofence Summary"
+  },
+  {
+   "fieldname": "uffizio_geofence_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "open_uffizio_geofences",
+   "fieldtype": "Button",
+   "label": "Open Uffizio Geofences",
+   "description": "Geofences pulled from Uffizio (daily at 03:00, or Sync from Uffizio on the page). Link them to Transport Locations so seal journeys arrive automatically when the seal enters the destination."
+  },
+  {
    "fieldname": "checklist_section",
    "fieldtype": "Section Break",
    "label": "Journey Checklist"
@@ -258,7 +282,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-07-14 12:45:00.000000",
+ "modified": "2026-10-12 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal API Settings",
