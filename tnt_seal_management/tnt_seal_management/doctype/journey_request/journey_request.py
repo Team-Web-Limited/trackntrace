@@ -1994,6 +1994,7 @@ def get_journey_request_list(
 		limit_start=(page - 1) * page_length,
 		limit_page_length=page_length,
 	)
+	_attach_vehicle_details(requests)
 	_attach_seal_serial_numbers(requests)
 
 	total_result = frappe.get_list(
@@ -2049,6 +2050,7 @@ def get_all_journey_requests_for_export(search=None, status=None, from_date=None
 		order_by="modified desc",
 		limit_page_length=0,
 	)
+	_attach_vehicle_details(requests)
 	_attach_seal_serial_numbers(requests)
 	return requests
 
@@ -2153,6 +2155,40 @@ def _get_tnt_logo_img_tag():
 	return f'<img src="data:image/png;base64,{encoded}" class="tnt-pdf-logo" alt="Track and Trace">'
 
 
+def _attach_vehicle_details(requests):
+	if not requests:
+		return
+
+	request_names = [request.name for request in requests]
+	vehicle_rows = frappe.get_all(
+		"Journey Request Vehicle",
+		filters={"parent": ["in", request_names], "parenttype": "Journey Request", "status": ["!=", "Cancelled"]},
+		fields=["parent", "vehicle", "registration_number"],
+		order_by="parent asc, idx asc",
+	)
+
+	vehicles_by_request = {}
+	for row in vehicle_rows:
+		plate = row.registration_number or row.vehicle
+		if plate:
+			vehicles_by_request.setdefault(row.parent, []).append(plate)
+
+	for request in requests:
+		child_vehicles = vehicles_by_request.get(request.name)
+		if child_vehicles:
+			request.vehicle_list = child_vehicles
+			if not request.vehicle:
+				request.vehicle = ", ".join(child_vehicles)
+		elif request.vehicle:
+			request.vehicle_list = [
+				v.strip()
+				for v in str(request.vehicle).replace(";", ",").replace("\n", ",").split(",")
+				if v.strip()
+			]
+		else:
+			request.vehicle_list = []
+
+
 def _attach_seal_serial_numbers(requests):
 	if not requests:
 		return
@@ -2161,18 +2197,30 @@ def _attach_seal_serial_numbers(requests):
 	seal_rows = frappe.get_all(
 		"Journey Request Seal",
 		filters={"parent": ["in", request_names], "parenttype": "Journey Request"},
-		fields=["parent", "seal_number"],
+		fields=["parent", "seal_number", "seal_device"],
 		order_by="parent asc, idx asc",
 	)
 
 	seals_by_request = {}
 	for row in seal_rows:
-		if not row.seal_number:
+		sn = row.seal_number or row.seal_device
+		if not sn:
 			continue
-		seals_by_request.setdefault(row.parent, []).append(row.seal_number)
+		seals_by_request.setdefault(row.parent, []).append(sn)
 
 	for request in requests:
-		request.seal_serial_numbers = ", ".join(seals_by_request.get(request.name, []))
+		child_seals = seals_by_request.get(request.name)
+		if child_seals:
+			request.seal_list = child_seals
+			request.seal_serial_numbers = ", ".join(child_seals)
+		elif request.seal_serial_numbers:
+			request.seal_list = [
+				s.strip()
+				for s in str(request.seal_serial_numbers).replace(";", ",").replace("\n", ",").split(",")
+				if s.strip()
+			]
+		else:
+			request.seal_list = []
 
 
 @frappe.whitelist()

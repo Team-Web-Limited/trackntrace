@@ -24,26 +24,27 @@ function _jr_list_values(value) {
 		.filter(Boolean);
 }
 
-// One value shows as-is; several collapse to a count and a View button.
+// One value shows as-is; several collapse to a button that reveals items in a modal.
 function _jr_list_multi_formatter(field) {
 	return (value, df, doc) => {
 		const values = _jr_list_values(value);
 		if (values.length < 2) return frappe.utils.escape_html(cstr(value));
-		return `<span class="text-muted">${__("{0} {1}", [values.length, field.plural])}</span>
-			<button class="btn btn-xs btn-default jr-list-view-btn ml-2"
-				data-name="${encodeURIComponent(doc.name)}" data-field="${df.fieldname}">${__("View")}</button>`;
+		return `<button class="btn btn-xs btn-default jr-list-view-btn"
+			data-name="${encodeURIComponent(doc.name)}" data-field="${df.fieldname}">${__("{0} {1}", [values.length, field.plural])}</button>`;
 	};
 }
 
 const JR_LIST_MULTI_FIELDS = {
-	vehicle: { label: __("Vehicles"), plural: __("vehicles") },
+	vehicle: { label: __("Vehicles"), plural: __("Vehicles") },
 	entry_number: { label: __("Entry Numbers"), plural: __("entries") },
+	seal_serial_numbers: { label: __("Seal Serial Numbers"), plural: __("Seals") },
+	seals: { label: __("Seal Serial Numbers"), plural: __("Seals") },
 };
 
 function _jr_list_show_details(name, fieldname) {
 	frappe.db.get_doc("Journey Request", name).then((doc) => {
 		const esc = frappe.utils.escape_html;
-		const field = JR_LIST_MULTI_FIELDS[fieldname];
+		const field = JR_LIST_MULTI_FIELDS[fieldname] || { label: __("Details"), plural: __("items") };
 		const rows = (doc.vehicles || []).filter((r) => r.status !== "Cancelled");
 		let html;
 
@@ -71,6 +72,26 @@ function _jr_list_show_details(name, fieldname) {
 					)
 					.join("")}</tbody>
 			</table>`;
+		} else if ((fieldname === "seals" || fieldname === "seal_serial_numbers") && (doc.seals || []).length) {
+			const sealRows = (doc.seals || []).filter((s) => Boolean(s.seal_number || s.seal_device));
+			html = `<table class="table table-bordered table-sm">
+				<thead><tr>
+					<th>#</th><th>${__("Seal Serial Number")}</th><th>${__("Vehicle")}</th>
+					<th>${__("Seal Device")}</th><th>${__("Tag Status")}</th><th>${__("Lock Status")}</th>
+				</tr></thead>
+				<tbody>${sealRows
+					.map(
+						(s, i) => `<tr>
+							<td>${i + 1}</td>
+							<td>${esc(s.seal_number || s.seal_device || "")}</td>
+							<td>${esc(s.vehicle || "")}</td>
+							<td>${s.seal_device ? `<a href="/app/seal-device/${encodeURIComponent(s.seal_device)}">${esc(s.seal_device)}</a>` : ""}</td>
+							<td>${esc(__(s.tag_status || ""))}</td>
+							<td>${esc(s.lock_status || "")}</td>
+						</tr>`
+					)
+					.join("")}</tbody>
+			</table>`;
 		} else {
 			html = `<table class="table table-bordered table-sm">
 				<thead><tr><th>#</th><th>${field.label}</th></tr></thead>
@@ -82,7 +103,7 @@ function _jr_list_show_details(name, fieldname) {
 
 		const dialog = new frappe.ui.Dialog({
 			title: __("{0} — {1}", [field.label, name]),
-			size: fieldname === "vehicle" && rows.length ? "large" : "small",
+			size: (fieldname === "vehicle" && rows.length) || fieldname === "seals" || fieldname === "seal_serial_numbers" ? "large" : "small",
 			fields: [{ fieldtype: "HTML", fieldname: "details" }],
 			primary_action_label: __("Open Request"),
 			primary_action() {
@@ -101,6 +122,8 @@ frappe.listview_settings["Journey Request"] = {
 	formatters: {
 		vehicle: _jr_list_multi_formatter(JR_LIST_MULTI_FIELDS.vehicle),
 		entry_number: _jr_list_multi_formatter(JR_LIST_MULTI_FIELDS.entry_number),
+		seal_serial_numbers: _jr_list_multi_formatter(JR_LIST_MULTI_FIELDS.seal_serial_numbers),
+		seals: _jr_list_multi_formatter(JR_LIST_MULTI_FIELDS.seals),
 	},
 
 	onload(listview) {

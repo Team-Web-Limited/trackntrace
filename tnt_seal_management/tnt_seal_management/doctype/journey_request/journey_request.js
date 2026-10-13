@@ -33,8 +33,9 @@ frappe.ui.form.on("Journey Request", {
 		frm.set_query("return_warehouse", () => ({ filters: { active: 1 } }));
 		frm.set_query("origin", () => ({ filters: { location_role: "Terminal" } }));
 		frm.set_query("destination", () => ({ filters: { location_role: "Terminal" } }));
+		// Checkpoints are intermediate stops selected directly from Uffizio Geofences (excluding routes).
 		frm.set_query("checkpoint", "checkpoints", () => ({
-			filters: { location_role: "Checkpoint" },
+			filters: { shape: ["!=", "Route"] },
 		}));
 
 		// A sub-seal's parent must be one of the other seals already on this

@@ -867,6 +867,7 @@ def get_control_room_journey_list(
 				[
 					"name", "customer", "vehicle_plate_number", "container_number", "origin", "destination",
 					"assigned_seal", "assigned_technician", "journey_request", "journey_start_date_time",
+					"tagging_date_time", "completion_date_time", "arrival_date_time", "untagging_completed_date_time",
 					"api_device_location", "api_latitude", "api_longitude", "api_last_update_time",
 				]
 				# Everything Journey Monitoring reads, so its columns (status,

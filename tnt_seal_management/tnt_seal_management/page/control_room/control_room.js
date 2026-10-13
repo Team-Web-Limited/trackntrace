@@ -1353,6 +1353,11 @@ function _cr_journey_rows_html(j, completed) {
 			? `<span class="cr-badge cr-badge--warning">${Math.ceil(j.longer_in_journey)} ${__("Days")}</span>`
 			: dash;
 
+	const startDateVal = j.journey_start_date_time || j.tagging_date_time;
+	const startDate = startDateVal ? esc(frappe.datetime.str_to_user(startDateVal)) : dash;
+	const endDateVal = j.completion_date_time || j.arrival_date_time || j.untagging_completed_date_time;
+	const endDate = endDateVal ? esc(frappe.datetime.str_to_user(endDateVal)) : dash;
+
 	const journeyCells = `
 		<td${span} class="cr-nowrap"><a href="/app/seal-journey/${encodeURIComponent(j.name)}" target="_blank" rel="noopener">${esc(j.name)}</a></td>
 		<td${span}>${esc(j.customer || dash)}</td>
@@ -1361,6 +1366,8 @@ function _cr_journey_rows_html(j, completed) {
 		<td${span} class="cr-nowrap">${esc(j.container_number || dash)}</td>
 		<td${span}>${esc(j.origin || dash)}</td>
 		<td${span}>${esc(j.destination || dash)}</td>
+		<td${span} class="cr-nowrap">${startDate}</td>
+		${completed ? `<td${span} class="cr-nowrap">${endDate}</td>` : ""}
 		${completed ? "" : `<td${span}><span class="cr-badge cr-badge--${CR_STATUS_CLASS[status] || "unknown"}">${esc(status)}</span></td>`}
 		${completed ? "" : `<td${span}>${warehouse}</td><td${span}>${longer}</td>`}
 	`;
@@ -1478,6 +1485,8 @@ function _control_room_journey_table(journeys, completed) {
 					<th>${__("Container Number")}</th>
 					<th>${__("Origin")}</th>
 					<th>${__("Destination")}</th>
+					<th>${__("Start Date")}</th>
+					${completed ? `<th>${__("End Date")}</th>` : ""}
 					${completed ? "" : `<th>${__("Status")}</th>`}
 					${completed ? "" : `<th>${__("Warehouse")}</th><th>${__("Longer in Journey")}</th>`}
 					<th>${__("Seal Number")}</th>
@@ -1629,15 +1638,24 @@ function _control_room_tab_report(state) {
 		args,
 		"journeys"
 	).then((js) => {
-		const common = (j) => [j.name, j.customer, j.vehicle_plate_number, j.entry_number, j.container_number, j.origin, j.destination];
+		const common = (j) => {
+			const startDateVal = j.journey_start_date_time || j.tagging_date_time;
+			const startDate = startDateVal ? frappe.datetime.str_to_user(startDateVal) : "";
+			return [j.name, j.customer, j.vehicle_plate_number, j.entry_number, j.container_number, j.origin, j.destination, startDate];
+		};
 		if (completed) {
 			return {
-				columns: [__("Journey"), __("Client Name"), __("Vehicle"), __("Entry Number"), __("Container Number"), __("Origin"), __("Destination"), __("Seal Number"), __("Tagged By")],
-				rows: js.map((j) => [
-					...common(j),
-					(j.seals || []).map((s) => s.seal_number || s.seal_device).join(", "),
-					j.tagged_by,
-				]),
+				columns: [__("Journey"), __("Client Name"), __("Vehicle"), __("Entry Number"), __("Container Number"), __("Origin"), __("Destination"), __("Start Date"), __("End Date"), __("Seal Number"), __("Tagged By")],
+				rows: js.map((j) => {
+					const endDateVal = j.completion_date_time || j.arrival_date_time || j.untagging_completed_date_time;
+					const endDate = endDateVal ? frappe.datetime.str_to_user(endDateVal) : "";
+					return [
+						...common(j),
+						endDate,
+						(j.seals || []).map((s) => s.seal_number || s.seal_device).join(", "),
+						j.tagged_by,
+					];
+				}),
 			};
 		}
 		const rows = [];
@@ -1662,7 +1680,7 @@ function _control_room_tab_report(state) {
 			});
 		});
 		return {
-			columns: [__("Journey"), __("Client Name"), __("Vehicle"), __("Entry Number"), __("Container Number"), __("Origin"), __("Destination"), __("Status"), __("Warehouse"), __("Longer in Journey"), __("Seal Number"), __("Lock"), __("Battery"), __("Current Location"), __("Alerts"), __("Tagged By")],
+			columns: [__("Journey"), __("Client Name"), __("Vehicle"), __("Entry Number"), __("Container Number"), __("Origin"), __("Destination"), __("Start Date"), __("Status"), __("Warehouse"), __("Longer in Journey"), __("Seal Number"), __("Lock"), __("Battery"), __("Current Location"), __("Alerts"), __("Tagged By")],
 			rows,
 		};
 	});
@@ -2595,8 +2613,8 @@ function _control_room_inject_styles() {
 		}
 		/* keep columns from squishing; forces horizontal scroll on narrow widths */
 		.cr-alert-table-wrap .cr-queue-table { min-width: 1560px; }
-		.cr-journey-table-wrap .cr-queue-table { min-width: 2100px; }
-		.cr-journey-table-wrap--completed .cr-queue-table { min-width: 1100px; }
+		.cr-journey-table-wrap .cr-queue-table { min-width: 2200px; }
+		.cr-journey-table-wrap--completed .cr-queue-table { min-width: 1300px; }
 		.cr-journey-table-wrap .cr-queue-table th,
 		.cr-journey-table-wrap .cr-queue-table td { white-space: nowrap; }
 		.cr-journey-alerts-btn { min-width: 26px; padding: 2px 9px; border: 0; border-radius: 10px; background: #fee2e2; color: #b91c1c; font-size: 12px; font-weight: 700; cursor: pointer; }

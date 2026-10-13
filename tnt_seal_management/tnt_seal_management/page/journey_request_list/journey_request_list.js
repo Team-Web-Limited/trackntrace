@@ -129,6 +129,15 @@ function _jrl_build_page(page) {
 		$(page.body).find(".jrl-filter-menu").removeClass("open");
 	});
 	$(page.body).on("click", ".jrl-clear-btn", () => _jrl_clear_filters(page));
+	$(page.body).on("click", ".jrl-cell-btn", function (e) {
+		e.preventDefault();
+		e.stopPropagation();
+		const name = $(this).data("name");
+		const field = $(this).data("field");
+		if (name && field) {
+			_jrl_show_modal(name, field);
+		}
+	});
 	$(page.body).on("click", ".jrl-row", function (event) {
 		const name = $(this).data("name");
 		if (name) frappe.set_route("Form", "Journey Request", name);
@@ -377,6 +386,13 @@ function _jrl_render_table(page, requests) {
 	`);
 }
 
+function _jrl_list_values(value) {
+	return (value ? String(value) : "")
+		.split(/[,;\n]+/)
+		.map((v) => v.trim())
+		.filter(Boolean);
+}
+
 function _jrl_row_html(request) {
 	let clientHtml = frappe.utils.escape_html(request.client_name || "—");
 	if (request.client_name) {
@@ -387,13 +403,41 @@ function _jrl_row_html(request) {
 		}
 	}
 
+	const vehicles = request.vehicle_list && request.vehicle_list.length
+		? request.vehicle_list
+		: _jrl_list_values(request.vehicle);
+	let vehicleHtml = "—";
+	if (vehicles.length === 1) {
+		vehicleHtml = frappe.utils.escape_html(vehicles[0]);
+	} else if (vehicles.length > 1) {
+		vehicleHtml = `
+			<button class="jrl-cell-btn" data-field="vehicle" data-name="${frappe.utils.escape_html(request.name)}" title="${__("View {0} vehicles", [vehicles.length])}">
+				${__("{0} Vehicles", [vehicles.length])}
+			</button>
+		`;
+	}
+
+	const seals = request.seal_list && request.seal_list.length
+		? request.seal_list
+		: _jrl_list_values(request.seal_serial_numbers);
+	let sealHtml = "—";
+	if (seals.length === 1) {
+		sealHtml = frappe.utils.escape_html(seals[0]);
+	} else if (seals.length > 1) {
+		sealHtml = `
+			<button class="jrl-cell-btn" data-field="seal" data-name="${frappe.utils.escape_html(request.name)}" title="${__("View {0} seals", [seals.length])}">
+				${__("{0} Seals", [seals.length])}
+			</button>
+		`;
+	}
+
 	return `
 		<tr class="jrl-row" data-name="${frappe.utils.escape_html(request.name)}">
 			<td><span class="jrl-badge jrl-badge--${_jrl_status_class(request.journey_request_status)}">${frappe.utils.escape_html(request.journey_request_status || "—")}</span></td>
 			<td>${clientHtml}</td>
-			<td>${frappe.utils.escape_html(request.vehicle || "—")}</td>
+			<td>${vehicleHtml}</td>
 			<td>${frappe.utils.escape_html(request.entry_number || "—")}</td>
-			<td>${frappe.utils.escape_html(request.seal_serial_numbers || "—")}</td>
+			<td>${sealHtml}</td>
 			<td>${frappe.utils.escape_html(request.origin || "—")}</td>
 			<td>${frappe.utils.escape_html(request.destination || "—")}</td>
 		</tr>
@@ -407,10 +451,151 @@ function _jrl_status_class(status) {
 	// returned one, so it reads the same in the list.
 	if (status === "Closed - Seal Retained") return "approved";
 	if (status === "Cancelled") return "rejected";
-	if (status === "Pending Control Room Approval") return "pending";
-	if (status === "Tagging") return "tagging";
-	if (status === "Untagging") return "untagging";
+	if (status === "Pending Control Room Approval" || status === "Pending") return "pending";
+	if (status === "Tagging" || status === "Tagged") return "tagging";
+	if (status === "Untagging" || status === "Untagged") return "untagging";
 	return "draft";
+}
+
+function _jrl_show_modal(name, fieldname) {
+	const esc = frappe.utils.escape_html;
+	const isVehicle = fieldname === "vehicle";
+	const title = isVehicle
+		? __("Vehicles — {0}", [name])
+		: __("Seal Serial Numbers — {0}", [name]);
+
+	const dialog = new frappe.ui.Dialog({
+		title: title,
+		size: "large",
+		fields: [{ fieldtype: "HTML", fieldname: "details" }],
+		primary_action_label: __("Open Request"),
+		primary_action() {
+			dialog.hide();
+			frappe.set_route("Form", "Journey Request", name);
+		},
+	});
+
+	dialog.fields_dict.details.$wrapper.html(`
+		<div style="padding: 36px 20px; text-align: center; color: #64748b;">
+			<div class="jrl-spinner" style="margin: 0 auto 12px;"></div>
+			<div>${__("Loading details...")}</div>
+		</div>
+	`);
+	dialog.show();
+
+	dialog.fields_dict.details.$wrapper.on("click", "a", () => {
+		dialog.hide();
+	});
+
+	frappe.db.get_doc("Journey Request", name).then((doc) => {
+		let html = "";
+		if (isVehicle) {
+			const rows = (doc.vehicles || []).filter((r) => r.status !== "Cancelled");
+			if (rows.length) {
+				const seals_for = (row) => {
+					const labels = [row.name, row.vehicle, row.registration_number].filter(Boolean);
+					const seals = rows.length > 1
+						? (doc.seals || []).filter((s) => labels.includes(s.vehicle))
+						: doc.seals || [];
+					return seals.map((s) => s.seal_number || s.seal_device).filter(Boolean);
+				};
+				html = `
+					<div class="table-responsive">
+						<table class="table table-bordered table-sm jrl-modal-table">
+							<thead><tr>
+								<th style="width: 44px; text-align: center;">#</th>
+								<th>${__("Vehicle")}</th>
+								<th>${__("Status")}</th>
+								<th>${__("Seal Journey")}</th>
+								<th>${__("Seals")}</th>
+							</tr></thead>
+							<tbody>${rows.map((r, i) => `
+								<tr>
+									<td style="text-align: center; color: #64748b;">${i + 1}</td>
+									<td style="font-weight: 700; color: #0c4a6e;">${esc(r.registration_number || r.vehicle || "—")}</td>
+									<td><span class="jrl-badge jrl-badge--${_jrl_status_class(r.status)}">${esc(__(r.status || "—"))}</span></td>
+									<td>${r.seal_journey ? `<a href="/app/seal-journey/${encodeURIComponent(r.seal_journey)}">${esc(r.seal_journey)}</a>` : "—"}</td>
+									<td>${esc(seals_for(r).join(", ") || "—")}</td>
+								</tr>
+							`).join("")}</tbody>
+						</table>
+					</div>
+				`;
+			} else {
+				const values = _jrl_list_values(doc.vehicle);
+				html = `
+					<div class="table-responsive">
+						<table class="table table-bordered table-sm jrl-modal-table">
+							<thead><tr>
+								<th style="width: 44px; text-align: center;">#</th>
+								<th>${__("Vehicle")}</th>
+							</tr></thead>
+							<tbody>${values.map((v, i) => `
+								<tr>
+									<td style="text-align: center; color: #64748b;">${i + 1}</td>
+									<td style="font-weight: 700; color: #0c4a6e;">${esc(v)}</td>
+								</tr>
+							`).join("")}</tbody>
+						</table>
+					</div>
+				`;
+			}
+		} else {
+			const sealRows = (doc.seals || []).filter((s) => Boolean(s.seal_number || s.seal_device));
+			if (sealRows.length) {
+				html = `
+					<div class="table-responsive">
+						<table class="table table-bordered table-sm jrl-modal-table">
+							<thead><tr>
+								<th style="width: 44px; text-align: center;">#</th>
+								<th>${__("Seal Serial Number")}</th>
+								<th>${__("Vehicle")}</th>
+								<th>${__("Seal Device")}</th>
+								<th>${__("Tag Status")}</th>
+								<th>${__("Lock Status")}</th>
+							</tr></thead>
+							<tbody>${sealRows.map((s, i) => `
+								<tr>
+									<td style="text-align: center; color: #64748b;">${i + 1}</td>
+									<td style="font-weight: 700; color: #0c4a6e;">${esc(s.seal_number || s.seal_device || "—")}</td>
+									<td>${esc(s.vehicle || "—")}</td>
+									<td>${s.seal_device ? `<a href="/app/seal-device/${encodeURIComponent(s.seal_device)}">${esc(s.seal_device)}</a>` : "—"}</td>
+									<td>${s.tag_status ? `<span class="jrl-badge jrl-badge--${_jrl_status_class(s.tag_status)}">${esc(__(s.tag_status))}</span>` : "—"}</td>
+									<td>${esc(s.lock_status || "—")}</td>
+								</tr>
+							`).join("")}</tbody>
+						</table>
+					</div>
+				`;
+			} else {
+				const values = _jrl_list_values(doc.seal_serial_numbers || "");
+				html = `
+					<div class="table-responsive">
+						<table class="table table-bordered table-sm jrl-modal-table">
+							<thead><tr>
+								<th style="width: 44px; text-align: center;">#</th>
+								<th>${__("Seal Serial Number")}</th>
+							</tr></thead>
+							<tbody>${values.map((v, i) => `
+								<tr>
+									<td style="text-align: center; color: #64748b;">${i + 1}</td>
+									<td style="font-weight: 700; color: #0c4a6e;">${esc(v)}</td>
+								</tr>
+							`).join("")}</tbody>
+						</table>
+					</div>
+				`;
+			}
+		}
+
+		dialog.fields_dict.details.$wrapper.html(html);
+	}).catch((err) => {
+		dialog.fields_dict.details.$wrapper.html(`
+			<div class="text-danger p-4 text-center">
+				${__("Could not load details for {0}", [esc(name)])}
+			</div>
+		`);
+	});
 }
 
 function _jrl_action_html(request) {
@@ -934,6 +1119,80 @@ function _jrl_inject_styles() {
 		[data-theme="dark"] .jrl-action-btn--amend {
 			background: #7c2d12;
 			color: #ffedd5;
+		}
+		[data-theme="dark"] .jrl-cell-btn {
+			background: #082f49;
+			border-color: #0369a1;
+			color: #7dd3fc;
+		}
+		[data-theme="dark"] .jrl-cell-btn:hover {
+			background: #0284c7;
+			border-color: #38bdf8;
+			color: #ffffff;
+			box-shadow: 0 2px 6px rgba(56, 189, 248, .3);
+		}
+		[data-theme="dark"] .jrl-modal-table th {
+			background: #0f172a;
+			color: #7dd3fc;
+			border-color: #334155;
+		}
+		[data-theme="dark"] .jrl-modal-table td {
+			border-color: #334155;
+			color: #cbd5e1;
+		}
+		[data-theme="dark"] .jrl-modal-table tbody tr:hover {
+			background: rgba(14, 165, 233, .08);
+		}
+		.jrl-cell-btn {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			gap: 6px;
+			padding: 4px 12px;
+			border: 1px solid #bae6fd;
+			border-radius: 999px;
+			background: #e0f2fe;
+			color: #0369a1;
+			font-size: 12px;
+			font-weight: 700;
+			line-height: 1.3;
+			cursor: pointer;
+			transition: background .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease;
+		}
+		.jrl-cell-btn:hover {
+			background: #0284c7;
+			border-color: #0284c7;
+			color: #ffffff;
+			box-shadow: 0 2px 6px rgba(2, 132, 199, .25);
+		}
+		.jrl-cell-btn:focus-visible {
+			outline: none;
+			box-shadow: 0 0 0 3px rgba(14, 165, 233, .35);
+		}
+		.jrl-modal-table {
+			margin-bottom: 0;
+			width: 100%;
+			border-collapse: collapse;
+		}
+		.jrl-modal-table th {
+			background: #f0f9ff;
+			color: #0369a1;
+			font-size: 11px;
+			font-weight: 800;
+			text-transform: uppercase;
+			letter-spacing: .05em;
+			padding: 9px 12px;
+			border: 1px solid #e0f2fe;
+		}
+		.jrl-modal-table td {
+			padding: 9px 12px;
+			font-size: 13px;
+			vertical-align: middle;
+			border: 1px solid #e0f2fe;
+			color: var(--text-color, #334155);
+		}
+		.jrl-modal-table tbody tr:hover {
+			background: #f8fafc;
 		}
 		[data-theme="dark"] .jrl-loading { background: rgba(15, 23, 42, .62); }
 		@media (max-width: 1100px) {

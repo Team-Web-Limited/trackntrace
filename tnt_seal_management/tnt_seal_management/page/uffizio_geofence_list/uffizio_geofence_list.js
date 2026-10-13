@@ -22,25 +22,20 @@ frappe.pages["uffizio-geofence-list"].on_page_load = function (wrapper) {
 		request_id: 0,
 	};
 
-	page.add_inner_button(__("Seal Settings"), () => frappe.set_route("Form", "Seal API Settings"));
+	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
 	page.add_inner_button(__("Refresh"), () => _ug_load(page));
-
-	const $statsBar = $('<div class="ug-header-stats"></div>');
-	$(wrapper).find(".page-head .page-actions").before($statsBar);
-	page.ug_stats_bar = $statsBar;
 
 	_ug_inject_styles();
 	_ug_build_page(page);
 	_ug_load(page);
 };
 
-// Sync / Create buttons only for the roles allowed to use them; added once the
+// Sync button only for the roles allowed to use it; added once the
 // first load reports what the user may do.
 function _ug_add_manage_actions(page) {
 	if (page.ug_actions_added) return;
 	page.ug_actions_added = true;
 	page.add_inner_button(__("Sync from Uffizio"), () => _ug_sync(page));
-	page.set_primary_action(__("Create Transport Locations"), () => _ug_create_locations(page));
 }
 
 function _ug_build_page(page) {
@@ -188,16 +183,7 @@ function _ug_load(page) {
 }
 
 function _ug_render_stats(page, data) {
-	const scope = data.scope_counts || {};
 	const summary = data.summary || {};
-	const synced = data.last_synced ? frappe.datetime.prettyDate(data.last_synced) : __("never");
-	page.ug_stats_bar.html(`
-		<div class="ug-stat-card"><div class="ug-stat-label">${__("Ours")}</div><div class="ug-stat-value">${scope.ours || 0}</div></div>
-		<div class="ug-stat-card ug-stat--muted"><div class="ug-stat-label">${__("Shared")}</div><div class="ug-stat-value">${scope.shared || 0}</div></div>
-		<div class="ug-stat-card ug-stat--linked"><div class="ug-stat-label">${__("Linked")}</div><div class="ug-stat-value">${summary.linked || 0}</div></div>
-		<div class="ug-stat-card ug-stat--open"><div class="ug-stat-label">${__("Not Linked")}</div><div class="ug-stat-value">${summary.unlinked || 0}</div></div>
-		<div class="ug-stat-card ug-stat--muted"><div class="ug-stat-label">${__("Last Sync")}</div><div class="ug-stat-text">${frappe.utils.escape_html(synced)}</div></div>
-	`);
 	$(page.body).find(".ug-chip-count").each(function () {
 		$(this).text(summary[$(this).data("count")] || 0);
 	});
@@ -220,16 +206,9 @@ function _ug_render_table(page) {
 		`);
 		return;
 	}
-	const selectable = rows.filter(_ug_selectable);
-	const allChecked = selectable.length && selectable.every((r) => state.selected.has(r.name));
-	const checkHead = state.can_manage
-		? `<th class="ug-check-cell"><input type="checkbox" class="ug-all-check" ${allChecked ? "checked" : ""} ${selectable.length ? "" : "disabled"}></th>`
-		: "";
-
 	$(page.body).find(".ug-table-wrap").html(`
 		<table class="ug-table">
 			<thead><tr>
-				${checkHead}
 				<th>${__("Geofence")}</th>
 				<th>${__("Group")}</th>
 				<th>${__("Category")}</th>
@@ -246,18 +225,6 @@ function _ug_render_table(page) {
 function _ug_row_html(g, state) {
 	const esc = frappe.utils.escape_html;
 	const dash = "—";
-	const check = state.can_manage
-		? `<td class="ug-check-cell">${
-				_ug_selectable(g)
-					? `<input type="checkbox" class="ug-row-check" data-name="${esc(g.name)}" ${state.selected.has(g.name) ? "checked" : ""}>`
-					: ""
-		  }</td>`
-		: "";
-	// Circle radius is stored in km; polygons by their vertex count.
-	const size =
-		g.shape === "Circle"
-			? g.radius ? `${Math.round(g.radius * 1000).toLocaleString()} m` : ""
-			: g.point_count ? __("{0} points", [g.point_count]) : "";
 	const locations = (g.transport_locations || "")
 		.split(",")
 		.map((l) => l.trim())
@@ -272,11 +239,10 @@ function _ug_row_html(g, state) {
 
 	return `
 		<tr class="ug-row" data-name="${esc(g.name)}">
-			${check}
-			<td><span class="ug-name">${esc(g.geofence_name || g.name)}</span><div class="ug-muted">#${esc(g.name)}</div>${owner}</td>
+			<td><span class="ug-name">${esc(g.geofence_name || g.name)}</span>${owner}</td>
 			<td>${esc(g.geofence_group || dash)}</td>
 			<td>${esc(g.category || dash)}</td>
-			<td>${esc(g.shape || dash)}${size ? `<div class="ug-muted">${esc(size)}</div>` : ""}</td>
+			<td>${esc(g.shape || dash)}</td>
 			<td>${locations || `<span class="ug-badge ug-badge--open">${__("Not linked")}</span>`}</td>
 			<td>${map}</td>
 			<td class="ug-nowrap">${g.last_synced ? esc(frappe.datetime.str_to_user(g.last_synced)) : dash}</td>
@@ -409,20 +375,6 @@ function _ug_inject_styles() {
 			font-family: var(--font-stack);
 		}
 
-		/* ---- header stats bar ---- */
-		.ug-header-stats { display: flex; align-items: center; gap: 8px; flex: 1; padding: 0 20px; overflow-x: auto; }
-		.ug-header-stats .ug-stat-card {
-			display: flex; align-items: center; gap: 8px; padding: 6px 14px;
-			border-radius: 999px; border: 1px solid rgba(14, 165, 233, .2); border-top: 1px solid var(--ug-blue, #0284c7);
-			background: var(--card-bg, #fff); white-space: nowrap;
-		}
-		.ug-header-stats .ug-stat--linked { border-top-color: #16a34a; }
-		.ug-header-stats .ug-stat--open   { border-top-color: #f59e0b; }
-		.ug-header-stats .ug-stat--muted  { border-top-color: #64748b; }
-		.ug-stat-label { color: #0369a1; font-weight: 800; text-transform: uppercase; font-size: 10px; letter-spacing: .04em; }
-		.ug-stat-value { color: #0c4a6e; font-size: 18px; font-weight: 900; line-height: 1; }
-		.ug-stat-text  { color: #0c4a6e; font-size: 13px; font-weight: 700; }
-
 		/* ---- panels ---- */
 		.ug-panel, .ug-table-panel {
 			border: 1px solid rgba(14, 165, 233, .2); border-radius: 22px;
@@ -504,8 +456,6 @@ function _ug_inject_styles() {
 		@keyframes ug-spin { to { transform: rotate(360deg); } }
 
 		/* ---- dark mode ---- */
-		[data-theme="dark"] .ug-header-stats .ug-stat-card { background: rgba(14, 116, 144, .18); border-color: rgba(14, 116, 144, .3); }
-		[data-theme="dark"] .ug-stat-value, [data-theme="dark"] .ug-stat-text { color: #e0f2fe; }
 		[data-theme="dark"] .ug-panel, [data-theme="dark"] .ug-table-panel,
 		[data-theme="dark"] .ug-page-btn, [data-theme="dark"] .ug-chip,
 		[data-theme="dark"] .ug-search-inline input, [data-theme="dark"] .ug-select,
