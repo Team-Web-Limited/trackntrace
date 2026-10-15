@@ -280,6 +280,16 @@ class JourneyRequest(Document):
 			)
 
 	def validate_route(self):
+		# Required on new requests only: requests raised before the route moved to
+		# Uffizio geofences may have a blank origin/destination (no geofence to map
+		# to) and must still save through the rest of the workflow.
+		if self.is_new():
+			missing = [label for field, label in (("origin", _("Origin")), ("destination", _("Destination"))) if not self.get(field)]
+			if missing:
+				frappe.throw(
+					_("Please select {0}.").format(_(" and ").join(missing)),
+					title=_("Missing Route"),
+				)
 		if self.origin and self.destination and self.origin == self.destination:
 			frappe.throw(
 				_("Origin and Destination cannot be the same address."),

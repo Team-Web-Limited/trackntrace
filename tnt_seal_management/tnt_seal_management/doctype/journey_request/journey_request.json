@@ -245,8 +245,7 @@
    "fieldname": "origin",
    "fieldtype": "Link",
    "label": "Origin",
-   "options": "Uffizio Geofence",
-   "reqd": 1
+   "options": "Uffizio Geofence"
   },
   {
    "fieldname": "jr_row_5_column",
@@ -256,8 +255,7 @@
    "fieldname": "destination",
    "fieldtype": "Link",
    "label": "Destination",
-   "options": "Uffizio Geofence",
-   "reqd": 1
+   "options": "Uffizio Geofence"
   },
   {
    "fieldname": "driver_contact",

@@ -33,6 +33,8 @@ frappe.ui.form.on("Journey Request", {
 		frm.set_query("return_warehouse", () => ({ filters: { active: 1 } }));
 		frm.set_query("origin", () => ({ filters: { shape: ["!=", "Route"] } }));
 		frm.set_query("destination", () => ({ filters: { shape: ["!=", "Route"] } }));
+		// Required on new requests only; older ones may have no geofence to map to.
+		frm.toggle_reqd(["origin", "destination"], frm.is_new());
 		// Checkpoints are intermediate stops selected directly from Uffizio Geofences (excluding routes).
 		frm.set_query("checkpoint", "checkpoints", () => ({
 			filters: { shape: ["!=", "Route"] },
