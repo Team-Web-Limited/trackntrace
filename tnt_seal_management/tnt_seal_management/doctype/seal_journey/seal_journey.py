@@ -585,26 +585,51 @@ def _confirm_physical_unlock(doc):
 
 def _confirm_remote_unlock(doc):
 	"""Remote unlock: the seal was opened remotely at the client's request, so
-	there is no physical untagging. Skip straight to the seal-return phase and
-	raise a Seal Return request for the PCB Team Leader. Tolerated if it fails so
-	a hiccup there never blocks the arrival confirmation itself."""
+	there is no physical untagging. What happens next depends on which leg of a
+	return trip this journey is (see _return_trip_leg):
+
+	  • First leg (its Tagging Booking has Return Trip ticked) — the seal stays on
+	    the vehicle for the trip back: the journey completes now, the vehicle's
+	    return-trip booking is raised, and the seal is released to that booking
+	    (custody stays with the customer). No seal return.
+	  • Second leg (its booking is the return trip of an earlier journey) — the
+	    seal has come back and must be collected: the journey waits in "Awaiting
+	    Seal Return" and a Seal Return request goes to the PCB Team Leader.
+	  • No return trip — the journey completes now (completion = arrival) and a
+	    Seal Return request is raised to collect the seal.
+
+	Raising the follow-up requests is tolerated if it fails, so a hiccup there
+	never blocks the arrival confirmation itself."""
 	doc.seal_unlock_method = "Remote"
 	doc.untagging_status = "Not Required"
-	doc.journey_status = "Awaiting Seal Return"
+	leg = _return_trip_leg(doc)
+
+	if leg == "first":
+		_complete_without_collection(
+			doc,
+			_("Remote unlock at {0} — seal stays on the vehicle for its return trip.").format(
+				doc.destination or _("destination")
+			),
+		)
+		try:
+			from tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking import (
+				create_return_trip_booking,
+			)
+
+			create_return_trip_booking(doc.name)
+		except Exception as exc:
+			frappe.log_error(
+				f"Return trip booking failed for {doc.name}: {exc}",
+				"Return Trip Booking",
+			)
+		return
+
+	if leg == "second":
+		doc.journey_status = "Awaiting Seal Return"
+	else:
+		doc.journey_status = "Completed"
+		doc.completion_date_time = doc.arrival_date_time
 	doc.save()
-
-	# Return Trip: raise the vehicle's next booking when the original asked for it.
-	try:
-		from tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking import (
-			create_return_trip_booking,
-		)
-
-		create_return_trip_booking(doc.name)
-	except Exception as exc:
-		frappe.log_error(
-			f"Return trip booking failed for {doc.name}: {exc}",
-			"Return Trip Booking",
-		)
 
 	try:
 		from tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment import (
@@ -619,15 +644,30 @@ def _confirm_remote_unlock(doc):
 		)
 
 
-def _confirm_remote_unlock_seal_retained(doc):
-	"""Remote unlock with the seal left on the vehicle: the destination is too far
-	for a Tag Operator, so the cycle ends here. Complete the journey at the moment
-	of unlock (that is when the service was delivered — days_taken already stops
-	at arrival, so billing is unaffected), skip untagging and seal return
-	entirely, and hand the seal back to the pool via the Journey Request so it can
-	be booked again the moment the vehicle turns up for its next tagging."""
-	doc.seal_unlock_method = "Remote - Seal Retained"
-	doc.untagging_status = "Not Required"
+def _return_trip_leg(doc):
+	"""Which leg of a return trip this journey is: "first" when its Tagging
+	Booking has Return Trip ticked, "second" when the booking was raised as the
+	return trip of an earlier journey (Return Trip From), else None. A booking
+	can't be both (TaggingBooking._validate_return_trip)."""
+	if not doc.tagging_booking:
+		return None
+	booking = frappe.db.get_value(
+		"Tagging Booking", doc.tagging_booking, ["return_trip", "return_trip_from"], as_dict=True
+	)
+	if not booking:
+		return None
+	if cint(booking.return_trip):
+		return "first"
+	if booking.return_trip_from:
+		return "second"
+	return None
+
+
+def _complete_without_collection(doc, remarks):
+	"""Complete the journey at arrival with no untagging or seal return, and close
+	the Journey Request side so the seal goes back into the pool (custody stays
+	with the customer until its next Tagging Booking). Shared by the retained
+	and end-journey closures and the first leg of a return trip."""
 	doc.journey_status = "Completed"
 	doc.completion_date_time = doc.arrival_date_time
 	doc.save()
@@ -637,17 +677,29 @@ def _confirm_remote_unlock_seal_retained(doc):
 			close_for_retained_seal,
 		)
 
-		close_for_retained_seal(
-			doc.name,
-			remarks=_("Seal retained on vehicle at {0} — remote unlock, no collection.").format(
-				doc.destination or _("destination")
-			),
-		)
+		close_for_retained_seal(doc.name, remarks=remarks)
 	except Exception as exc:
 		frappe.log_error(
 			f"Retained-seal closure failed for {doc.name}: {exc}",
 			"Retained Seal Closure",
 		)
+
+
+def _confirm_remote_unlock_seal_retained(doc):
+	"""Remote unlock with the seal left on the vehicle: the destination is too far
+	for a Tag Operator, so the cycle ends here. Complete the journey at the moment
+	of unlock (that is when the service was delivered — days_taken already stops
+	at arrival, so billing is unaffected), skip untagging and seal return
+	entirely, and hand the seal back to the pool via the Journey Request so it can
+	be booked again the moment the vehicle turns up for its next tagging."""
+	doc.seal_unlock_method = "Remote - Seal Retained"
+	doc.untagging_status = "Not Required"
+	_complete_without_collection(
+		doc,
+		_("Seal retained on vehicle at {0} — remote unlock, no collection.").format(
+			doc.destination or _("destination")
+		),
+	)
 
 
 def _confirm_end_journey_no_collection(doc):
@@ -660,26 +712,12 @@ def _confirm_end_journey_no_collection(doc):
 	its own unlock-method value so the audit trail reads accurately."""
 	doc.seal_unlock_method = "Ended - No Collection"
 	doc.untagging_status = "Not Required"
-	doc.journey_status = "Completed"
-	doc.completion_date_time = doc.arrival_date_time
-	doc.save()
-
-	try:
-		from tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request import (
-			close_for_retained_seal,
-		)
-
-		close_for_retained_seal(
-			doc.name,
-			remarks=_("Journey ended by Control Room — no one at {0} to untag or collect.").format(
-				doc.destination or _("destination")
-			),
-		)
-	except Exception as exc:
-		frappe.log_error(
-			f"Retained-seal closure failed for {doc.name}: {exc}",
-			"Retained Seal Closure",
-		)
+	_complete_without_collection(
+		doc,
+		_("Journey ended by Control Room — no one at {0} to untag or collect.").format(
+			doc.destination or _("destination")
+		),
+	)
 
 
 @frappe.whitelist()

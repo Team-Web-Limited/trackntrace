@@ -1593,7 +1593,12 @@ def _finalise_seal_return(doc, remarks=None, row=None):
 	returned_at = (row.actual_seal_return_date_time if row else None) or doc.actual_seal_return_date_time
 	return_warehouse = (row.return_warehouse if row else None) or doc.return_warehouse
 
-	set_journey_status(journey, "Completed", {"completion_date_time": returned_at})
+	# A journey already completed at arrival (remote unlock, no return trip)
+	# keeps its completion time; the seal return only brings the seal back.
+	if frappe.db.get_value("Seal Journey", journey, "journey_status") == "Completed":
+		set_journey_status(journey, "Completed")
+	else:
+		set_journey_status(journey, "Completed", {"completion_date_time": returned_at})
 	# The return warehouse is the seal warehouse the technician selects on
 	# the Journey Request. Logged with the GPS location that was
 	# captured at return, in brackets, for auditability — e.g.

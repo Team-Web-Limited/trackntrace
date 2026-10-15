@@ -39,8 +39,20 @@ class TaggingBooking(Document):
 		self._validate_booking_date_time_not_past()
 		self._validate_branch()
 		self._validate_vehicles_belong_to_client()
+		self._validate_return_trip()
 		self._enforce_finance_only_approval_controls()
 		self._sync_approval_status()
+
+	def _validate_return_trip(self):
+		"""A return-trip booking is the second leg; its journey ends with the seal
+		being collected, so it can't book a further return trip itself."""
+		if self.return_trip_from and cint(self.return_trip):
+			frappe.throw(
+				_("This booking is the return trip of {0}, so Return Trip can't be ticked on it.").format(
+					self.return_trip_from
+				),
+				title=_("Not Allowed"),
+			)
 
 	def _validate_booking_date_time_not_past(self):
 		"""The booking date/time must not be in the past. Only checked when the

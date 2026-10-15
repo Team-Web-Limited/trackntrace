@@ -126,7 +126,9 @@
    "fieldtype": "Check",
    "label": "Return Trip",
    "default": "0",
-   "no_copy": 1
+   "no_copy": 1,
+   "read_only_depends_on": "eval:doc.return_trip_from",
+   "description": "Not available on a return-trip booking (Return Trip From is set)."
   },
   {
    "fieldname": "return_trip_from",

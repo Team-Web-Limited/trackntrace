@@ -801,7 +801,10 @@ def _ensure_seal_return_journey_request(assignment):
 			column="seal_return_to",
 		)
 
-	set_journey_status(assignment.seal_journey, "Awaiting Seal Return")
+	# A remote unlock with no return trip completes the journey at arrival; its
+	# seal is still collected, but the journey stays Completed.
+	if frappe.db.get_value("Seal Journey", assignment.seal_journey, "journey_status") != "Completed":
+		set_journey_status(assignment.seal_journey, "Awaiting Seal Return")
 	sync_seal_journey_mirror(assignment.seal_journey)
 
 

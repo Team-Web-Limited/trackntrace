@@ -799,7 +799,7 @@ function _control_room_arrival_card(journey, early = false) {
 						${__("Physical Unlock — Send for Untagging")}
 					</button>
 					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--remote" data-name="${frappe.utils.escape_html(journey.name)}" data-method="remote">
-						${__("Remote Unlock — Pending Seal Return")}
+						${__("Remote Unlock")}
 					</button>
 				</div>
 			</footer>
@@ -817,13 +817,13 @@ function _control_room_confirm_arrival(page, docname, method, $btn) {
 			[docname]
 		),
 		remote: __(
-			"Confirm arrival for {0} with a REMOTE unlock? Untagging will be skipped and a seal return assignment will be raised for the PCB Team Leader to assign a Tag Operator. Location will be captured live from the seal's GPS. This cannot be undone.",
+			"Confirm arrival for {0} with a REMOTE unlock? Untagging will be skipped. On the first leg of a return trip the journey completes, the seal stays on the vehicle and the return trip is booked; otherwise a seal return assignment is raised to collect the seal. Location will be captured live from the seal's GPS. This cannot be undone.",
 			[docname]
 		),
 	};
 	const notes = {
 		physical: __("{0}: arrival confirmed (physical unlock) — sent for untagging", [docname]),
-		remote: __("{0}: arrival confirmed (remote unlock) — pending seal return", [docname]),
+		remote: __("{0}: arrival confirmed (remote unlock)", [docname]),
 	};
 	const message = messages[method] || messages.physical;
 
