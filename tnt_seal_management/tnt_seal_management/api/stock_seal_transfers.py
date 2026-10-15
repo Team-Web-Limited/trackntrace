@@ -260,7 +260,10 @@ def _apply(doc, cancelled):
 			target = row.t_warehouse or (_("Issued") if doc.purpose == "Material Issue" else "-")
 			note = _("{0} {1}").format(doc.purpose, doc.name)
 			if cancelled:
-				_append_transfer_history(seal, source, target, _("{0} — cancelled, custody not reverted").format(note))
+				_append_transfer_history(
+					seal, source, target, _("{0} — cancelled, custody not reverted").format(note),
+					from_warehouse=row.s_warehouse, to_warehouse=row.t_warehouse,
+				)
 				noted += 1
 				continue
 
@@ -273,6 +276,8 @@ def _apply(doc, cancelled):
 				else:
 					set_seal_custody(seal, "Warehouse", row.t_warehouse, remarks=note)
 					moved += 1
-			_append_transfer_history(seal, source, target, note + custody_note)
+			_append_transfer_history(
+				seal, source, target, note + custody_note, from_warehouse=row.s_warehouse, to_warehouse=row.t_warehouse
+			)
 			noted += 1
 	return {"history_rows": noted, "custody_moved": moved}

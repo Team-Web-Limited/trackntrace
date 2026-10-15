@@ -11,11 +11,11 @@
   "journey",
   "entry_type",
   "start_warehouse",
+  "return_warehouse",
   "tagging_to",
   "customer",
   "untagging_to",
   "seal_return_to",
-  "return_warehouse",
   "status_date_time",
   "updated_by",
   "remarks"
@@ -24,7 +24,7 @@
   {
    "fieldname": "seal",
    "fieldtype": "Data",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Seal"
   },
   {
@@ -32,7 +32,8 @@
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Journey",
-   "options": "Seal Journey"
+   "options": "Seal Journey",
+   "columns": 1
   },
   {
    "default": "Journey Summary",
@@ -40,34 +41,35 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Entry Type",
-   "options": "Journey Summary\nSeal Transfer"
+   "options": "Journey Summary\nSeal Transfer",
+   "columns": 1
   },
   {
    "columns": 2,
    "fieldname": "start_warehouse",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Start Warehouse"
+   "label": "Start Warehouse",
+   "description": "Journey Summary: where the journey started. Seal Transfer: the warehouse it moved from."
   },
   {
-   "columns": 2,
+   "columns": 1,
    "fieldname": "tagging_to",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Tagging TO"
   },
   {
-   "columns": 2,
+   "columns": 1,
    "fieldname": "customer",
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Customer"
   },
   {
-   "columns": 2,
    "fieldname": "untagging_to",
    "fieldtype": "Data",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Untagging TO"
   },
   {
@@ -80,13 +82,15 @@
    "fieldname": "return_warehouse",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Return Warehouse"
+   "label": "Return Warehouse",
+   "description": "Journey Summary: where the seal was returned. Seal Transfer: the warehouse it moved to."
   },
   {
    "fieldname": "status_date_time",
    "fieldtype": "Datetime",
    "in_list_view": 1,
-   "label": "Status Date and Time"
+   "label": "Status Date and Time",
+   "columns": 2
   },
   {
    "fieldname": "updated_by",
@@ -104,7 +108,7 @@
  "index_web_pages_for_search": 1,
  "istable": 1,
  "links": [],
- "modified": "2026-07-14 12:45:00.000000",
+ "modified": "2026-10-15 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Status History",

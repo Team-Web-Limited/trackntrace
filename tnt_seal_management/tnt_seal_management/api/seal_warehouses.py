@@ -144,7 +144,17 @@ def _division_warehouse_rows():
 		],
 		order_by="custom_is_main_seal_store desc, disabled asc, warehouse_name asc",
 	)
-	seals = _seals_by_warehouse([w.name for w in warehouses])
+	names = [w.name for w in warehouses]
+	stock = _seals_by_warehouse(names)
+	held = dict(
+		frappe.get_all(
+			"Seal Device",
+			filters={"current_custody_type": "Warehouse", "current_custodian": ["in", names or [""]]},
+			fields=["current_custodian", "count(name)"],
+			group_by="current_custodian",
+			as_list=True,
+		)
+	)
 	return [
 		{
 			"name": w.name,
@@ -156,7 +166,11 @@ def _division_warehouse_rows():
 			"is_main_seal_store": cint(w.custom_is_main_seal_store),
 			"region": w.city,
 			"address_line": w.address_line_1,
-			"seals_held": seals.get(w.name, 0),
+			# Seals Held is custody (what is physically there, as on the Warehouse
+			# form); In Stock is ERPNext's Serial No count, shown alongside so the
+			# two can be reconciled.
+			"seals_held": cint(held.get(w.name)),
+			"in_stock": stock.get(w.name, 0),
 			"search_text": " ".join(
 				str(v or "") for v in (w.name, w.warehouse_name, w.company, w.city, w.address_line_1)
 			).lower(),

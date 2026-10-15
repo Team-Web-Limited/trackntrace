@@ -328,9 +328,12 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 		waiting = pending_seal_transfers(serial_nos=[s.serial_no for s in serials.values()])
 		if waiting:
 			held = {serial for entry in waiting.values() for serial in entry["serials"]}
+			warehouses = sorted({w for entry in waiting.values() for w in entry["from"] | entry["to"] if w})
 			frappe.throw(
-				_("These seals already have a transfer awaiting approval ({0}): {1}.").format(
-					", ".join(waiting), ", ".join(seal for seal, s in serials.items() if s.serial_no in held)
+				_("These seals already have a transfer awaiting approval ({0}): {1}. A stock approver can approve or return it under Transfers awaiting approval on the {2} warehouse form, or on the Stock Entry itself.").format(
+					", ".join(waiting),
+					", ".join(seal for seal, s in serials.items() if s.serial_no in held),
+					" / ".join(warehouses),
 				),
 				title=_("Awaiting Approval"),
 			)
@@ -378,6 +381,8 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 			row["from_label"] or _("(no custodian)"),
 			to_label,
 			_("{0}{1}").format(transfer.name, f" — {remarks}" if remarks else ""),
+			from_warehouse=row["from_custodian"] if row["from_custody_type"] == "Warehouse" else None,
+			to_warehouse=to_custodian if to_custody_type == "Warehouse" else None,
 		)
 	return {
 		"transfer": transfer.name if transfer else None,
@@ -387,9 +392,12 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 	}
 
 
-def _append_transfer_history(seal_device, from_label, to_label, note):
+def _append_transfer_history(seal_device, from_label, to_label, note, from_warehouse=None, to_warehouse=None):
 	"""A "Seal Transfer" row in the seal's Status History: any movement outside a
-	journey's own custody path (handover, custody to custody, stock distribution)."""
+	journey's own custody path (handover, custody to custody, stock distribution).
+	The warehouses it moved between, when it did, go in the row's Start Warehouse
+	(from) and Return Warehouse (to) columns so they show in the history table;
+	those columns are only read back for "Journey Summary" rows."""
 	# Inserted directly rather than via a Seal Device save: older seals can carry
 	# legacy history rows (e.g. entry_type "Handoff") that would fail validation
 	# on a full save.
@@ -408,6 +416,8 @@ def _append_transfer_history(seal_device, from_label, to_label, note):
 			"entry_type": "Seal Transfer",
 			"status_date_time": now_datetime(),
 			"updated_by": frappe.session.user,
+			"start_warehouse": from_warehouse,
+			"return_warehouse": to_warehouse,
 			"remarks": f"{from_label} → {to_label} ({note})",
 		}
 	).db_insert()

@@ -216,6 +216,7 @@ function _wh_render_table(page, warehouses) {
 				<th>${__("Type")}</th>
 				<th>${__("Status")}</th>
 				<th>${__("Seals Held")}</th>
+				<th title="${__("Seal serials ERPNext has in stock in this warehouse")}">${__("In Stock (ERP)")}</th>
 				<th>${__("Company")}</th>
 				<th>${__("Parent Warehouse")}</th>
 				<th>${__("City")}</th>
@@ -242,6 +243,9 @@ function _wh_row_html(w) {
 			<td>${type}</td>
 			<td>${status}</td>
 			<td><b>${w.seals_held || 0}</b></td>
+			<td>${isWarehouse
+				? `<span class="${w.in_stock === (w.seals_held || 0) ? "" : "wh-stock-diff"}" title="${w.in_stock === (w.seals_held || 0) ? "" : __("Differs from the seals held here")}">${w.in_stock || 0}</span>`
+				: dash}</td>
 			<td>${esc(w.company || dash)}</td>
 			<td>${esc(w.parent_warehouse || dash)}</td>
 			<td>${esc(w.region || dash)}</td>
@@ -571,6 +575,8 @@ function _wh_inject_styles() {
 		.wh-badge--active      { background: #dbeafe; color: #1d4ed8; }
 		.wh-badge--main        { background: #fef3c7; color: #b45309; }
 		.wh-badge--user        { background: #ede9fe; color: #6d28d9; }
+		.wh-stock-diff { color: #b45309; font-weight: 700; }
+		[data-theme="dark"] .wh-stock-diff { color: #fbbf24; }
 		.wh-badge--customer    { background: #dcfce7; color: #15803d; }
 		[data-theme="dark"] .wh-badge--user     { background: #2e1065; color: #ddd6fe; }
 		[data-theme="dark"] .wh-badge--customer { background: #052e16; color: #bbf7d0; }
