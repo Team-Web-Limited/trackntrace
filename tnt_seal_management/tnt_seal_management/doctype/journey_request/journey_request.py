@@ -280,16 +280,10 @@ class JourneyRequest(Document):
 			)
 
 	def validate_route(self):
-		# Required on new requests only: requests raised before the route moved to
-		# Uffizio geofences may have a blank origin/destination (no geofence to map
-		# to) and must still save through the rest of the workflow.
-		if self.is_new():
-			missing = [label for field, label in (("origin", _("Origin")), ("destination", _("Destination"))) if not self.get(field)]
-			if missing:
-				frappe.throw(
-					_("Please select {0}.").format(_(" and ").join(missing)),
-					title=_("Missing Route"),
-				)
+		# The route is required when the request is submitted to the Control Room
+		# (see submit_to_control_room), not on save: a request is created with a
+		# blank route when its Tagging assignment is assigned, and older requests
+		# may have none (no Uffizio geofence to map their old location to).
 		if self.origin and self.destination and self.origin == self.destination:
 			frappe.throw(
 				_("Origin and Destination cannot be the same address."),
@@ -837,6 +831,12 @@ def submit_to_control_room(docname, vehicle_rows=None):
 	else:
 		submitted_rows = []
 
+	missing_route = [label for field, label in (("origin", _("Origin")), ("destination", _("Destination"))) if not doc.get(field)]
+	if missing_route:
+		frappe.throw(
+			_("Select the {0} before submitting to the Control Room.").format(_(" and ").join(missing_route)),
+			title=_("Route Required"),
+		)
 	if not doc.file_number:
 		frappe.throw(_("Enter the File Number before submitting to the Control Room."), title=_("File Number Required"))
 	if not doc.departure_card_number:
