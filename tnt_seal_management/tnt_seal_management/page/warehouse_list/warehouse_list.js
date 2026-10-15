@@ -7,7 +7,7 @@ frappe.pages["warehouse-list"].on_page_load = function (wrapper) {
 
 	page.wh_state = {
 		search: "",
-		status: "All",
+		statuses: [], // selected filters; empty = All
 		page: 1,
 		page_length: 25,
 		total: 0,
@@ -53,7 +53,8 @@ function _wh_build_page(page) {
 							<div class="wh-filter-menu">
 								${statuses.map(([val, lbl]) => `
 									<div class="wh-filter-item ${val === "All" ? "active" : ""}" data-status="${frappe.utils.escape_html(val)}" data-label="${frappe.utils.escape_html(lbl)}">
-										${frappe.utils.escape_html(lbl)}
+										<span class="wh-filter-check"></span>
+										<span class="wh-filter-item-label">${frappe.utils.escape_html(lbl)}</span>
 										<span class="wh-fcount" data-fcount="${frappe.utils.escape_html(val)}">0</span>
 									</div>
 								`).join("")}
@@ -95,13 +96,18 @@ function _wh_build_page(page) {
 		$menu.toggleClass("open");
 	});
 
-	$(page.body).on("click", ".wh-filter-item", function () {
-		page.wh_state.status = $(this).data("status");
+	// Several filters can be ticked at once; the menu stays open while picking.
+	// "All" clears the selection.
+	$(page.body).on("click", ".wh-filter-item", function (e) {
+		e.stopPropagation();
+		const status = $(this).data("status");
+		const selected = new Set(page.wh_state.statuses);
+		if (status === "All") selected.clear();
+		else if (selected.has(status)) selected.delete(status);
+		else selected.add(status);
+		page.wh_state.statuses = [...selected];
 		page.wh_state.page = 1;
-		$(page.body).find(".wh-filter-item").removeClass("active");
-		$(this).addClass("active");
-		$(page.body).find(".wh-filter-btn-label").text($(this).data("label"));
-		$(page.body).find(".wh-filter-menu").removeClass("open");
+		_wh_sync_filter_menu(page);
 		_wh_load(page);
 	});
 
@@ -137,7 +143,7 @@ function _wh_load(page) {
 		method: "tnt_seal_management.tnt_seal_management.api.seal_warehouses.get_warehouse_list",
 		args: {
 			search: page.wh_state.search,
-			status: page.wh_state.status,
+			status: JSON.stringify(page.wh_state.statuses),
 			page: page.wh_state.page,
 			page_length: page.wh_state.page_length,
 		},
@@ -180,7 +186,8 @@ function _wh_render_stats(page, summary) {
 	$(page.body).find(".wh-fcount").each(function () {
 		$(this).text(summary[$(this).data("fcount")] ?? 0);
 	});
-	$(page.body).find(".wh-filter-btn-count").text(summary[page.wh_state.status] ?? 0);
+	page.wh_summary = summary;
+	_wh_sync_filter_menu(page);
 }
 
 // "New Warehouse" only for users who may create ERPNext Warehouses; it starts
@@ -263,14 +270,31 @@ function _wh_render_pagination(page) {
 function _wh_clear(page) {
 	Object.assign(page.wh_state, {
 		search: "",
-		status: "All",
+		statuses: [],
 		page: 1,
 	});
 	$(page.body).find(".wh-search").val("");
-	$(page.body).find(".wh-filter-item").removeClass("active");
-	$(page.body).find('.wh-filter-item[data-status="All"]').addClass("active");
-	$(page.body).find(".wh-filter-btn-label").text(__("All Warehouses"));
+	_wh_sync_filter_menu(page);
 	_wh_load(page);
+}
+
+// Ticks, button label and count for the current selection. The filters never
+// overlap, so the count is the sum of the ticked ones.
+function _wh_sync_filter_menu(page) {
+	const selected = page.wh_state.statuses;
+	const summary = page.wh_summary || {};
+	const $items = $(page.body).find(".wh-filter-item");
+	$items.each(function () {
+		const status = $(this).data("status");
+		$(this).toggleClass("active", status === "All" ? !selected.length : selected.includes(status));
+	});
+	const labels = selected.map((s) => $items.filter(`[data-status="${s}"]`).data("label"));
+	let label = __("All Warehouses");
+	if (labels.length === 1) label = labels[0];
+	else if (labels.length > 1) label = __("{0} filters", [labels.length]);
+	$(page.body).find(".wh-filter-btn-label").text(label).attr("title", labels.join(", "));
+	const count = selected.length ? selected.reduce((n, s) => n + (summary[s] || 0), 0) : summary.All || 0;
+	$(page.body).find(".wh-filter-btn-count").text(count);
 }
 
 function _wh_set_loading(page, show) {
@@ -305,19 +329,24 @@ function _wh_inject_styles() {
 		.wh-header-stats {
 			display: flex;
 			align-items: center;
-			gap: 8px;
+			gap: 4px;
 			flex: 1;
-			flex-wrap: wrap;
-			justify-content: center;
-			padding: 0 20px;
+			flex-wrap: nowrap;
+			min-width: 0;
+			padding: 0 4px;
+			/* One row; scrolls sideways if the header is too narrow, without a bar. */
+			overflow-x: auto;
+			scrollbar-width: none;
 		}
+		.wh-header-stats::-webkit-scrollbar { display: none; }
 		.wh-header-stats .wh-stat-card {
 			display: flex;
 			min-height: unset;
-			padding: 6px 14px;
+			flex: none;
+			padding: 4px 8px;
 			flex-direction: row;
 			align-items: center;
-			gap: 8px;
+			gap: 6px;
 			border-radius: 999px;
 			border: 1px solid rgba(14, 165, 233, .2);
 			border-top: 1px solid #075985;
@@ -339,7 +368,7 @@ function _wh_inject_styles() {
 		}
 		.wh-header-stats .wh-stat-value {
 			color: var(--wh-ink);
-			font-size: 18px;
+			font-size: 15px;
 			font-weight: 900;
 			line-height: 1;
 		}
@@ -450,6 +479,20 @@ function _wh_inject_styles() {
 		}
 		.wh-filter-item:hover { background: #f0f9ff; }
 		.wh-filter-item.active { background: #e0f2fe; color: var(--wh-blue); }
+		.wh-filter-item { gap: 10px; }
+		.wh-filter-item-label { flex: 1; }
+		.wh-filter-check {
+			width: 16px;
+			height: 16px;
+			flex: none;
+			border: 1.5px solid #94a3b8;
+			border-radius: 4px;
+			background: var(--card-bg, #fff);
+		}
+		.wh-filter-item.active .wh-filter-check {
+			border-color: var(--wh-blue);
+			background: var(--wh-blue) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 14px no-repeat;
+		}
 		.wh-fcount {
 			display: inline-flex;
 			align-items: center;
@@ -499,6 +542,7 @@ function _wh_inject_styles() {
 			color: var(--text-color, #334155);
 			font-size: 14px;
 			line-height: 1.45;
+			white-space: nowrap; /* one line per row; the table scrolls sideways */
 		}
 		.wh-table th {
 			position: sticky;

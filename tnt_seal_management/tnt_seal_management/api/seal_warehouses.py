@@ -86,8 +86,9 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25):
 	(custom_division) is ECTS Division, with the number of seals its stock
 	ledger holds (Serial No.warehouse), plus the Users and Customers that seals
 	are in the custody of right now — straight from each Seal Device, so they
-	appear and drop off as seals move. ``status`` is All / Active / Inactive /
-	User / Customer; ``summary`` counts every status regardless of the search.
+	appear and drop off as seals move. ``status`` is All, or one or more of
+	Active / Inactive / User / Customer (a list, or its JSON) — rows matching any
+	of them; ``summary`` counts every status regardless of the search.
 
 	Warehouses are read without per-user permissions: the page itself is
 	role-gated, and several of its roles (Control Room, Management) can't read
@@ -106,9 +107,13 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25):
 		return row["holder_type"] == "Warehouse" and cint(row["disabled"]) == _WAREHOUSE_STATUSES[key]
 
 	summary = {key: sum(1 for r in rows if in_status(r, key)) for key in ("All", *_WAREHOUSE_STATUSES, *_HOLDER_STATUSES)}
-	if status not in summary:
-		status = "All"
-	matched = [r for r in rows if in_status(r, status) and (not search or search in r["search_text"])]
+	selected = _parse_statuses(status, summary)
+	matched = [
+		r
+		for r in rows
+		if (not selected or any(in_status(r, key) for key in selected))
+		and (not search or search in r["search_text"])
+	]
 	start = (page - 1) * page_length
 	return {
 		"warehouses": [{k: v for k, v in r.items() if k != "search_text"} for r in matched[start : start + page_length]],
@@ -117,6 +122,13 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25):
 		"can_create": frappe.has_permission("Warehouse", "create"),
 		"can_read_warehouse": frappe.has_permission("Warehouse", "read"),
 	}
+
+
+def _parse_statuses(status, known):
+	"""The selected filters as a list; empty means All."""
+	if isinstance(status, str):
+		status = frappe.parse_json(status) if status.strip().startswith("[") else [status]
+	return [s for s in (status or []) if s in known and s != "All"]
 
 
 def _division_warehouse_rows():
