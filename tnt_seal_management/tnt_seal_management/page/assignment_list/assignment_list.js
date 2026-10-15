@@ -68,10 +68,12 @@ function _asg_build_page(page) {
 							</div>
 						</div>
 
-						<label class="asg-field asg-technician-field">
+						<!-- A div, not a label: a label re-targets clicks on the Link
+						     control's suggestion list to its input, so picks get lost. -->
+						<div class="asg-field asg-technician-field">
 							<span>${__("Tag Operator")}</span>
 							<div class="asg-technician-filter"></div>
-						</label>
+						</div>
 
 						<label class="asg-field asg-date-field">
 							<span>${__("From")}</span>
@@ -108,10 +110,19 @@ function _asg_build_page(page) {
 				query:
 					"tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey.field_technician_query",
 			}),
+			// Fires once the control has settled its value (a pick from the list,
+			// or the field cleared) — the raw input's change event fires earlier,
+			// on typed text, before the link value is set.
+			change: () => {
+				const value = page.asg_technician_control.get_value() || "";
+				if (value === page.asg_state.field_technician) return;
+				page.asg_state.field_technician = value;
+				page.asg_state.page = 1;
+				_asg_load(page);
+			},
 		},
 		render_input: true,
 	});
-	// Set initial value to empty string
 
 	const delayedSearch = _asg_debounce(() => {
 		page.asg_state.search = ($(page.body).find(".asg-search").val() || "").trim();
@@ -120,12 +131,6 @@ function _asg_build_page(page) {
 	}, 350);
 
 	$(page.body).on("input", ".asg-search", delayedSearch);
-
-	page.asg_technician_control.$input.on("change", () => {
-		page.asg_state.field_technician = page.asg_technician_control.get_value() || "";
-		page.asg_state.page = 1;
-		_asg_load(page);
-	});
 
 	$(page.body).on("change", ".asg-from-date, .asg-to-date", () => {
 		page.asg_state.from_date = $(page.body).find(".asg-from-date").val() || "";
@@ -617,9 +622,13 @@ function _asg_inject_styles() {
 		}
 
 		/* ---- layout panels ---- */
+		/* Not overflow: hidden, and stacked above the sticky table panel, so the
+		   Tag Operator suggestion list can drop down over the table. */
 		.asg-panel {
+			position: relative;
+			z-index: 20;
 			width: 100%;
-			overflow: hidden;
+			overflow: visible;
 			border: 1px solid rgba(14, 165, 233, .2);
 			border-radius: 22px;
 			background: var(--card-bg, #fff);
@@ -638,7 +647,7 @@ function _asg_inject_styles() {
 		.asg-table-scroll { overflow-x: auto; overflow-y: auto; max-height: calc(100vh - 200px + 1rem); }
 
 		/* ---- toolbar ---- */
-		.asg-toolbar { padding: 18px; border-bottom: 1px solid #e0f2fe; background: #f0f9ff; }
+		.asg-toolbar { padding: 18px; border-bottom: 1px solid #e0f2fe; background: #f0f9ff; border-radius: 21px; }
 		.asg-toolbar-top {
 			display: flex;
 			align-items: center;
@@ -761,23 +770,35 @@ function _asg_inject_styles() {
 			border-color: var(--asg-blue);
 			box-shadow: 0 0 0 3px rgba(14, 165, 233, .12);
 		}
-		.asg-technician-field { min-width: 180px; }
+		.asg-technician-field { width: 240px; flex: none; }
 		.asg-technician-filter .control-input {
+			position: relative;
 			height: 38px;
 			border: 1px solid #bae6fd;
 			border-radius: 10px;
 			background: var(--card-bg, #fff);
 			padding: 0;
-			overflow: hidden;
 		}
+		.asg-technician-filter .control-input .link-field,
+		.asg-technician-filter .control-input .awesomplete { height: 100%; }
 		.asg-technician-filter .control-input input {
 			border: 0;
 			height: 100%;
-			padding: 0 12px;
+			width: 100%;
+			padding: 0 56px 0 12px; /* room for the clear (×) and open (→) icons */
+			border-radius: 10px;
 			background: transparent;
 			color: var(--text-color, #0c4a6e);
 			font-size: 13px;
+			text-overflow: ellipsis;
+			box-shadow: none;
 		}
+		.asg-technician-filter .control-input .link-btn {
+			top: 50%;
+			transform: translateY(-50%);
+		}
+		/* Suggestions must escape the rounded input box and sit above the table. */
+		.asg-technician-filter .awesomplete > ul { z-index: 1050; min-width: 240px; }
 		.asg-technician-filter .form-group { margin: 0; }
 		.asg-technician-filter .control-label,
 		.asg-technician-filter .help-box { display: none; }
@@ -976,6 +997,7 @@ function _asg_inject_styles() {
 
 		@media (max-width: 1100px) {
 			.asg-toolbar-top { flex-direction: column; align-items: stretch; }
+			.asg-technician-field { width: auto; }
 		}
 		@media (max-width: 720px) {
 			.asg-page { padding: 10px 8px 32px; }

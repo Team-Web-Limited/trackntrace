@@ -32,6 +32,8 @@ function _wh_build_page(page) {
 		["Active", __("Active")],
 		["Inactive", __("Inactive")],
 		["Main", __("Main Warehouse")],
+		["User", __("Held by Staff")],
+		["Customer", __("Held by Customers")],
 	];
 
 	$(page.body).html(`
@@ -40,7 +42,7 @@ function _wh_build_page(page) {
 				<div class="wh-toolbar">
 					<div class="wh-toolbar-top">
 						<label class="wh-field wh-search-inline">
-							<input class="wh-search" type="search" placeholder="${__("Warehouse, region or address")}">
+							<input class="wh-search" type="search" placeholder="${__("Warehouse, staff, customer, region or address")}">
 						</label>
 
 						<div class="wh-filter-dropdown">
@@ -114,7 +116,14 @@ function _wh_build_page(page) {
 		// The coordinates link opens the map, not the form.
 		if ($(e.target).closest(".wh-coord-link").length) return;
 		const name = $(this).data("name");
-		if (name) frappe.set_route("Form", "Custody Point", name);
+		const type = $(this).data("holder-type");
+		if (!name) return;
+		if (type === "Custody Point") {
+			frappe.set_route("Form", "Custody Point", name);
+		} else {
+			// A staff member or customer: show the seals they hold right now.
+			frappe.set_route("List", "Seal Device", { current_custody_type: type, current_custodian: name });
+		}
 	});
 
 	$(page.body).on("click", ".wh-page-btn", function () {
@@ -159,6 +168,8 @@ function _wh_render_stats(page, summary) {
 		["Active", __("Active"), "wh-stat--active"],
 		["Inactive", __("Inactive"), "wh-stat--inactive"],
 		["Main", __("Main"), "wh-stat--main"],
+		["User", __("Staff"), "wh-stat--user"],
+		["Customer", __("Customers"), "wh-stat--customer"],
 	];
 	if (page.wh_stats_bar) {
 		page.wh_stats_bar.html(stats.map(([key, label, cls]) => `
@@ -186,7 +197,7 @@ function _wh_render_table(page, warehouses) {
 	if (!warehouses.length) {
 		$(page.body).find(".wh-table-wrap").html(`
 			<div class="wh-empty">
-				<strong>${__("No warehouses found")}</strong>
+				<strong>${__("No seal holders found")}</strong>
 				<span>${__("Add a warehouse or clear the filters to see more records.")}</span>
 			</div>
 		`);
@@ -196,10 +207,11 @@ function _wh_render_table(page, warehouses) {
 	$(page.body).find(".wh-table-wrap").html(`
 		<table class="wh-table">
 			<thead><tr>
-				<th>${__("Warehouse")}</th>
+				<th>${__("Holder")}</th>
 				<th>${__("Region / City")}</th>
 				<th>${__("Type")}</th>
 				<th>${__("Status")}</th>
+				<th>${__("Seals Held")}</th>
 				<th>${__("Coordinates")}</th>
 				<th>${__("Geofence Radius")}</th>
 				<th>${__("Address / Description")}</th>
@@ -218,12 +230,25 @@ function _wh_row_html(w) {
 			</a>`
 		: "—";
 	const radius = w.geofence_radius_meters ? `${Math.round(w.geofence_radius_meters)} m` : "—";
+	const isPoint = w.holder_type === "Custody Point";
+	let type;
+	if (!isPoint) {
+		type = `<span class="wh-badge wh-badge--${w.holder_type === "User" ? "user" : "customer"}">${w.holder_type === "User" ? __("Staff") : __("Customer")}</span>`;
+	} else if (w.is_main_warehouse) {
+		type = `<span class="wh-badge wh-badge--main">${__("Main Warehouse")}</span>`;
+	} else {
+		type = esc(__("Warehouse"));
+	}
+	const status = isPoint
+		? `<span class="wh-badge wh-badge--${w.active ? "active" : "inactive"}">${w.active ? __("Active") : __("Inactive")}</span>`
+		: `<span class="wh-badge wh-badge--active">${__("Holding")}</span>`;
 	return `
-		<tr class="wh-row" data-name="${esc(w.name)}">
+		<tr class="wh-row" data-name="${esc(w.name)}" data-holder-type="${esc(w.holder_type || "Custody Point")}">
 			<td><span class="wh-name">${esc(w.custody_point_name || w.name)}</span></td>
 			<td>${esc(w.region || "—")}</td>
-			<td>${w.is_main_warehouse ? `<span class="wh-badge wh-badge--main">${__("Main Warehouse")}</span>` : esc(__("Warehouse"))}</td>
-			<td><span class="wh-badge wh-badge--${w.active ? "active" : "inactive"}">${w.active ? __("Active") : __("Inactive")}</span></td>
+			<td>${type}</td>
+			<td>${status}</td>
+			<td><b>${w.seals_held || 0}</b></td>
 			<td>${coords}</td>
 			<td>${esc(radius)}</td>
 			<td class="wh-address" title="${esc(w.address_line || "")}">${esc(w.address_line || "—")}</td>
@@ -295,8 +320,9 @@ function _wh_inject_styles() {
 			align-items: center;
 			gap: 8px;
 			flex: 1;
+			flex-wrap: wrap;
+			justify-content: center;
 			padding: 0 20px;
-			overflow-x: auto;
 		}
 		.wh-header-stats .wh-stat-card {
 			display: flex;
@@ -313,6 +339,8 @@ function _wh_inject_styles() {
 		}
 		.wh-header-stats .wh-stat--active      { border-top-color: var(--wh-blue); }
 		.wh-header-stats .wh-stat--main        { border-top-color: #f59e0b; }
+		.wh-header-stats .wh-stat--user        { border-top-color: #7c3aed; }
+		.wh-header-stats .wh-stat--customer    { border-top-color: #16a34a; }
 		.wh-header-stats .wh-stat--inactive    { border-top-color: #64748b; }
 		.wh-header-stats .wh-stat-label {
 			color: #0369a1;
@@ -511,6 +539,10 @@ function _wh_inject_styles() {
 		}
 		.wh-badge--active      { background: #dbeafe; color: #1d4ed8; }
 		.wh-badge--main        { background: #fef3c7; color: #b45309; }
+		.wh-badge--user        { background: #ede9fe; color: #6d28d9; }
+		.wh-badge--customer    { background: #dcfce7; color: #15803d; }
+		[data-theme="dark"] .wh-badge--user     { background: #2e1065; color: #ddd6fe; }
+		[data-theme="dark"] .wh-badge--customer { background: #052e16; color: #bbf7d0; }
 		.wh-coord-link { color: var(--wh-blue); font-weight: 600; }
 		.wh-address { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 		.wh-badge--inactive    { background: #e2e8f0; color: #475569; }

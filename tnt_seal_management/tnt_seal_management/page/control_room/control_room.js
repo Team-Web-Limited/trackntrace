@@ -563,6 +563,16 @@ function _control_room_render(page) {
 			if (journey) _control_room_open_arrival_dialog(page, journey);
 		});
 
+	// Confirm Arrival straight from Active journeys, for a vehicle that won't reach
+	// its destination (broken down, diverted) and so never enters Arrivals.
+	$(page.body)
+		.off("click", ".cr-journey-arrive-btn")
+		.on("click", ".cr-journey-arrive-btn", function () {
+			const docname = $(this).data("name");
+			const journey = (page.control_room_state.journeys || []).find((row) => row.name === docname);
+			if (journey) _control_room_open_arrival_dialog(page, journey, { early: true });
+		});
+
 	$(document)
 		.off("click.controlRoomArrival", ".cr-arrival-unlock-btn")
 		.on("click.controlRoomArrival", ".cr-arrival-unlock-btn", function () {
@@ -727,7 +737,7 @@ function _control_room_arrival_row(journey) {
 	`;
 }
 
-function _control_room_open_arrival_dialog(page, journey) {
+function _control_room_open_arrival_dialog(page, journey, { early = false } = {}) {
 	const state = page.control_room_state;
 	if (state.arrivalDialog) {
 		state.arrivalDialog.hide();
@@ -738,7 +748,7 @@ function _control_room_open_arrival_dialog(page, journey) {
 		title: __("Arrival — {0}", [journey.name]),
 		size: "large",
 	});
-	dialog.$body.html(_control_room_arrival_card(journey));
+	dialog.$body.html(_control_room_arrival_card(journey, early));
 	dialog.$wrapper.addClass("cr-arrival-dialog");
 	dialog.$wrapper.on("hidden.bs.modal", () => {
 		if (state.arrivalDialog === dialog) state.arrivalDialog = null;
@@ -756,7 +766,9 @@ function _cr_entered_destination(journey) {
 		: `<span class="text-muted">${__("No geofence")}</span>`;
 }
 
-function _control_room_arrival_card(journey) {
+// ``early``: opened from Active journeys for a vehicle that hasn't reached its
+// destination, so there is no geofence entry to show.
+function _control_room_arrival_card(journey, early = false) {
 	const route = `${frappe.utils.escape_html(journey.origin || "—")} → ${frappe.utils.escape_html(journey.destination || "—")}`;
 	const started = journey.journey_start_date_time
 		? frappe.datetime.str_to_user(journey.journey_start_date_time)
@@ -771,15 +783,17 @@ function _control_room_arrival_card(journey) {
 				${_cr_meta(__("Customer"), frappe.utils.escape_html(journey.customer || "—"))}
 				${_cr_meta(__("Vehicle"), frappe.utils.escape_html(journey.vehicle_plate_number || "—"))}
 				${_cr_meta(__("Container"), frappe.utils.escape_html(journey.container_number || "—"))}
-				${_cr_meta(__("Seal Device"), frappe.utils.escape_html(journey.assigned_seal || "—"))}
+				${_cr_meta(__("Seal Device"), frappe.utils.escape_html(journey.assigned_seal || (journey.seals || []).map((s) => s.seal_number || s.seal_device).join(", ") || "—"))}
 				${_cr_meta(__("Route"), route, true)}
-				${_cr_meta(__("Entered Destination"), _cr_entered_destination(journey))}
+				${_cr_meta(__("Entered Destination"), early && !journey.destination_entered_date_time ? `<span class="text-muted">${__("Not reached")}</span>` : _cr_entered_destination(journey))}
 				${_cr_meta(__("Last Known Location"), _cr_location_html(journey), true)}
 				${_cr_meta(__("Journey Started"), started)}
 				${_cr_meta(__("Last API Update"), lastSeen)}
 			</div>
 			<footer class="cr-arrival-actions">
-				<div class="cr-arrival-unlock-prompt">${__("Confirm arrival — how is the seal unlocked?")}</div>
+				<div class="cr-arrival-unlock-prompt">${early
+					? __("Confirm arrival before the destination (e.g. vehicle broke down) — how is the seal unlocked?")
+					: __("Confirm arrival — how is the seal unlocked?")}</div>
 				<div class="cr-arrival-unlock-buttons">
 					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--physical" data-name="${frappe.utils.escape_html(journey.name)}" data-method="physical">
 						${__("Physical Unlock — Send for Untagging")}
@@ -825,6 +839,7 @@ function _control_room_confirm_arrival(page, docname, method, $btn) {
 				frappe.show_alert({ message: note, indicator: "green" }, 6);
 				page.control_room_state.arrivalDialog?.hide();
 				_control_room_load_arrivals(page);
+				_control_room_load_journeys(page);
 			},
 			error() {
 				$btn.prop("disabled", false);
@@ -1372,6 +1387,13 @@ function _cr_journey_rows_html(j, completed) {
 		${completed ? "" : `<td${span}>${warehouse}</td><td${span}>${longer}</td>`}
 	`;
 	const taggedBy = `<td${span}>${esc(j.tagged_by || dash)}</td>`;
+	const action = completed
+		? ""
+		: `<td${span} class="cr-arrival-action-col">${
+			status === "In Transit"
+				? `<button class="cr-journey-arrive-btn" data-name="${esc(j.name)}" title="${__("Confirm arrival, e.g. if the vehicle broke down before the destination")}">${__("Confirm Arrival")}</button>`
+				: dash
+		}</td>`;
 
 	return seals
 		.map((s, idx) => {
@@ -1398,7 +1420,7 @@ function _cr_journey_rows_html(j, completed) {
 					${idx === 0 ? journeyCells : ""}
 					<td class="cr-nowrap">${sealNo}</td>
 					${completed ? "" : `<td>${lock}</td><td>${battery}</td><td class="cr-nowrap">${loc}</td><td class="cr-nowrap">${lastSync}</td><td>${alerts}</td>`}
-					${idx === 0 ? taggedBy : ""}
+					${idx === 0 ? taggedBy + action : ""}
 				</tr>
 			`;
 		})
@@ -1492,6 +1514,7 @@ function _control_room_journey_table(journeys, completed) {
 					<th>${__("Seal Number")}</th>
 					${completed ? "" : `<th>${__("Lock")}</th><th>${__("Battery")}</th><th>${__("Current Location")}</th><th>${__("Last Signal Sync")}</th><th>${__("Alerts")}</th>`}
 					<th>${__("Tagged By")}</th>
+					${completed ? "" : `<th class="cr-arrival-action-col">${__("Action")}</th>`}
 				</tr>
 			</thead>
 			<tbody>${rows}</tbody>
@@ -2873,7 +2896,7 @@ function _control_room_inject_styles() {
 			white-space: nowrap;
 		}
 		.cr-arrival-action-col { width: 1%; text-align: right !important; white-space: nowrap; }
-		.cr-arrival-open {
+		.cr-arrival-open, .cr-journey-arrive-btn {
 			border: 1px solid #38bdf8;
 			border-radius: 999px;
 			background: #e0f2fe;
@@ -2883,7 +2906,7 @@ function _control_room_inject_styles() {
 			font-weight: 800;
 			cursor: pointer;
 		}
-		.cr-arrival-open:hover { background: #bae6fd; }
+		.cr-arrival-open:hover, .cr-journey-arrive-btn:hover { background: #bae6fd; }
 		.cr-arrival {
 			border: 1px solid #bae6fd;
 			border-radius: 0;
@@ -3207,7 +3230,7 @@ function _control_room_inject_styles() {
 		[data-theme="dark"] .cr-arrival-table td { background: #1e293b; border-color: #334155; color: #e2e8f0; }
 		[data-theme="dark"] .cr-arrival-table tbody tr:hover td { background: #0b3a52; }
 		[data-theme="dark"] .cr-arrival-journey { color: #f8fafc !important; }
-		[data-theme="dark"] .cr-arrival-open { background: #082f49; border-color: #0284c7; color: #bae6fd; }
+		[data-theme="dark"] .cr-arrival-open, [data-theme="dark"] .cr-journey-arrive-btn { background: #082f49; border-color: #0284c7; color: #bae6fd; }
 		[data-theme="dark"] .cr-section-title { color: #f8fafc; }
 		[data-theme="dark"] .cr-req-id, [data-theme="dark"] .cr-queue-head h3,
 		[data-theme="dark"] .cr-empty h3 { color: #f8fafc; }
