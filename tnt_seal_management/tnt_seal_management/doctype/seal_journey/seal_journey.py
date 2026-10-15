@@ -589,9 +589,11 @@ def _confirm_remote_unlock(doc):
 	return trip this journey is (see _return_trip_leg):
 
 	  • First leg (its Tagging Booking has Return Trip ticked) — the seal stays on
-	    the vehicle for the trip back: the journey completes now, the vehicle's
-	    return-trip booking is raised, and the seal is released to that booking
-	    (custody stays with the customer). No seal return.
+	    the vehicle for the trip back: the vehicle's return-trip booking is
+	    raised, the journey completes now and the seal is released to that
+	    booking (custody stays with the customer). No seal return. If the
+	    booking can't be raised (e.g. the outbound booking has no Branch), it is
+	    handled as "no return trip" instead, so the seal is still collected.
 	  • Second leg (its booking is the return trip of an earlier journey) — the
 	    seal has come back and must be collected: the journey waits in "Awaiting
 	    Seal Return" and a Seal Return request goes to the PCB Team Leader.
@@ -605,24 +607,27 @@ def _confirm_remote_unlock(doc):
 	leg = _return_trip_leg(doc)
 
 	if leg == "first":
-		_complete_without_collection(
-			doc,
-			_("Remote unlock at {0} — seal stays on the vehicle for its return trip.").format(
-				doc.destination or _("destination")
-			),
-		)
+		return_booking = None
 		try:
 			from tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking import (
 				create_return_trip_booking,
 			)
 
-			create_return_trip_booking(doc.name)
+			return_booking = create_return_trip_booking(doc.name)
 		except Exception as exc:
 			frappe.log_error(
 				f"Return trip booking failed for {doc.name}: {exc}",
 				"Return Trip Booking",
 			)
-		return
+		if return_booking:
+			_complete_without_collection(
+				doc,
+				_("Remote unlock at {0} — seal stays on the vehicle for return trip {1}.").format(
+					doc.destination or _("destination"), return_booking
+				),
+			)
+			return
+		leg = None  # no return booking: collect the seal like a single trip
 
 	if leg == "second":
 		doc.journey_status = "Awaiting Seal Return"
