@@ -191,7 +191,7 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 };
 
 
-// Hand seals over to a person or a seal warehouse (ECTS Division, e.g. Stores - TD).
+// Hand seals over to a person or a seal warehouse (Branch ECTS Division or Both, e.g. Stores - TD).
 // One step: custody moves as soon as this is confirmed. `onDone` runs afterwards.
 window.tnt_transfer_seals = function (seals, onDone) {
 	if (!seals || !seals.length) {

@@ -203,7 +203,7 @@ function _wh_render_table(page, warehouses) {
 		$(page.body).find(".wh-table-wrap").html(`
 			<div class="wh-empty">
 				<strong>${__("No seal holders found")}</strong>
-				<span>${__("Warehouses appear here when their Branch is ECTS Division. Clear the filters to see more.")}</span>
+				<span>${__("Warehouses appear here when their Branch is ECTS Division or Both. Clear the filters to see more.")}</span>
 			</div>
 		`);
 		return;

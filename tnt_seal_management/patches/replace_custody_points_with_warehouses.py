@@ -1,7 +1,13 @@
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
-from tnt_seal_management.tnt_seal_management.api.seal_warehouses import ECTS_DIVISION
+from tnt_seal_management.tnt_seal_management.api.seal_warehouses import (
+	BOTH_DIVISIONS,
+	ECTS_DIVISION,
+	SEAL_DIVISIONS,
+)
+
+FMS_DIVISION = "FMS Division"
 
 # Seal-management fields on ERPNext Warehouse. Also shipped as fixtures; created
 # here because fixtures sync after patches and the data move below needs them.
@@ -12,7 +18,7 @@ WAREHOUSE_SEAL_FIELDS = {
 			"fieldtype": "Section Break",
 			"label": "Seal Management",
 			"insert_after": "default_in_transit_warehouse",
-			"depends_on": f'eval:doc.custom_division=="{ECTS_DIVISION}"',
+			"depends_on": f"eval:{list(SEAL_DIVISIONS)!r}.includes(doc.custom_division)",
 			"collapsible": 1,
 		},
 		{
@@ -54,13 +60,15 @@ WAREHOUSE_SEAL_FIELDS = {
 
 
 def execute():
-	"""Retire Custody Point: seal warehouses are ECTS Division ERPNext Warehouses.
+	"""Retire Custody Point: seal warehouses are ERPNext Warehouses whose Branch
+	is ECTS Division or Both.
 
 	Every Custody Point maps to the Warehouse of the same name. Its GPS, radius
-	and main-store flag move onto that Warehouse, an active point's Warehouse is
-	put in the ECTS Division when its Branch is blank (so it stays a seal
-	warehouse), and seals, custody transfers and Journey Request return
-	warehouses that pointed at the Custody Point now point at the Warehouse.
+	and main-store flag move onto that Warehouse. A point that is active, or that
+	still holds seals, stays a seal warehouse: a blank Branch becomes ECTS
+	Division and FMS Division becomes Both (e.g. the main store, Stores - TD).
+	Seals, custody transfers and Journey Request return warehouses that pointed
+	at the Custody Point now point at the Warehouse.
 	Anything with no Warehouse of that name is cleared and logged. The Custody
 	Point doctype is then deleted."""
 	create_custom_fields(WAREHOUSE_SEAL_FIELDS, update=True)
@@ -71,6 +79,11 @@ def execute():
 		"""select name, active, is_main_warehouse, latitude, longitude, geofence_radius_meters
 		from `tabCustody Point`""",
 		as_dict=True,
+	)
+	held = set(
+		frappe.get_all(
+			"Seal Device", filters={"current_custody_type": "Custody Point"}, pluck="current_custodian"
+		)
 	)
 	unmatched = []
 	for p in points:
@@ -84,8 +97,11 @@ def execute():
 		}
 		if p.latitude or p.longitude:
 			values.update(custom_seal_latitude=p.latitude, custom_seal_longitude=p.longitude)
-		if p.active and not branch:
-			values["custom_division"] = ECTS_DIVISION
+		if p.active or p.name in held:
+			if not branch:
+				values["custom_division"] = ECTS_DIVISION
+			elif branch == FMS_DIVISION:
+				values["custom_division"] = BOTH_DIVISIONS
 		frappe.db.set_value("Warehouse", p.name, values, update_modified=False)
 
 	from tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device import _custody_label

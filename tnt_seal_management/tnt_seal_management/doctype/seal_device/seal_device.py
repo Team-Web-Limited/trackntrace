@@ -231,8 +231,8 @@ _TRANSFER_SUPERVISOR_ROLES = ("System Manager", "Operations Control Room", "PCB 
 
 @frappe.whitelist()
 def transfer_custody(seals, to_custody_type, to_custodian, remarks=None):
-	"""Hand seals over to a live person (User) or a seal warehouse (an ECTS-division
-	ERPNext Warehouse such as the main store). One step: custody moves as soon as this is submitted, and a
+	"""Hand seals over to a live person (User) or a seal warehouse (an ERPNext Warehouse
+	whose Branch is ECTS Division or Both, such as the main store). One step: custody moves as soon as this is submitted, and a
 	Seal Custody Transfer record keeps who moved what from whom to whom.
 
 	Seals held by a Customer move only through the journey workflow, and a seal on
@@ -251,7 +251,7 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None):
 		from tnt_seal_management.tnt_seal_management.api.seal_warehouses import is_seal_warehouse
 
 		if not is_seal_warehouse(to_custodian):
-			frappe.throw(_("{0} is not an active ECTS Division warehouse.").format(to_custodian))
+			frappe.throw(_("{0} is not an active seal warehouse (Branch ECTS Division or Both).").format(to_custodian))
 
 	user = frappe.session.user
 	supervisor = user == "Administrator" or bool(set(frappe.get_roles(user)) & set(_TRANSFER_SUPERVISOR_ROLES))

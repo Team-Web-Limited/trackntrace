@@ -526,7 +526,7 @@
    "options": "Warehouse",
    "label": "Warehouse",
    "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
-   "description": "ECTS Division warehouse the seal is returned to. Logged with the captured GPS location, in brackets, for audit."
+   "description": "Seal warehouse (Branch ECTS Division or Both) the seal is returned to. Logged with the captured GPS location, in brackets, for audit."
   },
   {
    "fieldname": "jr_seal_return_row2_column",

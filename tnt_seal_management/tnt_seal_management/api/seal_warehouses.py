@@ -1,5 +1,5 @@
 # Seal warehouses are ERPNext Warehouses whose Branch (custom_division) is ECTS
-# Division. Material Transfer / Issue / Receipt keep stock on them as usual;
+# Division or Both (a store shared with the FMS Division). Material Transfer / Issue / Receipt keep stock on them as usual;
 # seal management adds a few custom fields (Main Seal Store, GPS position and
 # radius) and treats them as the places a seal can rest.
 
@@ -9,15 +9,17 @@ import frappe
 from frappe.utils import cint, flt
 
 ECTS_DIVISION = "ECTS Division"
+BOTH_DIVISIONS = "Both"
+SEAL_DIVISIONS = (ECTS_DIVISION, BOTH_DIVISIONS)
 DEFAULT_RADIUS_METERS = 300
 EARTH_RADIUS_METERS = 6371000
 
 # Link filters for picking a seal warehouse (Return Warehouse, custody handover).
-SEAL_WAREHOUSE_FILTERS = {"custom_division": ECTS_DIVISION, "is_group": 0, "disabled": 0}
+SEAL_WAREHOUSE_FILTERS = {"custom_division": ["in", SEAL_DIVISIONS], "is_group": 0, "disabled": 0}
 
 
 def is_seal_warehouse(warehouse):
-	"""True when ``warehouse`` is an active ECTS-division ERPNext Warehouse."""
+	"""True when ``warehouse`` is an active seal warehouse (Branch ECTS Division or Both)."""
 	return bool(warehouse) and bool(
 		frappe.db.exists("Warehouse", {"name": warehouse, **SEAL_WAREHOUSE_FILTERS})
 	)
@@ -83,7 +85,7 @@ _HOLDER_STATUSES = ("User", "Customer")
 @frappe.whitelist()
 def get_warehouse_list(search=None, status="All", page=1, page_length=25):
 	"""Rows for the Warehouses page: every ERPNext Warehouse whose Branch
-	(custom_division) is ECTS Division, with the number of seals its stock
+	(custom_division) is ECTS Division or Both, with the number of seals its stock
 	ledger holds (Serial No.warehouse), plus the Users and Customers that seals
 	are in the custody of right now — straight from each Seal Device, so they
 	appear and drop off as seals move. ``status`` is All, or one or more of
@@ -132,10 +134,10 @@ def _parse_statuses(status, known):
 
 
 def _division_warehouse_rows():
-	"""ECTS-division ERPNext warehouses, active first, each with its seal count."""
+	"""Seal warehouses (ECTS Division or Both), active first, each with its seal count."""
 	warehouses = frappe.get_all(
 		"Warehouse",
-		filters={"custom_division": ECTS_DIVISION, "is_group": 0},
+		filters={"custom_division": ["in", SEAL_DIVISIONS], "is_group": 0},
 		fields=[
 			"name", "warehouse_name", "company", "parent_warehouse", "disabled", "city", "address_line_1",
 			"custom_is_main_seal_store",

@@ -31,7 +31,7 @@ def _seal_for_serial(serial):
 def on_stock_entry_submit(doc, method=None):
 	"""Stock Entry → Seal Transfer. For every seal serial on a Material Receipt /
 	Issue / Transfer, write a "Seal Transfer" row in the seal's Status History and,
-	when the target is a seal warehouse (an active ECTS Division warehouse such as
+	when the target is a seal warehouse (an active warehouse whose Branch is ECTS Division or Both, such as
 	Stores - TD), move the seal's custody there. Other warehouses, e.g. status
 	buckets like "Seals In journey - TD" or "Cut seals - TD", only get the history
 	row. Never raises — a stock posting must not fail because of

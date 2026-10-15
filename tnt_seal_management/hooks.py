@@ -216,7 +216,7 @@ has_permission = {
 
 doc_events = {
 	# Seal serials on a Material Receipt / Issue / Transfer become "Seal Transfer"
-	# history rows, and move custody when the target is a seal (ECTS Division) warehouse.
+	# history rows, and move custody when the target is a seal warehouse (Branch ECTS Division or Both).
 	"Stock Entry": {
 		"on_submit": "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.on_stock_entry_submit",
 		"on_cancel": "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.on_stock_entry_cancel",

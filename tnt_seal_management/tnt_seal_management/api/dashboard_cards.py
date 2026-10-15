@@ -263,8 +263,8 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
-	# The Warehouses page lists the ECTS-division ERPNext warehouses (plus live
-	# seal holders), so the card counts the active ones.
+	# The Warehouses page lists the seal warehouses (Branch ECTS Division or Both)
+	# plus live seal holders, so the card counts the active warehouses.
 	"warehouse-list": {
 		"doctype": "Warehouse",
 		"rules": [
@@ -279,7 +279,7 @@ CARD_COUNT_RULES = {
 					"Account Manager",
 				],
 				"label": "Active warehouses",
-				"filters": {"custom_division": "ECTS Division", "is_group": 0, "disabled": 0},
+				"filters": {"custom_division": ["in", ["ECTS Division", "Both"]], "is_group": 0, "disabled": 0},
 			},
 		],
 	},

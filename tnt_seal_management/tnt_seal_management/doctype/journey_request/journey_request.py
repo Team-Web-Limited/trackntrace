@@ -1594,7 +1594,7 @@ def _finalise_seal_return(doc, remarks=None, row=None):
 	return_warehouse = (row.return_warehouse if row else None) or doc.return_warehouse
 
 	set_journey_status(journey, "Completed", {"completion_date_time": returned_at})
-	# The return warehouse is the ECTS Division warehouse the technician selects on
+	# The return warehouse is the seal warehouse the technician selects on
 	# the Journey Request. Logged with the GPS location that was
 	# captured at return, in brackets, for auditability — e.g.
 	# "Nanak warehouse - TD (-1.30, 36.81)". If no warehouse was selected, the
