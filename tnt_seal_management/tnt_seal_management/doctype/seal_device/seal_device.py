@@ -16,7 +16,9 @@ _DOCTYPE = "Seal Device"
 # Custody types allowed on the dynamic pointer. Each maps to the field on the
 # target doctype that yields a human-friendly name for the custodian.
 _CUSTODY_LABEL_FIELD = {
-	"Warehouse": "warehouse_name",
+	# The full warehouse name (e.g. "Stores - TD"), as the old Custody Points were
+	# named, so custody labels and status history read the same before and after.
+	"Warehouse": "name",
 	"PCB Job Order": "name",
 	"User": "full_name",
 	"Customer": "customer_name",
@@ -105,19 +107,19 @@ def journey_start_custody(seal_device, exclude_journey=None):
 	"""Where the seal is starting its next journey from, for the start_warehouse
 	column on that journey's custody row.
 
-	Normally that is the warehouse it was last returned to. But a seal whose
-	previous journey ended with a remote unlock at a far destination never came
-	back to a warehouse — it stayed on the vehicle with the customer (see
-	journey_request.close_for_retained_seal), and the live custody pointer still
-	says so. In that case the customer is the true origin of this cycle, and the
-	warehouse flow picks up again when the seal is eventually returned."""
+	That is whoever holds it right now, from the live custody pointer: the
+	warehouse it sits in (after a return, a Material Transfer, a handover or the
+	GPS store check), the person it was handed to, or the customer still holding
+	it after a journey that ended with the seal left on the vehicle (see
+	journey_request.close_for_retained_seal). Only a seal with no custody on
+	record falls back to the warehouse its previous journey returned it to."""
 	if not seal_device:
 		return None
 	custody = frappe.db.get_value(
 		_DOCTYPE, seal_device, ["current_custody_type", "current_custodian"], as_dict=True
 	)
-	if custody and custody.current_custody_type == "Customer" and custody.current_custodian:
-		return _custodian_name("Customer", custody.current_custodian)
+	if custody and custody.current_custody_type in ("Warehouse", "User", "Customer") and custody.current_custodian:
+		return _custodian_name(custody.current_custody_type, custody.current_custodian)
 	return last_known_warehouse(seal_device, exclude_journey=exclude_journey)
 
 

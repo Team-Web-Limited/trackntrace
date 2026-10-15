@@ -887,18 +887,23 @@ def submit_to_control_room(docname, vehicle_rows=None):
 		set_journey_status(journey, "Pre-Tagging")
 		sync_seal_journey_mirror(journey)
 
-	# First recorded custody hop of the journey: seals leave the warehouse and are
-	# handed to the Field Technician who submitted them. The origin is the seal's
-	# last known warehouse (where it was returned to on its previous journey), or
-	# the customer still holding it if the last journey ended with the seal left on
-	# the vehicle — see journey_start_custody. Blank if this is the seal's first
-	# cycle, since there's nothing to reference yet.
+	# First recorded custody hop of the journey: seals leave whoever holds them
+	# (a warehouse, a person, or the customer still holding the seal after a
+	# journey that ended with it left on the vehicle — see journey_start_custody)
+	# and are handed to the Field Technician who submitted them.
 	if doc.assigned_technician:
 		for vehicle_row in submitted_rows or [None]:
 			journey = vehicle_row.seal_journey if vehicle_row else doc.journey_reference
 			seals = _row_seals(doc, vehicle_row) if vehicle_row else doc.seals
 			for row in seals:
-				origin_warehouse = journey_start_custody(row.seal_device, exclude_journey=journey)
+				# Recorded once: on a resubmission the seal is already with the
+				# technician, so live custody no longer says where it started.
+				already = frappe.db.get_value(
+					"Seal Status History",
+					{"parent": row.seal_device, "journey": journey, "entry_type": "Journey Summary"},
+					"start_warehouse",
+				)
+				origin_warehouse = None if already else journey_start_custody(row.seal_device, exclude_journey=journey)
 				if origin_warehouse:
 					record_journey_custody(row.seal_device, journey, "start_warehouse", origin_warehouse)
 				set_seal_custody(
@@ -1606,7 +1611,8 @@ def _finalise_seal_return(doc, remarks=None, row=None):
 	# return warehouse column stays blank for now and gets logged on the next cycle.
 	warehouse_label = None
 	if return_warehouse:
-		wh_name = frappe.db.get_value("Warehouse", return_warehouse, "warehouse_name") or return_warehouse
+		# The full warehouse name ("Stores - TD"), matching older history rows.
+		wh_name = return_warehouse
 		warehouse_label = f"{wh_name} ({location})" if location else wh_name
 	# A returned seal goes straight back into the pool — there is no separate
 	# "Returned" resting status. Only a bad condition on return keeps it out.
