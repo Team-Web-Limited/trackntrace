@@ -129,8 +129,7 @@ frappe.router.on('change', () => {
 
 const TNT_CUSTODY_SEALS_CLASS = "tnt-warehouse-seals";
 
-// Shared by the Warehouse and Custody Point forms: lists the seals held at
-// (custody_type, frm.doc.name).
+// Used by the Warehouse form: lists the seals held at (custody_type, frm.doc.name).
 window.tnt_render_custody_seals = function (frm, custody_type, title) {
 	const e0 = frappe.utils.escape_html;
 	const $wrapper = $(frm.layout.wrapper);
@@ -192,13 +191,24 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 };
 
 
-// Hand seals over to a person or a location (Custody Point, e.g. Stores - TD).
+// Hand seals over to a person or a seal warehouse (ECTS Division, e.g. Stores - TD).
 // One step: custody moves as soon as this is confirmed. `onDone` runs afterwards.
 window.tnt_transfer_seals = function (seals, onDone) {
 	if (!seals || !seals.length) {
 		frappe.msgprint(__("Select at least one seal first."));
 		return;
 	}
+	// Warehouses come as a plain list: some roles that hand seals over can't
+	// search the ERPNext Warehouse doctype through a Link field.
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.seal_warehouses.get_seal_warehouse_options",
+		callback(r) {
+			_tnt_transfer_dialog(seals, (r.message || []).map((w) => w.name), onDone);
+		},
+	});
+};
+
+function _tnt_transfer_dialog(seals, warehouses, onDone) {
 	const d = new frappe.ui.Dialog({
 		title: __("Transfer {0} seal(s)", [seals.length]),
 		fields: [
@@ -206,21 +216,20 @@ window.tnt_transfer_seals = function (seals, onDone) {
 				fieldname: "to_custody_type",
 				fieldtype: "Select",
 				label: __("Hand over to"),
-				options: "User\nCustody Point",
+				options: "User\nWarehouse",
 				default: "User",
 				reqd: 1,
 				onchange() {
 					const type = d.get_value("to_custody_type");
 					d.set_df_property("to_user", "hidden", type !== "User");
 					d.set_df_property("to_user", "reqd", type === "User");
-					d.set_df_property("to_point", "hidden", type !== "Custody Point");
-					d.set_df_property("to_point", "reqd", type === "Custody Point");
+					d.set_df_property("to_point", "hidden", type !== "Warehouse");
+					d.set_df_property("to_point", "reqd", type === "Warehouse");
 				},
 			},
 			{ fieldname: "to_user", fieldtype: "Link", options: "User", label: __("Person"), reqd: 1,
 				get_query: () => ({ filters: { enabled: 1, user_type: "System User" } }) },
-			{ fieldname: "to_point", fieldtype: "Link", options: "Custody Point", label: __("Location"), hidden: 1,
-				get_query: () => ({ filters: { active: 1 } }) },
+			{ fieldname: "to_point", fieldtype: "Select", options: ["", ...warehouses].join("\n"), label: __("Warehouse"), hidden: 1 },
 			{ fieldname: "remarks", fieldtype: "Small Text", label: __("Remarks (Optional)") },
 		],
 		primary_action_label: __("Transfer"),
@@ -240,7 +249,7 @@ window.tnt_transfer_seals = function (seals, onDone) {
 		},
 	});
 	d.show();
-};
+}
 
 // Assignments <-> Journey Requests switch, shown in the page header (where the
 // status chips used to be) of both list pages, styled like the Customer Billing

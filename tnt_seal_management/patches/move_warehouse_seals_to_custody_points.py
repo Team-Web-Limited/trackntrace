@@ -6,6 +6,8 @@ def execute():
 	pointer is an ERPNext Warehouse onto the Custody Point of the same name,
 	creating (or re-activating) that Custody Point when needed — a location that
 	physically holds seals is a live one. 'In Custody Since' is left as it was."""
+	if not frappe.db.table_exists("Custody Point"):
+		return  # retired: replace_custody_points_with_warehouses
 	from tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device import (
 		_custody_label,
 	)

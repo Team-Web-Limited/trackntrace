@@ -157,8 +157,8 @@ def get_escalation_email(docname):
 
 
 # Where to find an email address for each kind of custodian a seal can sit
-# with. Custody Point and PCB Job Order hold no contact of their own, so a seal
-# resting at one has nobody to notify.
+# with. A PCB Job Order holds no contact of its own, and a Warehouse only has one
+# when its Email Address is filled in.
 def _custodian_email(custody_type, custodian):
 	if custody_type == "Customer":
 		return _customer_email(custodian)
@@ -235,8 +235,8 @@ def alert_notification_target(seal_device, seal_journey=None):
 	the seal has no custodian, and an entry with no ``email`` when the custodian
 	is known but has no address on file.
 
-	A seal resting at a Custody Point has nobody to email there (Custody Points
-	hold no contact), so the alert goes to the seal's PCB Team Leader instead."""
+	A seal resting in a warehouse with no Email Address on file has nobody to
+	email there, so the alert goes to the seal's PCB Team Leader instead."""
 	if not seal_device:
 		return {}
 
@@ -251,7 +251,7 @@ def alert_notification_target(seal_device, seal_journey=None):
 
 	label = info.current_custody_label or info.current_custodian
 	email = _custodian_email(info.current_custody_type, info.current_custodian)
-	if not email and info.current_custody_type == "Custody Point":
+	if not email and info.current_custody_type == "Warehouse":
 		lead = _team_lead_email(seal_device, seal_journey)
 		if lead:
 			email = lead[0]

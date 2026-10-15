@@ -1423,24 +1423,24 @@ def _auto_detect_warehouse_custody(device_name, rec):
 	if info.current_journey or info.current_status not in _RESTING_STATUSES:
 		return
 
-	from tnt_seal_management.tnt_seal_management.doctype.custody_point.custody_point import (
-		find_nearest_custody_point,
+	from tnt_seal_management.tnt_seal_management.api.seal_warehouses import (
+		find_nearest_seal_warehouse,
 	)
 	from tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device import (
 		set_seal_custody,
 	)
 
-	match = find_nearest_custody_point(lat, lng)
+	match = find_nearest_seal_warehouse(lat, lng)
 	if not match:
 		return
 
-	warehouse = match["custody_point"]
-	if info.current_custody_type == "Custody Point" and info.current_custodian == warehouse:
+	warehouse = match["warehouse"]
+	if info.current_custody_type == "Warehouse" and info.current_custodian == warehouse:
 		return  # already attributed to this warehouse
 
 	set_seal_custody(
 		device_name,
-		"Custody Point",
+		"Warehouse",
 		warehouse,
 		remarks=f"Auto-detected at {warehouse} ({match['distance_meters']} m from GPS).",
 	)

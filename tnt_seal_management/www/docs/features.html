@@ -94,7 +94,7 @@
 					All management tasks are performed inside the Frappe Desk. Each user sees what their role allows (Account Manager, Finance PCB, PCB Team Leader, Field Technician, Operations Control Room, Managing Director, System Manager). Customers use the separate Customer Portal.
 				</p>
 				<ul class="text-light-muted pl-4 small">
-					<li class="mb-2"><strong>Global Search (Ctrl + G):</strong> Use this shortcut to quickly find doctypes like <code>Vehicle</code>, <code>Seal Device</code>, or <code>Custody Point</code>.</li>
+					<li class="mb-2"><strong>Global Search (Ctrl + G):</strong> Use this shortcut to quickly find doctypes like <code>Vehicle</code>, <code>Seal Device</code>, or <code>Warehouse</code>.</li>
 					<li class="mb-2"><strong>Sidebar Modules:</strong> The TNT Seal Management workspace links to the main pages: Control Room, Tagging Bookings, Assignments, Journey Requests, Seal Journeys, Completed Journeys, Current Customers, Seal Billing Rates, Vehicles and the dashboards.</li>
 				</ul>
 
@@ -104,17 +104,17 @@
 				</p>
 
 				<div class="row mt-4">
-					<!-- Custody Points -->
+					<!-- Seal Warehouses -->
 					<div class="col-md-6 mb-4">
 						<div class="card bg-dark border-secondary h-100" style="background-color: #2b2b2b !important;">
 							<div class="card-body">
-								<h5 class="text-info font-weight-normal"><i class="fa fa-warehouse mr-2"></i>1. Custody Points (Warehouses)</h5>
+								<h5 class="text-info font-weight-normal"><i class="fa fa-warehouse mr-2"></i>1. Seal Warehouses</h5>
 								<p class="small text-light-muted mt-2">
-									Define physical storage hubs, custom warehouses, or regional branches where seals are stored when not in transit.
+									ERPNext Warehouses whose Branch is ECTS Division are the places seals are stored when not in transit. Material Transfer, Issue and Receipt work on them as usual; the Seal Management section adds:
 								</p>
 								<ul class="small text-light-muted pl-3">
-									<li><strong>Is Main Warehouse:</strong> Flag this to denote final drop-off points for untagged returned devices.</li>
-									<li><strong>Geofence Radius (m):</strong> Set a matching radius (default: 300m) to automatically trigger custodian updates when seals enter geographical limits.</li>
+									<li><strong>Main Seal Store:</strong> Flag this to denote the default drop-off point for returned devices.</li>
+									<li><strong>Latitude, Longitude and Geofence Radius (m):</strong> Set the store's position and a radius (default: 300m) to automatically record an idle seal as held there when its GPS falls inside.</li>
 								</ul>
 							</div>
 						</div>

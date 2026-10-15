@@ -2,6 +2,8 @@ import frappe
 from frappe import _
 from frappe.utils import cstr
 
+from tnt_seal_management.tnt_seal_management.api.seal_warehouses import is_seal_warehouse
+
 _PURPOSES = ("Material Receipt", "Material Issue", "Material Transfer")
 
 
@@ -29,10 +31,10 @@ def _seal_for_serial(serial):
 def on_stock_entry_submit(doc, method=None):
 	"""Stock Entry → Seal Transfer. For every seal serial on a Material Receipt /
 	Issue / Transfer, write a "Seal Transfer" row in the seal's Status History and,
-	when the target warehouse has an active Custody Point of the same name (e.g.
-	Stores - TD), move the seal's custody there. Status-bucket warehouses such as
-	"Seals In journey - TD" or "Cut seals - TD" have no Custody Point, so they only
-	get the history row. Never raises — a stock posting must not fail because of
+	when the target is a seal warehouse (an active ECTS Division warehouse such as
+	Stores - TD), move the seal's custody there. Other warehouses, e.g. status
+	buckets like "Seals In journey - TD" or "Cut seals - TD", only get the history
+	row. Never raises — a stock posting must not fail because of
 	seal bookkeeping."""
 	if doc.purpose not in _PURPOSES:
 		return
@@ -74,13 +76,13 @@ def _apply(doc, cancelled):
 				continue
 
 			custody_note = ""
-			if row.t_warehouse and frappe.db.get_value("Custody Point", row.t_warehouse, "active"):
+			if is_seal_warehouse(row.t_warehouse):
 				journey = frappe.db.get_value("Seal Device", seal, "current_journey")
 				in_transit = journey and frappe.db.get_value("Seal Journey", journey, "journey_status") == "In Transit"
 				if in_transit:
 					custody_note = _(" — custody kept: seal is on a journey in transit")
 				else:
-					set_seal_custody(seal, "Custody Point", row.t_warehouse, remarks=note)
+					set_seal_custody(seal, "Warehouse", row.t_warehouse, remarks=note)
 					moved += 1
 			_append_transfer_history(seal, source, target, note + custody_note)
 			noted += 1

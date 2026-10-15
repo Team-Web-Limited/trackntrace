@@ -1,17 +1,44 @@
-# Copyright (c) 2026, teamweb and contributors
-# For license information, please see license.txt
+# Seal warehouses are ERPNext Warehouses whose Branch (custom_division) is ECTS
+# Division. Material Transfer / Issue / Receipt keep stock on them as usual;
+# seal management adds a few custom fields (Main Seal Store, GPS position and
+# radius) and treats them as the places a seal can rest.
 
 import math
 
 import frappe
-from frappe.utils import cint
-from frappe.model.document import Document
+from frappe.utils import cint, flt
 
+ECTS_DIVISION = "ECTS Division"
+DEFAULT_RADIUS_METERS = 300
 EARTH_RADIUS_METERS = 6371000
 
+# Link filters for picking a seal warehouse (Return Warehouse, custody handover).
+SEAL_WAREHOUSE_FILTERS = {"custom_division": ECTS_DIVISION, "is_group": 0, "disabled": 0}
 
-class CustodyPoint(Document):
-	pass
+
+def is_seal_warehouse(warehouse):
+	"""True when ``warehouse`` is an active ECTS-division ERPNext Warehouse."""
+	return bool(warehouse) and bool(
+		frappe.db.exists("Warehouse", {"name": warehouse, **SEAL_WAREHOUSE_FILTERS})
+	)
+
+
+def main_seal_store():
+	"""Name of the warehouse flagged Main Seal Store, if any."""
+	return frappe.db.get_value("Warehouse", {**SEAL_WAREHOUSE_FILTERS, "custom_is_main_seal_store": 1}, "name")
+
+
+@frappe.whitelist()
+def get_seal_warehouse_options():
+	"""Active seal warehouses for pickers, main store first. A plain list, so the
+	handover dialog works for roles (e.g. Operations Control Room) that have no
+	permission on the ERPNext Warehouse doctype."""
+	return frappe.get_all(
+		"Warehouse",
+		filters=SEAL_WAREHOUSE_FILTERS,
+		fields=["name", "warehouse_name"],
+		order_by="custom_is_main_seal_store desc, warehouse_name asc",
+	)
 
 
 def haversine_meters(lat1, lon1, lat2, lon2):
@@ -19,52 +46,36 @@ def haversine_meters(lat1, lon1, lat2, lon2):
 	phi1, phi2 = math.radians(lat1), math.radians(lat2)
 	d_phi = math.radians(lat2 - lat1)
 	d_lambda = math.radians(lon2 - lon1)
-	a = (
-		math.sin(d_phi / 2) ** 2
-		+ math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
-	)
+	a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
 	return 2 * EARTH_RADIUS_METERS * math.asin(math.sqrt(a))
 
 
-@frappe.whitelist()
-def find_nearest_custody_point(latitude, longitude):
-	"""
-	Return the nearest active Custody Point (physical warehouse) to the given
-	coordinates, if it falls within that point's geofence radius.
-	Used to reconcile a Seal Device's last-known Uffizio GPS reading against
-	known warehouse/yard locations.
-	"""
-	latitude, longitude = float(latitude), float(longitude)
-
-	points = frappe.db.get_all(
-		"Custody Point",
-		filters={"active": 1},
-		fields=["name", "latitude", "longitude", "geofence_radius_meters"],
+def find_nearest_seal_warehouse(latitude, longitude):
+	"""The nearest seal warehouse whose GPS radius contains the given point, or
+	None. Used to attribute an idle seal's Uffizio GPS fix to the store it is
+	sitting in. Warehouses without a position set are skipped."""
+	latitude, longitude = flt(latitude), flt(longitude)
+	warehouses = frappe.get_all(
+		"Warehouse",
+		filters=SEAL_WAREHOUSE_FILTERS,
+		fields=["name", "custom_seal_latitude", "custom_seal_longitude", "custom_seal_geofence_radius"],
 	)
-
-	best = None
-	best_distance = None
-	for point in points:
-		if point.latitude is None or point.longitude is None:
+	best, best_distance = None, None
+	for w in warehouses:
+		if not w.custom_seal_latitude and not w.custom_seal_longitude:
 			continue
-		distance = haversine_meters(latitude, longitude, point.latitude, point.longitude)
-		if distance <= (point.geofence_radius_meters or 300):
+		distance = haversine_meters(latitude, longitude, w.custom_seal_latitude, w.custom_seal_longitude)
+		if distance <= (w.custom_seal_geofence_radius or DEFAULT_RADIUS_METERS):
 			if best_distance is None or distance < best_distance:
-				best, best_distance = point, distance
-
+				best, best_distance = w, distance
 	if not best:
 		return None
-
-	return {
-		"custody_point": best.name,
-		"distance_meters": round(best_distance, 1),
-	}
+	return {"warehouse": best.name, "distance_meters": round(best_distance, 1)}
 
 
 # The Warehouses page is a shortcut to where seals are: the ERPNext warehouses
 # of the ECTS division (where Material Transfer / Issue / Receipt book them),
 # plus whoever holds seals right now outside a warehouse.
-ECTS_DIVISION = "ECTS Division"
 _WAREHOUSE_STATUSES = {"Active": 0, "Inactive": 1}  # value of Warehouse.disabled
 _HOLDER_STATUSES = ("User", "Customer")
 
@@ -113,18 +124,22 @@ def _division_warehouse_rows():
 	warehouses = frappe.get_all(
 		"Warehouse",
 		filters={"custom_division": ECTS_DIVISION, "is_group": 0},
-		fields=["name", "warehouse_name", "company", "parent_warehouse", "disabled", "city", "address_line_1"],
-		order_by="disabled asc, warehouse_name asc",
+		fields=[
+			"name", "warehouse_name", "company", "parent_warehouse", "disabled", "city", "address_line_1",
+			"custom_is_main_seal_store",
+		],
+		order_by="custom_is_main_seal_store desc, disabled asc, warehouse_name asc",
 	)
 	seals = _seals_by_warehouse([w.name for w in warehouses])
 	return [
 		{
 			"name": w.name,
-			"custody_point_name": w.warehouse_name or w.name,
+			"label": w.warehouse_name or w.name,
 			"holder_type": "Warehouse",
 			"company": w.company,
 			"parent_warehouse": w.parent_warehouse,
 			"disabled": cint(w.disabled),
+			"is_main_seal_store": cint(w.custom_is_main_seal_store),
 			"region": w.city,
 			"address_line": w.address_line_1,
 			"seals_held": seals.get(w.name, 0),
@@ -197,7 +212,7 @@ def _holder_rows(held):
 		rows.append(
 			{
 				"name": custodian,
-				"custody_point_name": label,
+				"label": label,
 				"holder_type": custody_type,
 				"region": region,
 				"address_line": detail,
@@ -205,5 +220,5 @@ def _holder_rows(held):
 				"search_text": " ".join(str(v or "") for v in (custodian, label, region, custody_type)).lower(),
 			}
 		)
-	rows.sort(key=lambda r: (r["holder_type"], -r["seals_held"], r["custody_point_name"].lower()))
+	rows.sort(key=lambda r: (r["holder_type"], -r["seals_held"], r["label"].lower()))
 	return rows

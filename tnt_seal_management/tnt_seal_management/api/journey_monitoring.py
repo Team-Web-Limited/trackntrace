@@ -292,7 +292,7 @@ def _attach_custodian(journeys):
 		else {}
 	)
 
-	# Batch-resolve the real warehouse (Custody Point) for warehouse-phase seals,
+	# Batch-resolve the real warehouse for warehouse-phase seals,
 	# from the seal device's GPS-attributed custody.
 	warehouse_seal_ids = {
 		j.get("assigned_seal")
@@ -306,7 +306,7 @@ def _attach_custodian(journeys):
 			"Seal Device",
 			filters={
 				"name": ["in", list(warehouse_seal_ids)],
-				"current_custody_type": "Custody Point",
+				"current_custody_type": "Warehouse",
 			},
 			fields=["name", "current_custodian"],
 		):

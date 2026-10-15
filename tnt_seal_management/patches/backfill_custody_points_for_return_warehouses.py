@@ -7,6 +7,8 @@ def execute():
 	names, which would fail link validation on save. Create an inactive Custody
 	Point of the same name for each (inactive keeps them out of the pickers, since
 	warehouses are now dynamic Custody Points), so old records stay valid."""
+	if not frappe.db.table_exists("Custody Point"):
+		return  # retired: replace_custody_points_with_warehouses
 	names = set()
 	for doctype in ("Journey Request", "Journey Request Vehicle"):
 		names.update(

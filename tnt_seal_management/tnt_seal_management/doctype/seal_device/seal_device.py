@@ -16,7 +16,6 @@ _DOCTYPE = "Seal Device"
 # Custody types allowed on the dynamic pointer. Each maps to the field on the
 # target doctype that yields a human-friendly name for the custodian.
 _CUSTODY_LABEL_FIELD = {
-	"Custody Point": "custody_point_name",
 	"Warehouse": "warehouse_name",
 	"PCB Job Order": "name",
 	"User": "full_name",
@@ -24,7 +23,6 @@ _CUSTODY_LABEL_FIELD = {
 }
 
 _CUSTODY_TYPE_PREFIX = {
-	"Custody Point": "Warehouse",
 	"Warehouse": "Warehouse",
 	"PCB Job Order": "Job Order",
 	"User": "Person",
@@ -69,10 +67,10 @@ def _custody_label(custody_type, custodian):
 
 
 def main_warehouse_name():
-	"""Name of the configured main warehouse Custody Point, if any."""
-	return frappe.db.get_value(
-		"Custody Point", {"is_main_warehouse": 1, "active": 1}, "custody_point_name"
-	)
+	"""Name of the warehouse flagged Main Seal Store, if any."""
+	from tnt_seal_management.tnt_seal_management.api.seal_warehouses import main_seal_store
+
+	return main_seal_store()
 
 
 def last_known_warehouse(seal_device, exclude_journey=None):
@@ -183,8 +181,8 @@ def set_seal_custody(seal_device, custody_type, custodian, remarks=None, journey
 	  2. If ``journey`` and ``column`` are given, record this handoff inline into
 	     the journey's single Seal Status History row (see record_journey_custody).
 
-	``custody_type`` is one of the Select options on Seal Device (Custody Point /
-	Warehouse / PCB Job Order / User / Customer) and ``custodian`` is the name of a
+	``custody_type`` is one of the Select options on Seal Device (Warehouse /
+	User / Customer, plus PCB Job Order) and ``custodian`` is the name of a
 	record of that doctype.
 	"""
 	if not seal_device or not custody_type or not custodian:
@@ -225,7 +223,7 @@ def set_seal_custody(seal_device, custody_type, custodian, remarks=None, journey
 		)
 
 
-_TRANSFER_TARGET_TYPES = ("Custody Point", "User")
+_TRANSFER_TARGET_TYPES = ("Warehouse", "User")
 # Roles that may hand over ANY seal (a Field Technician may only hand over
 # seals they are currently holding).
 _TRANSFER_SUPERVISOR_ROLES = ("System Manager", "Operations Control Room", "PCB Team Leader")
@@ -233,8 +231,8 @@ _TRANSFER_SUPERVISOR_ROLES = ("System Manager", "Operations Control Room", "PCB 
 
 @frappe.whitelist()
 def transfer_custody(seals, to_custody_type, to_custodian, remarks=None):
-	"""Hand seals over to a live person (User) or a location (Custody Point such as
-	the main store). One step: custody moves as soon as this is submitted, and a
+	"""Hand seals over to a live person (User) or a seal warehouse (an ECTS-division
+	ERPNext Warehouse such as the main store). One step: custody moves as soon as this is submitted, and a
 	Seal Custody Transfer record keeps who moved what from whom to whom.
 
 	Seals held by a Customer move only through the journey workflow, and a seal on
@@ -244,13 +242,16 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None):
 	if not seals:
 		frappe.throw(_("Select at least one seal to transfer."))
 	if to_custody_type not in _TRANSFER_TARGET_TYPES:
-		frappe.throw(_("Seals can only be handed to a person or a location (Custody Point)."))
+		frappe.throw(_("Seals can only be handed to a person or a seal warehouse."))
 	if not to_custodian or not frappe.db.exists(to_custody_type, to_custodian):
 		frappe.throw(_("Select who is receiving the seals."))
 	if to_custody_type == "User" and not frappe.db.get_value("User", to_custodian, "enabled"):
 		frappe.throw(_("{0} is not an active user.").format(to_custodian))
-	if to_custody_type == "Custody Point" and not frappe.db.get_value("Custody Point", to_custodian, "active"):
-		frappe.throw(_("Custody Point {0} is not active.").format(to_custodian))
+	if to_custody_type == "Warehouse":
+		from tnt_seal_management.tnt_seal_management.api.seal_warehouses import is_seal_warehouse
+
+		if not is_seal_warehouse(to_custodian):
+			frappe.throw(_("{0} is not an active ECTS Division warehouse.").format(to_custodian))
 
 	user = frappe.session.user
 	supervisor = user == "Administrator" or bool(set(frappe.get_roles(user)) & set(_TRANSFER_SUPERVISOR_ROLES))
@@ -345,7 +346,7 @@ def _append_transfer_history(seal_device, from_label, to_label, note):
 def get_custody_seals(custody_type, custodian):
 	"""Seals whose live custody pointer is the given location right now
 	(set_seal_custody moves a seal in on return and away on dispatch). Used by
-	the "Seals in this ..." tables on the Custody Point and Warehouse forms."""
+	the "Seals in this ..." table on the Warehouse form."""
 	if not custody_type or not custodian:
 		return []
 	return frappe.get_list(

@@ -27,6 +27,12 @@ fixtures = [
 					"Customer-custom_tax_category",
 					"Customer-custom_division",
 					"Warehouse-custom_division",
+					"Warehouse-custom_seal_management_section",
+					"Warehouse-custom_is_main_seal_store",
+					"Warehouse-custom_seal_column",
+					"Warehouse-custom_seal_latitude",
+					"Warehouse-custom_seal_longitude",
+					"Warehouse-custom_seal_geofence_radius",
 					"Sales Order-custom_customer_response",
 					"Sales Order-custom_customer_response_by",
 					"Sales Order-custom_customer_response_date",
@@ -210,7 +216,7 @@ has_permission = {
 
 doc_events = {
 	# Seal serials on a Material Receipt / Issue / Transfer become "Seal Transfer"
-	# history rows, and move custody when the target is a Custody Point.
+	# history rows, and move custody when the target is a seal (ECTS Division) warehouse.
 	"Stock Entry": {
 		"on_submit": "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.on_stock_entry_submit",
 		"on_cancel": "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.on_stock_entry_cancel",

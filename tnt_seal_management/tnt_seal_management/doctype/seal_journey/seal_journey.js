@@ -501,7 +501,7 @@ function _warehouse_history_html(summary) {
 }
 
 function _current_warehouse_label(sealDoc) {
-	return sealDoc.current_custody_type === "Custody Point" ? sealDoc.current_custody_label : "";
+	return sealDoc.current_custody_type === "Warehouse" ? sealDoc.current_custody_label : "";
 }
 
 function _inject_warehouse_timeline_styles() {

@@ -30,7 +30,8 @@ frappe.ui.form.on("Journey Request", {
 		// Origin/Destination are the journey's start/end points, picked from
 		// Uffizio Geofences (excluding routes); Checkpoints are the
 		// intermediate stops in the table below.
-		frm.set_query("return_warehouse", () => ({ filters: { active: 1 } }));
+		// Seals return to an active ECTS Division warehouse.
+		frm.set_query("return_warehouse", () => ({ filters: { custom_division: "ECTS Division", is_group: 0, disabled: 0 } }));
 		frm.set_query("origin", () => ({ filters: { shape: ["!=", "Route"] } }));
 		frm.set_query("destination", () => ({ filters: { shape: ["!=", "Route"] } }));
 		// Required on new requests only; older ones may have no geofence to map to.
@@ -562,7 +563,7 @@ function _jr_prompt_confirm_seal_return(frm, vehicleRow = null) {
 					reqd: 1,
 				},
 				{ fieldname: "retrieval_card_number", fieldtype: "Data", label: __("Retrieval Card Number"), reqd: 1 },
-				{ fieldname: "return_warehouse", fieldtype: "Link", options: "Custody Point", label: __("Warehouse"), reqd: 1, get_query: () => ({ filters: { active: 1 } }) },
+				{ fieldname: "return_warehouse", fieldtype: "Link", options: "Warehouse", label: __("Warehouse"), reqd: 1, get_query: () => ({ filters: { custom_division: "ECTS Division", is_group: 0, disabled: 0 } }) },
 				{ fieldname: "remarks", fieldtype: "Small Text", label: __("Remarks (Optional)") },
 			],
 			(values) => {

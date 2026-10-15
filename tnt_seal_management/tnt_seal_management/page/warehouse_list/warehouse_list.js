@@ -134,7 +134,7 @@ function _wh_load(page) {
 	const requestId = ++page.wh_state.request_id;
 	_wh_set_loading(page, true);
 	frappe.call({
-		method: "tnt_seal_management.tnt_seal_management.doctype.custody_point.custody_point.get_warehouse_list",
+		method: "tnt_seal_management.tnt_seal_management.api.seal_warehouses.get_warehouse_list",
 		args: {
 			search: page.wh_state.search,
 			status: page.wh_state.status,
@@ -224,14 +224,14 @@ function _wh_row_html(w) {
 	const dash = "—";
 	const isWarehouse = w.holder_type === "Warehouse";
 	const type = isWarehouse
-		? esc(__("Warehouse"))
+		? (w.is_main_seal_store ? `<span class="wh-badge wh-badge--main">${__("Main Seal Store")}</span>` : esc(__("Warehouse")))
 		: `<span class="wh-badge wh-badge--${w.holder_type === "User" ? "user" : "customer"}">${w.holder_type === "User" ? __("Staff") : __("Customer")}</span>`;
 	const status = isWarehouse
 		? `<span class="wh-badge wh-badge--${w.disabled ? "inactive" : "active"}">${w.disabled ? __("Inactive") : __("Active")}</span>`
 		: `<span class="wh-badge wh-badge--active">${__("Holding")}</span>`;
 	return `
 		<tr class="wh-row" data-name="${esc(w.name)}" data-holder-type="${esc(w.holder_type)}">
-			<td><span class="wh-name">${esc(w.custody_point_name || w.name)}</span></td>
+			<td><span class="wh-name">${esc(w.label || w.name)}</span></td>
 			<td>${type}</td>
 			<td>${status}</td>
 			<td><b>${w.seals_held || 0}</b></td>

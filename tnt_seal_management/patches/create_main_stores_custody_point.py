@@ -6,6 +6,8 @@ NAME = "Stores - TD"
 def execute():
 	"""Warehouses are becoming dynamic Custody Points; only the main store is
 	predefined. Create it (flagged main unless another main already exists)."""
+	if not frappe.db.table_exists("Custody Point"):
+		return  # retired: replace_custody_points_with_warehouses
 	if frappe.db.exists("Custody Point", NAME):
 		return
 	has_main = frappe.db.exists("Custody Point", {"is_main_warehouse": 1, "active": 1})
