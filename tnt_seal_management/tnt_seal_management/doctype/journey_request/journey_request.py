@@ -564,7 +564,7 @@ def _notify_control_room_approval_pending(doc):
 			doc.assigned_technician or frappe.session.user
 		),
 		_("Vehicle: {0}").format(doc.vehicle or "-"),
-		_("Route: {0} -> {1}").format(doc.origin or "-", doc.destination or "-"),
+		_("Route: {0} -> {1}").format(_geofence_label(doc.origin) or "-", _geofence_label(doc.destination) or "-"),
 	]
 	message = "<br>".join(str(line) for line in lines)
 
@@ -1817,8 +1817,10 @@ def _finalize_seal_journey_from_request(jr, row=None):
 			"journey_status": "In Transit",
 			"vehicle_plate_number": vehicle_plate,
 			"container_number": jr.container_number,
-			"origin": jr.origin,
-			"destination": jr.destination,
+			"origin": _geofence_label(jr.origin),
+			"destination": _geofence_label(jr.destination),
+			"origin_geofence": jr.origin,
+			"destination_geofence": jr.destination,
 			"assigned_technician": jr.assigned_technician,
 			"technician_status": "Occupied",
 			"tagging_status": "Completed",
@@ -2155,9 +2157,33 @@ def _get_tnt_logo_img_tag():
 	return f'<img src="data:image/png;base64,{encoded}" class="tnt-pdf-logo" alt="Track and Trace">'
 
 
+def _geofence_label(geofence):
+	"""Readable name of an Uffizio Geofence (Origin/Destination store its ID)."""
+	if not geofence:
+		return None
+	return frappe.db.get_value("Uffizio Geofence", geofence, "geofence_name") or geofence
+
+
+def _attach_route_names(requests):
+	"""Swap each row's origin/destination geofence IDs for the geofence names."""
+	ids = {r.get(f) for r in requests for f in ("origin", "destination") if r.get(f)}
+	if not ids:
+		return
+	names = dict(
+		frappe.get_all(
+			"Uffizio Geofence", filters={"name": ["in", list(ids)]}, fields=["name", "geofence_name"], as_list=True
+		)
+	)
+	for r in requests:
+		for f in ("origin", "destination"):
+			if r.get(f):
+				r[f] = names.get(r[f]) or r[f]
+
+
 def _attach_vehicle_details(requests):
 	if not requests:
 		return
+	_attach_route_names(requests)
 
 	request_names = [request.name for request in requests]
 	vehicle_rows = frappe.get_all(
@@ -2310,6 +2336,7 @@ def _get_approval_queue_by_status(status, search=None, from_date=None, to_date=N
 	)
 	if not requests:
 		return {"requests": [], "total": total, "overall": overall}
+	_attach_route_names(requests)
 
 	request_names = [r.name for r in requests]
 	seal_rows = frappe.get_all(

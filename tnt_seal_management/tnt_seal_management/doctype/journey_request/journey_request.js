@@ -27,12 +27,12 @@ frappe.ui.form.on("Journey Request", {
 			filters: { journey_request: frm.doc.name || "" },
 		}));
 
-		// Origin/Destination are the journey's start/end points, so only
-		// Terminal-type locations belong there; Checkpoints are the
+		// Origin/Destination are the journey's start/end points, picked from
+		// Uffizio Geofences (excluding routes); Checkpoints are the
 		// intermediate stops in the table below.
 		frm.set_query("return_warehouse", () => ({ filters: { active: 1 } }));
-		frm.set_query("origin", () => ({ filters: { location_role: "Terminal" } }));
-		frm.set_query("destination", () => ({ filters: { location_role: "Terminal" } }));
+		frm.set_query("origin", () => ({ filters: { shape: ["!=", "Route"] } }));
+		frm.set_query("destination", () => ({ filters: { shape: ["!=", "Route"] } }));
 		// Checkpoints are intermediate stops selected directly from Uffizio Geofences (excluding routes).
 		frm.set_query("checkpoint", "checkpoints", () => ({
 			filters: { shape: ["!=", "Route"] },

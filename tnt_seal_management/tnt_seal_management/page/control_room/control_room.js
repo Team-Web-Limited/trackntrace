@@ -288,13 +288,13 @@ function _control_room_render(page) {
 						${__("Journey requests")}
 						<span class="cr-tab-count" data-cr-request-count>${state.requestOverall || 0}</span>
 					</button>
-					<button class="cr-tab ${state.tab === "arrivals" ? "active" : ""}" data-tab="arrivals">
-						${__("Arrivals")}
-						<span class="cr-tab-count" data-cr-arrival-count>${state.arrivalOverall || 0}</span>
-					</button>
 					<button class="cr-tab ${state.tab === "journeys" ? "active" : ""}" data-tab="journeys">
 						${__("Active journeys")}
 						<span class="cr-tab-count" data-cr-journey-count>${state.journeyOverall || 0}</span>
+					</button>
+					<button class="cr-tab ${state.tab === "arrivals" ? "active" : ""}" data-tab="arrivals">
+						${__("Arrivals")}
+						<span class="cr-tab-count" data-cr-arrival-count>${state.arrivalOverall || 0}</span>
 					</button>
 					<button class="cr-tab ${state.tab === "completed" ? "active" : ""}" data-tab="completed">
 						${__("Completed journeys")}

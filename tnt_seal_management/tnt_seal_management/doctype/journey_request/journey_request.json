@@ -245,7 +245,7 @@
    "fieldname": "origin",
    "fieldtype": "Link",
    "label": "Origin",
-   "options": "Transport Location",
+   "options": "Uffizio Geofence",
    "reqd": 1
   },
   {
@@ -256,7 +256,7 @@
    "fieldname": "destination",
    "fieldtype": "Link",
    "label": "Destination",
-   "options": "Transport Location",
+   "options": "Uffizio Geofence",
    "reqd": 1
   },
   {

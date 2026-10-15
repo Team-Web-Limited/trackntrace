@@ -1359,8 +1359,12 @@ def resolve_seal_journey_mirror_values(seal_journey):
 			put("container_number", jr.container_number)
 			put("file_number", jr.file_number)
 			put("departure_card_number", jr.departure_card_number)
-			put("origin", jr.origin)
-			put("destination", jr.destination)
+			# Seal Journey keeps the geofence's name as text for display, and the
+			# geofence itself for arrival detection.
+			put("origin", _geofence_label(jr.origin))
+			put("destination", _geofence_label(jr.destination))
+			put("origin_geofence", jr.origin)
+			put("destination_geofence", jr.destination)
 			put("assigned_technician", jr.assigned_technician)
 			cr = vehicle_row or jr
 			put("control_room_approver", cr.control_room_approver)
@@ -1502,3 +1506,10 @@ def journey_vehicle_row(journey_request, seal_journey):
 		],
 		as_dict=True,
 	)
+
+
+def _geofence_label(geofence):
+	"""Readable name of an Uffizio Geofence, for the text Origin/Destination."""
+	if not geofence:
+		return None
+	return frappe.db.get_value("Uffizio Geofence", geofence, "geofence_name") or geofence

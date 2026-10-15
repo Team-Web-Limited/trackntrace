@@ -29,6 +29,8 @@
   "booking_location",
   "origin",
   "destination",
+  "origin_geofence",
+  "destination_geofence",
   "file_number",
   "departure_card_number",
   "retrieval_card_number",
@@ -265,6 +267,23 @@
    "fieldtype": "Data",
    "label": "Destination",
    "read_only": 1
+  },
+  {
+   "fieldname": "origin_geofence",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Origin Geofence",
+   "options": "Uffizio Geofence",
+   "read_only": 1
+  },
+  {
+   "fieldname": "destination_geofence",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Destination Geofence",
+   "options": "Uffizio Geofence",
+   "read_only": 1,
+   "description": "The geofence the seal sync watches for arrival."
   },
   {
    "fieldname": "file_number",

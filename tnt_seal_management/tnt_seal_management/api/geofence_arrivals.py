@@ -51,12 +51,13 @@ def point_in_geofence(geofence, lat, lng):
 	return False
 
 
-def destination_geofence(destination):
-	"""The Uffizio Geofence behind a journey's destination, when the destination
-	is a Transport Location linked to one."""
-	if not destination:
-		return None
-	geofence = frappe.db.get_value("Transport Location", destination, "uffizio_geofence")
+def destination_geofence(destination, destination_geofence=None):
+	"""The Uffizio Geofence behind a journey's destination: the geofence picked on
+	the Journey Request, or for older journeys the one linked to the destination's
+	Transport Location."""
+	geofence = destination_geofence
+	if not geofence and destination:
+		geofence = frappe.db.get_value("Transport Location", destination, "uffizio_geofence")
 	if not geofence:
 		return None
 	return frappe.db.get_value(
@@ -77,12 +78,12 @@ def check_destination_entry(journey_name, lat, lng):
 	journey = frappe.db.get_value(
 		"Seal Journey",
 		journey_name,
-		["journey_status", "destination", "destination_entered_date_time"],
+		["journey_status", "destination", "destination_geofence", "destination_entered_date_time"],
 		as_dict=True,
 	)
 	if not journey or journey.journey_status != "In Transit" or journey.destination_entered_date_time:
 		return False
-	geofence = destination_geofence(journey.destination)
+	geofence = destination_geofence(journey.destination, journey.destination_geofence)
 	if not geofence or not point_in_geofence(geofence, lat, lng):
 		return False
 
@@ -108,7 +109,7 @@ def _record_entry_milestone(journey_name, destination, geofence, entered, lat, l
 			"event_time": entered,
 			"event_type": "Arrived",
 			"place_name": geofence.geofence_name,
-			"transport_location": destination,
+			"transport_location": destination if frappe.db.exists("Transport Location", destination) else None,
 			"journey_stage": "Destination",
 			"uffizio_geofence": geofence.name,
 			"latitude": lat,
@@ -130,6 +131,9 @@ def arrival_queue_journey_names():
 		from `tabSeal Journey` sj
 		left join `tabTransport Location` tl on tl.name = sj.destination
 		where sj.journey_status = 'In Transit'
-			and (sj.destination_entered_date_time is not null or ifnull(tl.uffizio_geofence, '') = '')
+			and (
+				sj.destination_entered_date_time is not null
+				or (ifnull(sj.destination_geofence, '') = '' and ifnull(tl.uffizio_geofence, '') = '')
+			)
 		"""
 	)
