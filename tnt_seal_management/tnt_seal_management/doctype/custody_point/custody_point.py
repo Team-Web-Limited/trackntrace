@@ -61,56 +61,40 @@ def find_nearest_custody_point(latitude, longitude):
 	}
 
 
-# Warehouses page filters. The first four filter Custody Points; "User" and
-# "Customer" list whoever currently holds seals outside a warehouse.
-_CUSTODY_POINT_STATUSES = {
-	"Active": {"active": 1},
-	"Inactive": {"active": 0},
-	"Main": {"is_main_warehouse": 1},
-}
+# The Warehouses page is a shortcut to where seals are: the ERPNext warehouses
+# of the ECTS division (where Material Transfer / Issue / Receipt book them),
+# plus whoever holds seals right now outside a warehouse.
+ECTS_DIVISION = "ECTS Division"
+_WAREHOUSE_STATUSES = {"Active": 0, "Inactive": 1}  # value of Warehouse.disabled
 _HOLDER_STATUSES = ("User", "Customer")
 
 
 @frappe.whitelist()
 def get_warehouse_list(search=None, status="All", page=1, page_length=25):
-	"""Everyone currently holding seals, for the Warehouses page: Custody Points
-	(always listed, with their seal count) plus the Users and Customers that
-	seals are in the custody of right now. The holders come straight from each
-	Seal Device's current custody, so they appear and drop off as seals move.
-	``status`` is All / Active / Inactive / Main / User / Customer; ``summary``
-	counts every status regardless of the search. Honours permissions via
-	get_list."""
+	"""Rows for the Warehouses page: every ERPNext Warehouse whose Branch
+	(custom_division) is ECTS Division, with the number of seals its stock
+	ledger holds (Serial No.warehouse), plus the Users and Customers that seals
+	are in the custody of right now — straight from each Seal Device, so they
+	appear and drop off as seals move. ``status`` is All / Active / Inactive /
+	User / Customer; ``summary`` counts every status regardless of the search.
+
+	Warehouses are read without per-user permissions: the page itself is
+	role-gated, and several of its roles (Control Room, Management) can't read
+	the Warehouse doctype."""
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length) or 25, 1), 100)
 	search = (search or "").strip().lower()
 
-	held = _seals_held_by_custodian()
-	points = [
-		_custody_point_row(p, held.get(("Custody Point", p.name), 0))
-		for p in frappe.get_list(
-			"Custody Point",
-			fields=[
-				"name", "custody_point_name", "region", "is_main_warehouse", "active",
-				"address_line", "latitude", "longitude", "geofence_radius_meters",
-			],
-			order_by="is_main_warehouse desc, active desc, custody_point_name asc",
-			limit_page_length=0,
-		)
-	]
-	holders = _holder_rows(held)
+	rows = _division_warehouse_rows() + _holder_rows(_seals_held_by_custodian())
 
 	def in_status(row, key):
 		if key == "All":
 			return True
 		if key in _HOLDER_STATUSES:
 			return row["holder_type"] == key
-		if row["holder_type"] != "Custody Point":
-			return False
-		return all(cint(row.get(field)) == value for field, value in _CUSTODY_POINT_STATUSES[key].items())
+		return row["holder_type"] == "Warehouse" and cint(row["disabled"]) == _WAREHOUSE_STATUSES[key]
 
-	rows = points + holders
-	summary = {key: sum(1 for r in rows if in_status(r, key)) for key in ("All", *_CUSTODY_POINT_STATUSES, *_HOLDER_STATUSES)}
-
+	summary = {key: sum(1 for r in rows if in_status(r, key)) for key in ("All", *_WAREHOUSE_STATUSES, *_HOLDER_STATUSES)}
 	if status not in summary:
 		status = "All"
 	matched = [r for r in rows if in_status(r, status) and (not search or search in r["search_text"])]
@@ -119,32 +103,70 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25):
 		"warehouses": [{k: v for k, v in r.items() if k != "search_text"} for r in matched[start : start + page_length]],
 		"total": len(matched),
 		"summary": summary,
-		"can_create": frappe.has_permission("Custody Point", "create"),
+		"can_create": frappe.has_permission("Warehouse", "create"),
+		"can_read_warehouse": frappe.has_permission("Warehouse", "read"),
 	}
 
 
+def _division_warehouse_rows():
+	"""ECTS-division ERPNext warehouses, active first, each with its seal count."""
+	warehouses = frappe.get_all(
+		"Warehouse",
+		filters={"custom_division": ECTS_DIVISION, "is_group": 0},
+		fields=["name", "warehouse_name", "company", "parent_warehouse", "disabled", "city", "address_line_1"],
+		order_by="disabled asc, warehouse_name asc",
+	)
+	seals = _seals_by_warehouse([w.name for w in warehouses])
+	return [
+		{
+			"name": w.name,
+			"custody_point_name": w.warehouse_name or w.name,
+			"holder_type": "Warehouse",
+			"company": w.company,
+			"parent_warehouse": w.parent_warehouse,
+			"disabled": cint(w.disabled),
+			"region": w.city,
+			"address_line": w.address_line_1,
+			"seals_held": seals.get(w.name, 0),
+			"search_text": " ".join(
+				str(v or "") for v in (w.name, w.warehouse_name, w.company, w.city, w.address_line_1)
+			).lower(),
+		}
+		for w in warehouses
+	]
+
+
+def _seals_by_warehouse(warehouses):
+	"""{warehouse: seal count} from the stock ledger: Serial Nos that are seals,
+	matched on the Seal Device's name, serial number or IMEI."""
+	if not warehouses:
+		return {}
+	rows = frappe.db.sql(
+		"""
+		select sn.warehouse, count(distinct sn.name)
+		from `tabSerial No` sn
+		where sn.warehouse in %(warehouses)s
+			and exists (
+				select 1 from `tabSeal Device` sd
+				where sn.name in (sd.name, sd.serial_number, sd.imei_number)
+			)
+		group by sn.warehouse
+		""",
+		{"warehouses": tuple(warehouses)},
+	)
+	return {warehouse: cint(count) for warehouse, count in rows}
+
+
 def _seals_held_by_custodian():
-	"""{(custody_type, custodian): seal count} from every Seal Device's current custody."""
-	rows = frappe.get_list(
+	"""{(custody_type, custodian): seal count} for seals held by a User or Customer."""
+	rows = frappe.get_all(
 		"Seal Device",
-		filters={"current_custody_type": ["is", "set"], "current_custodian": ["is", "set"]},
+		filters={"current_custody_type": ["in", _HOLDER_STATUSES], "current_custodian": ["is", "set"]},
 		fields=["current_custody_type", "current_custodian", "count(name) as seals"],
 		group_by="current_custody_type, current_custodian",
 		limit_page_length=0,
 	)
 	return {(r.current_custody_type, r.current_custodian): cint(r.seals) for r in rows}
-
-
-def _custody_point_row(point, seals):
-	row = dict(point)
-	row.update(
-		holder_type="Custody Point",
-		seals_held=seals,
-		search_text=" ".join(
-			str(point.get(f) or "") for f in ("name", "custody_point_name", "region", "address_line")
-		).lower(),
-	)
-	return row
 
 
 def _holder_rows(held):

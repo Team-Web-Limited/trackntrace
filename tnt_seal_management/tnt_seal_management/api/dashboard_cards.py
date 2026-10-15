@@ -263,10 +263,10 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
-	# Warehouses are dynamic Custody Points now (the main store is just the one
-	# flagged is_main_warehouse), so the card counts active Custody Points.
+	# The Warehouses page lists the ECTS-division ERPNext warehouses (plus live
+	# seal holders), so the card counts the active ones.
 	"warehouse-list": {
-		"doctype": "Custody Point",
+		"doctype": "Warehouse",
 		"rules": [
 			{
 				"roles": [
@@ -279,7 +279,7 @@ CARD_COUNT_RULES = {
 					"Account Manager",
 				],
 				"label": "Active warehouses",
-				"filters": {"active": 1},
+				"filters": {"custom_division": "ECTS Division", "is_group": 0, "disabled": 0},
 			},
 		],
 	},

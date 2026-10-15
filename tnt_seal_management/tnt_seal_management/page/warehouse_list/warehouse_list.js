@@ -31,7 +31,6 @@ function _wh_build_page(page) {
 		["All", __("All Warehouses")],
 		["Active", __("Active")],
 		["Inactive", __("Inactive")],
-		["Main", __("Main Warehouse")],
 		["User", __("Held by Staff")],
 		["Customer", __("Held by Customers")],
 	];
@@ -42,7 +41,7 @@ function _wh_build_page(page) {
 				<div class="wh-toolbar">
 					<div class="wh-toolbar-top">
 						<label class="wh-field wh-search-inline">
-							<input class="wh-search" type="search" placeholder="${__("Warehouse, staff, customer, region or address")}">
+							<input class="wh-search" type="search" placeholder="${__("Warehouse, staff, customer, city or address")}">
 						</label>
 
 						<div class="wh-filter-dropdown">
@@ -112,14 +111,12 @@ function _wh_build_page(page) {
 
 	$(page.body).on("click", ".wh-clear-btn", () => _wh_clear(page));
 
-	$(page.body).on("click", ".wh-row", function (e) {
-		// The coordinates link opens the map, not the form.
-		if ($(e.target).closest(".wh-coord-link").length) return;
+	$(page.body).on("click", ".wh-row", function () {
 		const name = $(this).data("name");
 		const type = $(this).data("holder-type");
 		if (!name) return;
-		if (type === "Custody Point") {
-			frappe.set_route("Form", "Custody Point", name);
+		if (type === "Warehouse") {
+			if (page.wh_can_read_warehouse) frappe.set_route("Form", "Warehouse", name);
 		} else {
 			// A staff member or customer: show the seals they hold right now.
 			frappe.set_route("List", "Seal Device", { current_custody_type: type, current_custodian: name });
@@ -149,6 +146,7 @@ function _wh_load(page) {
 			_wh_set_loading(page, false);
 			const data = r.message || {};
 			page.wh_state.total = data.total || 0;
+			page.wh_can_read_warehouse = !!data.can_read_warehouse;
 			_wh_render_stats(page, data.summary || {});
 			_wh_set_create_action(page, data.can_create);
 			_wh_render_table(page, data.warehouses || []);
@@ -167,7 +165,6 @@ function _wh_render_stats(page, summary) {
 		["All", __("All"), ""],
 		["Active", __("Active"), "wh-stat--active"],
 		["Inactive", __("Inactive"), "wh-stat--inactive"],
-		["Main", __("Main"), "wh-stat--main"],
 		["User", __("Staff"), "wh-stat--user"],
 		["Customer", __("Customers"), "wh-stat--customer"],
 	];
@@ -186,11 +183,12 @@ function _wh_render_stats(page, summary) {
 	$(page.body).find(".wh-filter-btn-count").text(summary[page.wh_state.status] ?? 0);
 }
 
-// "New Warehouse" only for users who may create Custody Points.
+// "New Warehouse" only for users who may create ERPNext Warehouses; it starts
+// in the ECTS division so it shows up here.
 function _wh_set_create_action(page, canCreate) {
 	if (!canCreate || page.wh_create_added) return;
 	page.wh_create_added = true;
-	page.set_primary_action(__("New Warehouse"), () => frappe.new_doc("Custody Point"));
+	page.set_primary_action(__("New Warehouse"), () => frappe.new_doc("Warehouse", { custom_division: "ECTS Division" }));
 }
 
 function _wh_render_table(page, warehouses) {
@@ -198,7 +196,7 @@ function _wh_render_table(page, warehouses) {
 		$(page.body).find(".wh-table-wrap").html(`
 			<div class="wh-empty">
 				<strong>${__("No seal holders found")}</strong>
-				<span>${__("Add a warehouse or clear the filters to see more records.")}</span>
+				<span>${__("Warehouses appear here when their Branch is ECTS Division. Clear the filters to see more.")}</span>
 			</div>
 		`);
 		return;
@@ -208,13 +206,13 @@ function _wh_render_table(page, warehouses) {
 		<table class="wh-table">
 			<thead><tr>
 				<th>${__("Holder")}</th>
-				<th>${__("Region / City")}</th>
 				<th>${__("Type")}</th>
 				<th>${__("Status")}</th>
 				<th>${__("Seals Held")}</th>
-				<th>${__("Coordinates")}</th>
-				<th>${__("Geofence Radius")}</th>
-				<th>${__("Address / Description")}</th>
+				<th>${__("Company")}</th>
+				<th>${__("Parent Warehouse")}</th>
+				<th>${__("City")}</th>
+				<th>${__("Address / Contact")}</th>
 			</tr></thead>
 			<tbody>${warehouses.map(_wh_row_html).join("")}</tbody>
 		</table>
@@ -223,35 +221,24 @@ function _wh_render_table(page, warehouses) {
 
 function _wh_row_html(w) {
 	const esc = frappe.utils.escape_html;
-	const hasCoords = w.latitude && w.longitude;
-	const coords = hasCoords
-		? `<a class="wh-coord-link" href="https://www.google.com/maps?q=${encodeURIComponent(`${w.latitude},${w.longitude}`)}" target="_blank" rel="noopener noreferrer">
-				${Number(w.latitude).toFixed(5)}, ${Number(w.longitude).toFixed(5)}
-			</a>`
-		: "—";
-	const radius = w.geofence_radius_meters ? `${Math.round(w.geofence_radius_meters)} m` : "—";
-	const isPoint = w.holder_type === "Custody Point";
-	let type;
-	if (!isPoint) {
-		type = `<span class="wh-badge wh-badge--${w.holder_type === "User" ? "user" : "customer"}">${w.holder_type === "User" ? __("Staff") : __("Customer")}</span>`;
-	} else if (w.is_main_warehouse) {
-		type = `<span class="wh-badge wh-badge--main">${__("Main Warehouse")}</span>`;
-	} else {
-		type = esc(__("Warehouse"));
-	}
-	const status = isPoint
-		? `<span class="wh-badge wh-badge--${w.active ? "active" : "inactive"}">${w.active ? __("Active") : __("Inactive")}</span>`
+	const dash = "—";
+	const isWarehouse = w.holder_type === "Warehouse";
+	const type = isWarehouse
+		? esc(__("Warehouse"))
+		: `<span class="wh-badge wh-badge--${w.holder_type === "User" ? "user" : "customer"}">${w.holder_type === "User" ? __("Staff") : __("Customer")}</span>`;
+	const status = isWarehouse
+		? `<span class="wh-badge wh-badge--${w.disabled ? "inactive" : "active"}">${w.disabled ? __("Inactive") : __("Active")}</span>`
 		: `<span class="wh-badge wh-badge--active">${__("Holding")}</span>`;
 	return `
-		<tr class="wh-row" data-name="${esc(w.name)}" data-holder-type="${esc(w.holder_type || "Custody Point")}">
+		<tr class="wh-row" data-name="${esc(w.name)}" data-holder-type="${esc(w.holder_type)}">
 			<td><span class="wh-name">${esc(w.custody_point_name || w.name)}</span></td>
-			<td>${esc(w.region || "—")}</td>
 			<td>${type}</td>
 			<td>${status}</td>
 			<td><b>${w.seals_held || 0}</b></td>
-			<td>${coords}</td>
-			<td>${esc(radius)}</td>
-			<td class="wh-address" title="${esc(w.address_line || "")}">${esc(w.address_line || "—")}</td>
+			<td>${esc(w.company || dash)}</td>
+			<td>${esc(w.parent_warehouse || dash)}</td>
+			<td>${esc(w.region || dash)}</td>
+			<td class="wh-address" title="${esc(w.address_line || "")}">${esc(w.address_line || dash)}</td>
 		</tr>
 	`;
 }
@@ -543,7 +530,6 @@ function _wh_inject_styles() {
 		.wh-badge--customer    { background: #dcfce7; color: #15803d; }
 		[data-theme="dark"] .wh-badge--user     { background: #2e1065; color: #ddd6fe; }
 		[data-theme="dark"] .wh-badge--customer { background: #052e16; color: #bbf7d0; }
-		.wh-coord-link { color: var(--wh-blue); font-weight: 600; }
 		.wh-address { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 		.wh-badge--inactive    { background: #e2e8f0; color: #475569; }
 		.wh-empty {
