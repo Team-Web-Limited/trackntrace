@@ -237,6 +237,12 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None):
 	whose Branch is ECTS Division or Both, such as the main store). One step: custody moves as soon as this is submitted, and a
 	Seal Custody Transfer record keeps who moved what from whom to whom.
 
+	To a warehouse, stock moves with custody: a Material Transfer is submitted for
+	the seals' serials (see stock_seal_transfers.post_seal_material_transfer),
+	and its hook moves custody and writes the history. Every seal must be in
+	stock for that; a seal whose stock already sits in the target only has its
+	custody moved. A handover to a person moves custody only.
+
 	Seals held by a Customer move only through the journey workflow, and a seal on
 	a journey that is In Transit can't be handed over."""
 	seals = frappe.parse_json(seals) if isinstance(seals, str) else seals
@@ -288,7 +294,35 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None):
 			}
 		)
 
+	stock_entry = None
+	stocked = set()  # seals whose custody and history the Material Transfer handles
+	if to_custody_type == "Warehouse":
+		from tnt_seal_management.tnt_seal_management.api.stock_seal_transfers import (
+			post_seal_material_transfer,
+			seal_stock_serials,
+		)
+
+		serials = seal_stock_serials([r["seal_device"] for r in rows])
+		missing = [r["seal_device"] for r in rows if r["seal_device"] not in serials]
+		if missing:
+			frappe.throw(
+				_("These seals have no serial in stock, so they can't be moved to {0}: {1}. Receive them into stock first.").format(
+					to_custodian, ", ".join(missing)
+				),
+				title=_("Not in Stock"),
+			)
+		to_move = [s for seal, s in serials.items() if s.warehouse != to_custodian]
+		if to_move:
+			stock_entry = post_seal_material_transfer(
+				to_move,
+				to_custodian,
+				remarks=_("Seal transfer by {0}{1}").format(user, f": {remarks}" if remarks else ""),
+			)
+			stocked = {s.seal for s in to_move}
+
 	for row in rows:
+		if row["seal_device"] in stocked:
+			continue
 		set_seal_custody(
 			row["seal_device"],
 			to_custody_type,
@@ -304,18 +338,20 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None):
 			"to_custody_type": to_custody_type,
 			"to_custodian": to_custodian,
 			"to_label": to_label,
-			"remarks": remarks,
+			"remarks": " — ".join(filter(None, [remarks, stock_entry and _("Stock Entry {0}").format(stock_entry)])) or None,
 			"seals": rows,
 		}
 	).insert(ignore_permissions=True)
 	for row in rows:
+		if row["seal_device"] in stocked:
+			continue  # the Material Transfer's hook wrote this seal's history row
 		_append_transfer_history(
 			row["seal_device"],
 			row["from_label"] or _("(no custodian)"),
 			to_label,
 			_("{0}{1}").format(transfer.name, f" — {remarks}" if remarks else ""),
 		)
-	return {"transfer": transfer.name, "transferred": len(rows)}
+	return {"transfer": transfer.name, "transferred": len(rows), "stock_entry": stock_entry}
 
 
 def _append_transfer_history(seal_device, from_label, to_label, note):

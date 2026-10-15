@@ -19,6 +19,61 @@ def _row_serials(row):
 	return [s.strip() for s in cstr(row.get("serial_no")).split("\n") if s.strip()]
 
 
+def seal_stock_serials(seals):
+	"""{seal: Serial No row} for the seals whose ERPNext serial is in stock in a
+	warehouse right now (status Active), matched on the Seal Device's name,
+	serial number or IMEI."""
+	if not seals:
+		return {}
+	rows = frappe.db.sql(
+		"""
+		select sd.name as seal, sn.name as serial_no, sn.item_code, sn.warehouse, sn.company
+		from `tabSeal Device` sd
+		join `tabSerial No` sn on sn.name in (sd.name, sd.serial_number, sd.imei_number)
+		where sd.name in %(seals)s and sn.status = 'Active' and ifnull(sn.warehouse, '') != ''
+		""",
+		{"seals": tuple(seals)},
+		as_dict=True,
+	)
+	return {r.seal: r for r in rows}
+
+
+def post_seal_material_transfer(serials, target, remarks=None):
+	"""Submit one Material Transfer moving the given seal serials (rows from
+	seal_stock_serials) into ``target``, one item row per item code and source
+	warehouse. Its on_submit hook (on_stock_entry_submit) then moves each seal's
+	custody to ``target`` and writes the Seal Transfer history rows. Runs without
+	the user's stock permissions, because seal handovers are allowed to roles
+	that can't post stock. Returns the Stock Entry name."""
+	groups = {}
+	for row in serials:
+		groups.setdefault((row.item_code, row.warehouse), []).append(row.serial_no)
+	entry = frappe.get_doc(
+		{
+			"doctype": "Stock Entry",
+			"stock_entry_type": "Material Transfer",
+			"purpose": "Material Transfer",
+			"company": frappe.db.get_value("Warehouse", target, "company"),
+			"remarks": remarks,
+			"items": [
+				{
+					"item_code": item_code,
+					"s_warehouse": source,
+					"t_warehouse": target,
+					"qty": len(serial_nos),
+					"use_serial_batch_fields": 1,
+					"serial_no": "\n".join(serial_nos),
+				}
+				for (item_code, source), serial_nos in groups.items()
+			],
+		}
+	)
+	entry.flags.ignore_permissions = True
+	entry.insert()
+	entry.submit()
+	return entry.name
+
+
 def _seal_for_serial(serial):
 	"""Seal Device matching an ERPNext serial number (by name, IMEI or serial)."""
 	for field in ("name", "imei_number", "serial_number"):

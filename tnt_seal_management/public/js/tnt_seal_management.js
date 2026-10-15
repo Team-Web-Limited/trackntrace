@@ -242,7 +242,8 @@ function _tnt_transfer_dialog(seals, warehouses, onDone) {
 				callback(r) {
 					if (!r.message) return;
 					d.hide();
-					frappe.show_alert({ message: __("{0} seal(s) handed to {1}", [r.message.transferred, to]), indicator: "green" });
+					const stock = r.message.stock_entry ? __(" — stock moved by {0}", [r.message.stock_entry]) : "";
+					frappe.show_alert({ message: __("{0} seal(s) handed to {1}", [r.message.transferred, to]) + stock, indicator: "green" }, 8);
 					if (onDone) onDone(r.message);
 				},
 			});
