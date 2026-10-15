@@ -406,5 +406,80 @@ def get_custody_seals(custody_type, custodian):
 
 @frappe.whitelist()
 def get_warehouse_seals(warehouse):
-	"""ERPNext Warehouse variant of get_custody_seals."""
-	return get_custody_seals("Warehouse", warehouse)
+	"""Seals whose live custody is this ERPNext Warehouse, for the Warehouse
+	form's panel, each flagged ``in_stock`` with its ``stock_warehouse``: whether
+	the seal has an ERPNext serial in stock (a transfer to a warehouse needs one,
+	see transfer_custody)."""
+	from tnt_seal_management.tnt_seal_management.api.stock_seal_transfers import seal_stock_serials
+
+	seals = get_custody_seals("Warehouse", warehouse)
+	serials = seal_stock_serials([s.name for s in seals])
+	for seal in seals:
+		serial = serials.get(seal.name)
+		seal.in_stock = bool(serial)
+		seal.stock_warehouse = serial.warehouse if serial else None
+	return seals
+
+
+# Placement view, kept for later: lists seals here by custody OR by stock and
+# flags whether the two agree ("here" / "stock_only" / "custody_only").
+# @frappe.whitelist()
+# def get_warehouse_seals(warehouse):
+# 	"""Seals at an ERPNext Warehouse, for the Warehouse form's panel: those whose
+# 	live custody is this warehouse and those whose serial is in stock here, each
+# 	with ``placement`` saying whether the two agree —
+#
+# 	  "here"         custody and stock are both this warehouse
+# 	  "stock_only"   stock is here, custody is elsewhere (or not recorded)
+# 	  "custody_only" custody is here, stock is in another warehouse (or none)
+#
+# 	The same seals the Warehouses page counts by stock, plus those held here by
+# 	custody alone."""
+# 	if not warehouse:
+# 		return []
+# 	stock = dict(
+# 		frappe.db.sql(
+# 			"""
+# 			select sd.name, sn.warehouse
+# 			from `tabSeal Device` sd
+# 			join `tabSerial No` sn on sn.name in (sd.name, sd.serial_number, sd.imei_number)
+# 			where sn.status = 'Active' and ifnull(sn.warehouse, '') != ''
+# 				and (sn.warehouse = %(w)s
+# 					or (sd.current_custody_type = 'Warehouse' and sd.current_custodian = %(w)s))
+# 			""",
+# 			{"w": warehouse},
+# 		)
+# 	)
+# 	in_stock_here = [seal for seal, wh in stock.items() if wh == warehouse]
+# 	or_filters = [["name", "in", in_stock_here or [""]]]
+# 	or_filters.append(["current_custodian", "=", warehouse])
+# 	seals = frappe.get_list(
+# 		_DOCTYPE,
+# 		or_filters=or_filters,
+# 		fields=[
+# 			"name",
+# 			"seal_number",
+# 			"device_id",
+# 			"current_status",
+# 			"lock_status",
+# 			"condition",
+# 			"current_custody_type",
+# 			"current_custodian",
+# 			"current_custody_label",
+# 			"current_custody_since",
+# 		],
+# 		order_by="current_custody_since desc, seal_number asc",
+# 		limit_page_length=0,
+# 	)
+# 	rows = []
+# 	for seal in seals:
+# 		custody_here = seal.current_custody_type == "Warehouse" and seal.current_custodian == warehouse
+# 		stock_here = stock.get(seal.name) == warehouse
+# 		if not (custody_here or stock_here):
+# 			continue  # same custodian name under another custody type
+# 		seal.stock_warehouse = stock.get(seal.name)
+# 		seal.placement = "here" if custody_here and stock_here else ("custody_only" if custody_here else "stock_only")
+# 		rows.append(seal)
+# 	order = {"here": 0, "stock_only": 1, "custody_only": 2}
+# 	rows.sort(key=lambda r: order[r.placement])
+# 	return rows

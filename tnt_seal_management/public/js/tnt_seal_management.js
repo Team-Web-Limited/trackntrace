@@ -129,24 +129,32 @@ frappe.router.on('change', () => {
 
 const TNT_CUSTODY_SEALS_CLASS = "tnt-warehouse-seals";
 
-// Used by the Warehouse form: lists the seals held at (custody_type, frm.doc.name).
+// Seal stock state on the Warehouse form: whether the seal has an ERPNext serial
+// in stock. A transfer to a warehouse posts a Material Transfer, so it needs one.
+const TNT_SEAL_STOCK = {
+	in_stock: { color: "green", label: __("In stock"), help: __("Has a serial in stock") },
+	no_stock: { color: "red", label: __("No serial in stock"), help: __("Can't be transferred to a warehouse until it is received into stock") },
+};
+
+// Used by the Warehouse form: the seals whose custody is frm.doc.name, colour-
+// coded by whether they have a serial in stock (see seal_device.get_warehouse_seals).
 window.tnt_render_custody_seals = function (frm, custody_type, title) {
-	const e0 = frappe.utils.escape_html;
+	const e = frappe.utils.escape_html;
 	const $wrapper = $(frm.layout.wrapper);
 	$wrapper.find(`.${TNT_CUSTODY_SEALS_CLASS}`).remove();
 	if (frm.is_new()) return;
 
 	const $box = $(`
 		<div class="${TNT_CUSTODY_SEALS_CLASS} form-section card-section" style="margin-top: 15px;">
-			<div class="section-head">${e0(title)}</div>
+			<div class="section-head">${e(title)}</div>
 			<div class="wh-seals-body text-muted">${__("Loading...")}</div>
 		</div>
 	`).appendTo($wrapper);
 
 	const name = frm.doc.name;
 	frappe.call({
-		method: "tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device.get_custody_seals",
-		args: { custody_type, custodian: name },
+		method: "tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device.get_warehouse_seals",
+		args: { warehouse: name },
 		callback(r) {
 			// Ignore a late response after navigating to another Warehouse.
 			if (frm.doc.name !== name) return;
@@ -156,13 +164,23 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 				$body.text(__("No seals are currently held in this warehouse."));
 				return;
 			}
-			const e = frappe.utils.escape_html;
+			const stateOf = (d) => (d.in_stock ? "in_stock" : "no_stock");
+			const pill = (key) => {
+				const p = TNT_SEAL_STOCK[key];
+				return `<span class="indicator-pill ${p.color}" title="${e(p.help)}">${e(p.label)}</span>`;
+			};
+			const counts = {};
+			rows.forEach((d) => (counts[stateOf(d)] = (counts[stateOf(d)] || 0) + 1));
+			const legend = Object.keys(TNT_SEAL_STOCK)
+				.map((key) => `<span class="tnt-cs-legend-item">${pill(key)} <b>${counts[key] || 0}</b> <span class="text-muted">${e(TNT_SEAL_STOCK[key].help)}</span></span>`)
+				.join("");
 			const tr = rows
 				.map(
-					(d) => `<tr>
+					(d) => `<tr class="tnt-cs-row tnt-cs-row--${stateOf(d)}">
 						<td><input type="checkbox" class="tnt-cs-pick" data-seal="${e(d.name)}"></td>
 						<td><a href="/app/seal-device/${encodeURIComponent(d.name)}">${e(d.seal_number || d.name)}</a></td>
 						<td>${e(d.device_id || "")}</td>
+						<td>${pill(stateOf(d))}${d.stock_warehouse ? ` <span class="text-muted">${e(d.stock_warehouse)}</span>` : ""}</td>
 						<td>${e(d.current_status || "")}</td>
 						<td>${e(d.lock_status || "")}</td>
 						<td>${e(d.condition || "")}</td>
@@ -171,12 +189,22 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 				)
 				.join("");
 			$body.removeClass("text-muted").html(`
+				<style>
+					.tnt-cs-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 10px; font-size: 12px; }
+					.tnt-cs-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+					.tnt-warehouse-seals .indicator-pill { white-space: nowrap; }
+					.tnt-cs-row > td { white-space: nowrap; }
+					.tnt-cs-row > td:first-child { border-left: 4px solid transparent; }
+					.tnt-cs-row--in_stock > td:first-child { border-left-color: var(--green-500); }
+					.tnt-cs-row--no_stock > td:first-child { border-left-color: var(--red-500); }
+				</style>
 				<p class="text-muted">${__("{0} seal(s)", [rows.length])}
 					<button class="btn btn-xs btn-default tnt-cs-transfer" style="margin-left:10px">${__("Transfer selected")}</button></p>
+				<div class="tnt-cs-legend">${legend}</div>
 				<div class="table-responsive">
 					<table class="table table-bordered table-sm">
 						<thead><tr>
-							<th></th><th>${__("Seal Number")}</th><th>${__("Device ID")}</th><th>${__("Status")}</th>
+							<th></th><th>${__("Seal Number")}</th><th>${__("Device ID")}</th><th>${__("Stock")}</th><th>${__("Status")}</th>
 							<th>${__("Lock Status")}</th><th>${__("Condition")}</th><th>${__("In Custody Since")}</th>
 						</tr></thead>
 						<tbody>${tr}</tbody>
@@ -189,6 +217,103 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 		},
 	});
 };
+
+/* Placement view, kept for later: listed seals here by custody OR by stock and
+   colour-coded whether the two agree. Needs the commented-out placement
+   variant of seal_device.get_warehouse_seals.
+
+// Seal placement on the Warehouse form: does custody (seal management) agree
+// with stock (ERPNext) about the seal being in this warehouse?
+const TNT_SEAL_PLACEMENT = {
+	here: { color: "green", label: __("Here"), help: __("Custody and stock are both in this warehouse") },
+	stock_only: { color: "orange", label: __("Stock only"), help: __("In stock here, but custody is elsewhere or not recorded") },
+	custody_only: { color: "red", label: __("Custody only"), help: __("Held here by custody, but its stock is in another warehouse") },
+};
+
+// Used by the Warehouse form: the seals at frm.doc.name by custody or by stock,
+// colour-coded by whether the two agree (see seal_device.get_warehouse_seals).
+window.tnt_render_custody_seals = function (frm, custody_type, title) {
+	const e = frappe.utils.escape_html;
+	const $wrapper = $(frm.layout.wrapper);
+	$wrapper.find(`.${TNT_CUSTODY_SEALS_CLASS}`).remove();
+	if (frm.is_new()) return;
+
+	const $box = $(`
+		<div class="${TNT_CUSTODY_SEALS_CLASS} form-section card-section" style="margin-top: 15px;">
+			<div class="section-head">${e(title)}</div>
+			<div class="wh-seals-body text-muted">${__("Loading...")}</div>
+		</div>
+	`).appendTo($wrapper);
+
+	const name = frm.doc.name;
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device.get_warehouse_seals",
+		args: { warehouse: name },
+		callback(r) {
+			// Ignore a late response after navigating to another Warehouse.
+			if (frm.doc.name !== name) return;
+			const rows = (r && r.message) || [];
+			const $body = $box.find(".wh-seals-body");
+			if (!rows.length) {
+				$body.text(__("No seals are held in this warehouse, by custody or by stock."));
+				return;
+			}
+			const pill = (key) => {
+				const p = TNT_SEAL_PLACEMENT[key];
+				return `<span class="indicator-pill ${p.color}" title="${e(p.help)}">${e(p.label)}</span>`;
+			};
+			const counts = {};
+			rows.forEach((d) => (counts[d.placement] = (counts[d.placement] || 0) + 1));
+			const legend = Object.keys(TNT_SEAL_PLACEMENT)
+				.map((key) => `<span class="tnt-cs-legend-item">${pill(key)} <b>${counts[key] || 0}</b> <span class="text-muted">${e(TNT_SEAL_PLACEMENT[key].help)}</span></span>`)
+				.join("");
+			const tr = rows
+				.map(
+					(d) => `<tr class="tnt-cs-row tnt-cs-row--${e(d.placement)}">
+						<td><input type="checkbox" class="tnt-cs-pick" data-seal="${e(d.name)}"></td>
+						<td><a href="/app/seal-device/${encodeURIComponent(d.name)}">${e(d.seal_number || d.name)}</a></td>
+						<td>${pill(d.placement)}</td>
+						<td>${e(d.current_status || "")}</td>
+						<td>${e(d.lock_status || "")}</td>
+						<td>${e(d.condition || "")}</td>
+						<td>${e(d.current_custody_label || __("Not recorded"))}</td>
+						<td>${e(d.stock_warehouse || __("Not in stock"))}</td>
+						<td>${d.current_custody_since ? frappe.datetime.str_to_user(d.current_custody_since) : ""}</td>
+					</tr>`
+				)
+				.join("");
+			$body.removeClass("text-muted").html(`
+				<style>
+					.tnt-cs-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 10px; font-size: 12px; }
+					.tnt-cs-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+					.tnt-warehouse-seals .indicator-pill { white-space: nowrap; }
+					.tnt-cs-row > td { white-space: nowrap; }
+					.tnt-cs-row > td:first-child { border-left: 4px solid transparent; }
+					.tnt-cs-row--here > td:first-child { border-left-color: var(--green-500); }
+					.tnt-cs-row--stock_only > td:first-child { border-left-color: var(--orange-500); }
+					.tnt-cs-row--custody_only > td:first-child { border-left-color: var(--red-500); }
+				</style>
+				<p class="text-muted">${__("{0} seal(s)", [rows.length])}
+					<button class="btn btn-xs btn-default tnt-cs-transfer" style="margin-left:10px">${__("Transfer selected")}</button></p>
+				<div class="tnt-cs-legend">${legend}</div>
+				<div class="table-responsive">
+					<table class="table table-bordered table-sm">
+						<thead><tr>
+							<th></th><th>${__("Seal Number")}</th><th>${__("Placement")}</th><th>${__("Status")}</th>
+							<th>${__("Lock Status")}</th><th>${__("Condition")}</th><th>${__("Custody")}</th>
+							<th>${__("Stock Warehouse")}</th><th>${__("In Custody Since")}</th>
+						</tr></thead>
+						<tbody>${tr}</tbody>
+					</table>
+				</div>`);
+			$body.find(".tnt-cs-transfer").on("click", () => {
+				const picked = $body.find(".tnt-cs-pick:checked").map((_i, el) => $(el).data("seal")).get();
+				window.tnt_transfer_seals(picked, () => window.tnt_render_custody_seals(frm, custody_type, title));
+			});
+		},
+	});
+};
+*/
 
 
 // Hand seals over to a person or a seal warehouse (Branch ECTS Division or Both, e.g. Stores - TD).
