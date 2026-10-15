@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import now_datetime
+from frappe.utils import cstr, now_datetime
 
 
 class SealDevice(Document):
@@ -232,21 +232,24 @@ _TRANSFER_SUPERVISOR_ROLES = ("System Manager", "Operations Control Room", "PCB 
 
 
 @frappe.whitelist()
-def transfer_custody(seals, to_custody_type, to_custodian, remarks=None):
+def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_code=None):
 	"""Hand seals over to a live person (User) or a seal warehouse (an ERPNext Warehouse
 	whose Branch is ECTS Division or Both, such as the main store). One step: custody moves as soon as this is submitted, and a
 	Seal Custody Transfer record keeps who moved what from whom to whom.
 
-	To a warehouse, stock moves with custody: a Material Transfer is submitted for
-	the seals' serials (see stock_seal_transfers.post_seal_material_transfer),
-	and its hook moves custody and writes the history. Every seal must be in
-	stock for that; a seal whose stock already sits in the target only has its
-	custody moved. A handover to a person moves custody only.
+	To a warehouse, stock moves with custody: a Material Transfer is raised for
+	the seals' serials under ``item_code`` and sent for approval through the
+	Stock Entry workflow (see stock_seal_transfers.request_seal_material_transfer).
+	Nothing moves until a stock approver approves it; the submit's hook then moves
+	custody and writes the history. Every seal must be in stock under that item; a seal
+	whose stock already sits in the target only has its custody moved. A handover
+	to a person moves custody only.
 
 	Seals held by a Customer move only through the journey workflow, and a seal on
 	a journey that is In Transit can't be handed over."""
 	seals = frappe.parse_json(seals) if isinstance(seals, str) else seals
-	seals = list(dict.fromkeys(seals or []))
+	# Seal names are often all digits; a client can send them as numbers.
+	seals = list(dict.fromkeys(cstr(s) for s in (seals or []) if cstr(s)))
 	if not seals:
 		frappe.throw(_("Select at least one seal to transfer."))
 	if to_custody_type not in _TRANSFER_TARGET_TYPES:
@@ -294,14 +297,17 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None):
 			}
 		)
 
-	stock_entry = None
+	stock_entry, pending = None, False
 	stocked = set()  # seals whose custody and history the Material Transfer handles
 	if to_custody_type == "Warehouse":
 		from tnt_seal_management.tnt_seal_management.api.stock_seal_transfers import (
-			post_seal_material_transfer,
+			pending_seal_transfers,
+			request_seal_material_transfer,
 			seal_stock_serials,
 		)
 
+		if not item_code:
+			frappe.throw(_("Select the Item Code the seals are stocked under."), title=_("Item Code Required"))
 		serials = seal_stock_serials([r["seal_device"] for r in rows])
 		missing = [r["seal_device"] for r in rows if r["seal_device"] not in serials]
 		if missing:
@@ -311,9 +317,26 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None):
 				),
 				title=_("Not in Stock"),
 			)
+		other_item = [f"{seal} ({s.item_code})" for seal, s in serials.items() if s.item_code != item_code]
+		if other_item:
+			frappe.throw(
+				_("These seals are stocked under a different item than {0}: {1}. Transfer them separately under their own item code.").format(
+					item_code, ", ".join(other_item)
+				),
+				title=_("Item Code Mismatch"),
+			)
+		waiting = pending_seal_transfers(serial_nos=[s.serial_no for s in serials.values()])
+		if waiting:
+			held = {serial for entry in waiting.values() for serial in entry["serials"]}
+			frappe.throw(
+				_("These seals already have a transfer awaiting approval ({0}): {1}.").format(
+					", ".join(waiting), ", ".join(seal for seal, s in serials.items() if s.serial_no in held)
+				),
+				title=_("Awaiting Approval"),
+			)
 		to_move = [s for seal, s in serials.items() if s.warehouse != to_custodian]
 		if to_move:
-			stock_entry = post_seal_material_transfer(
+			stock_entry, pending = request_seal_material_transfer(
 				to_move,
 				to_custodian,
 				remarks=_("Seal transfer by {0}{1}").format(user, f": {remarks}" if remarks else ""),
@@ -330,19 +353,24 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None):
 			remarks=remarks or _("Handed over by {0}").format(user),
 		)
 	to_label = _custody_label(to_custody_type, to_custodian)
-	transfer = frappe.get_doc(
-		{
-			"doctype": "Seal Custody Transfer",
-			"transfer_date_time": now_datetime(),
-			"transferred_by": user,
-			"to_custody_type": to_custody_type,
-			"to_custodian": to_custodian,
-			"to_label": to_label,
-			"remarks": " — ".join(filter(None, [remarks, stock_entry and _("Stock Entry {0}").format(stock_entry)])) or None,
-			"seals": rows,
-		}
-	).insert(ignore_permissions=True)
-	for row in rows:
+	# Seals waiting on the approval haven't moved, so they aren't on the transfer
+	# record; their move is recorded by the Material Transfer when approved.
+	moved_rows = [r for r in rows if not (pending and r["seal_device"] in stocked)]
+	transfer = None
+	if moved_rows:
+		transfer = frappe.get_doc(
+			{
+				"doctype": "Seal Custody Transfer",
+				"transfer_date_time": now_datetime(),
+				"transferred_by": user,
+				"to_custody_type": to_custody_type,
+				"to_custodian": to_custodian,
+				"to_label": to_label,
+				"remarks": " — ".join(filter(None, [remarks, stock_entry and _("Stock Entry {0}").format(stock_entry)])) or None,
+				"seals": moved_rows,
+			}
+		).insert(ignore_permissions=True)
+	for row in moved_rows:
 		if row["seal_device"] in stocked:
 			continue  # the Material Transfer's hook wrote this seal's history row
 		_append_transfer_history(
@@ -351,7 +379,12 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None):
 			to_label,
 			_("{0}{1}").format(transfer.name, f" — {remarks}" if remarks else ""),
 		)
-	return {"transfer": transfer.name, "transferred": len(rows), "stock_entry": stock_entry}
+	return {
+		"transfer": transfer.name if transfer else None,
+		"transferred": len(moved_rows),
+		"stock_entry": stock_entry,
+		"awaiting_approval": len(stocked) if pending else 0,
+	}
 
 
 def _append_transfer_history(seal_device, from_label, to_label, note):
@@ -407,17 +440,25 @@ def get_custody_seals(custody_type, custodian):
 @frappe.whitelist()
 def get_warehouse_seals(warehouse):
 	"""Seals whose live custody is this ERPNext Warehouse, for the Warehouse
-	form's panel, each flagged ``in_stock`` with its ``stock_warehouse``: whether
-	the seal has an ERPNext serial in stock (a transfer to a warehouse needs one,
-	see transfer_custody)."""
-	from tnt_seal_management.tnt_seal_management.api.stock_seal_transfers import seal_stock_serials
+	form's panel, each flagged ``in_stock`` with its ``stock_warehouse`` (whether
+	the seal has an ERPNext serial in stock — a transfer to a warehouse needs
+	one, see transfer_custody) and ``pending_transfer``: the Material Transfer
+	awaiting approval that would move it, if any."""
+	from tnt_seal_management.tnt_seal_management.api.stock_seal_transfers import (
+		pending_seal_transfers,
+		seal_stock_serials,
+	)
 
 	seals = get_custody_seals("Warehouse", warehouse)
 	serials = seal_stock_serials([s.name for s in seals])
+	waiting = pending_seal_transfers(serial_nos=[s.serial_no for s in serials.values()])
 	for seal in seals:
 		serial = serials.get(seal.name)
 		seal.in_stock = bool(serial)
 		seal.stock_warehouse = serial.warehouse if serial else None
+		seal.pending_transfer = next(
+			(name for name, entry in waiting.items() if serial and serial.serial_no in entry["serials"]), None
+		)
 	return seals
 
 

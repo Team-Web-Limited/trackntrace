@@ -38,13 +38,27 @@ def seal_stock_serials(seals):
 	return {r.seal: r for r in rows}
 
 
-def post_seal_material_transfer(serials, target, remarks=None):
-	"""Submit one Material Transfer moving the given seal serials (rows from
+PENDING_APPROVAL = "Pending Approval"
+# The Stock Entry workflow actions an approver can take from the seal panel.
+SEAL_TRANSFER_ACTIONS = ("Approve", "Return For Amendment")
+
+
+def request_seal_material_transfer(serials, target, remarks=None):
+	"""Raise one Material Transfer moving the given seal serials (rows from
 	seal_stock_serials) into ``target``, one item row per item code and source
-	warehouse. Its on_submit hook (on_stock_entry_submit) then moves each seal's
-	custody to ``target`` and writes the Seal Transfer history rows. Runs without
-	the user's stock permissions, because seal handovers are allowed to roles
-	that can't post stock. Returns the Stock Entry name."""
+	warehouse. Returns (stock entry name, pending).
+
+	With the Stock Entry approval workflow active (as on this site), the entry
+	is created as a Draft and moved to "Pending Approval" for the requester —
+	the Control Room and Field Technicians who hand seals over don't hold the
+	Regional Stock Manager role that "Send For Approval" needs — and the
+	workflow's approvers are notified as usual. Nothing moves until an approver
+	approves it (see act_on_seal_transfer, or ERPNext itself): the submit then
+	runs on_stock_entry_submit, which moves custody and writes the history.
+	Without a workflow it is submitted straight away."""
+	from frappe.model.workflow import get_workflow_name
+	from frappe.workflow.doctype.workflow_action.workflow_action import process_workflow_actions
+
 	groups = {}
 	for row in serials:
 		groups.setdefault((row.item_code, row.warehouse), []).append(row.serial_no)
@@ -70,8 +84,128 @@ def post_seal_material_transfer(serials, target, remarks=None):
 	)
 	entry.flags.ignore_permissions = True
 	entry.insert()
+
+	workflow = get_workflow_name("Stock Entry")
+	if workflow and frappe.db.exists("Workflow Document State", {"parent": workflow, "state": PENDING_APPROVAL}):
+		entry.db_set("workflow_state", PENDING_APPROVAL)
+		entry.add_comment("Workflow", PENDING_APPROVAL)
+		process_workflow_actions(entry, "on_update")
+		return entry.name, True
+
 	entry.submit()
-	return entry.name
+	return entry.name, False
+
+
+def pending_seal_transfers(serial_nos=None, warehouse=None):
+	"""Material Transfers awaiting approval that move seal serials, as
+	{stock entry: {"serials": {...}, "from": {...}, "to": {...}}}. Narrowed to the
+	given serials, or to entries moving stock out of or into ``warehouse``."""
+	rows = frappe.db.sql(
+		"""
+		select se.name, se.owner, se.creation, sed.serial_no, sed.s_warehouse, sed.t_warehouse
+		from `tabStock Entry` se
+		join `tabStock Entry Detail` sed on sed.parent = se.name and sed.parenttype = 'Stock Entry'
+		where se.docstatus = 0 and se.purpose = 'Material Transfer' and se.workflow_state = %(state)s
+		""",
+		{"state": PENDING_APPROVAL},
+		as_dict=True,
+	)
+	wanted = {cstr(s) for s in serial_nos} if serial_nos is not None else None
+	out = {}
+	for r in rows:
+		serials = {s.strip() for s in cstr(r.serial_no).split("\n") if s.strip()}
+		if wanted is not None and not serials & wanted:
+			continue
+		if warehouse and warehouse not in (r.s_warehouse, r.t_warehouse):
+			continue
+		entry = out.setdefault(
+			r.name, {"owner": r.owner, "creation": r.creation, "serials": set(), "from": set(), "to": set()}
+		)
+		entry["serials"] |= serials if wanted is None else serials & wanted
+		entry["from"].add(r.s_warehouse)
+		entry["to"].add(r.t_warehouse)
+	return out
+
+
+@frappe.whitelist()
+def get_seal_transfer_approvals(warehouse):
+	"""Seal Material Transfers awaiting approval that move stock out of or into
+	``warehouse``, for the Warehouse form's panel, with the approval actions the
+	current user may take on each (empty for users the workflow doesn't allow)."""
+	from frappe.model.workflow import get_transitions
+
+	out = []
+	for name, entry in pending_seal_transfers(warehouse=warehouse).items():
+		seals = [s for s in (_seal_for_serial(serial) for serial in sorted(entry["serials"])) if s]
+		if not seals:
+			continue
+		try:
+			actions = sorted(
+				{t.action for t in get_transitions(frappe.get_doc("Stock Entry", name)) if t.action in SEAL_TRANSFER_ACTIONS},
+				key=SEAL_TRANSFER_ACTIONS.index,
+			)
+		except frappe.PermissionError:
+			actions = []
+		out.append(
+			{
+				"stock_entry": name,
+				"requested_by": frappe.utils.get_fullname(entry["owner"]),
+				"requested_on": entry["creation"],
+				"from": sorted(w for w in entry["from"] if w),
+				"to": sorted(w for w in entry["to"] if w),
+				"seals": seals,
+				"actions": actions,
+			}
+		)
+	return out
+
+
+@frappe.whitelist()
+def act_on_seal_transfer(stock_entry, action):
+	"""Approve or return a pending seal Material Transfer through the Stock Entry
+	workflow, as the current user — the workflow checks they hold an approving
+	role. Approving submits it, and on_stock_entry_submit then moves the seals'
+	custody. Returns the new workflow state."""
+	from frappe.model.workflow import apply_workflow
+
+	if action not in SEAL_TRANSFER_ACTIONS:
+		frappe.throw(_("Only {0} can be done here.").format(" / ".join(SEAL_TRANSFER_ACTIONS)))
+	doc = frappe.get_doc("Stock Entry", stock_entry)
+	if doc.workflow_state != PENDING_APPROVAL:
+		frappe.throw(_("{0} is no longer awaiting approval ({1}).").format(stock_entry, doc.workflow_state))
+	return apply_workflow(doc, action).workflow_state
+
+
+@frappe.whitelist()
+def get_seal_transfer_options(seals=None):
+	"""Choices for the seal Transfer dialog: the seal warehouses, the stock items
+	(those ticked Is Seal first) and the item code the selected seals' serials
+	share, as the default. Plain lists, so the dialog works for roles (Control
+	Room, PCB Team Leader, Field Technician) that can't read Warehouse or Item."""
+	from tnt_seal_management.tnt_seal_management.api.seal_warehouses import get_seal_warehouse_options
+
+	seals = frappe.parse_json(seals) if isinstance(seals, str) else (seals or [])
+	items = frappe.get_all(
+		"Item",
+		filters={"disabled": 0, "is_stock_item": 1, "has_variants": 0},
+		fields=["name", "item_name", "custom_is_seal"],
+		order_by="custom_is_seal desc, name asc",
+	)
+	codes = {s.item_code for s in seal_stock_serials([cstr(x) for x in seals]).values()}
+	return {
+		"warehouses": [w.name for w in get_seal_warehouse_options()],
+		"items": [
+			{
+				"value": i.name,
+				"label": i.name,
+				"description": " · ".join(
+					filter(None, [_("Seal item") if i.custom_is_seal else None, i.item_name if i.item_name != i.name else None])
+				),
+			}
+			for i in items
+		],
+		"default_item": codes.pop() if len(codes) == 1 else None,
+	}
 
 
 def _seal_for_serial(serial):

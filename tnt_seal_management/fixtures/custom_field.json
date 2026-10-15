@@ -469,5 +469,18 @@
   "modified": "2026-10-15 15:00:00",
   "module": null,
   "name": "Warehouse-custom_seal_geofence_radius"
+ },
+ {
+  "description": "Seal items are listed first in the seal Transfer dialog's Item Code.",
+  "doctype": "Custom Field",
+  "dt": "Item",
+  "fieldname": "custom_is_seal",
+  "fieldtype": "Check",
+  "in_standard_filter": 1,
+  "insert_after": "is_stock_item",
+  "label": "Is Seal",
+  "modified": "2026-10-15 17:00:00",
+  "module": null,
+  "name": "Item-custom_is_seal"
  }
 ]

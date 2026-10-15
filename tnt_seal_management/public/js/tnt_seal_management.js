@@ -134,6 +134,7 @@ const TNT_CUSTODY_SEALS_CLASS = "tnt-warehouse-seals";
 const TNT_SEAL_STOCK = {
 	in_stock: { color: "green", label: __("In stock"), help: __("Has a serial in stock") },
 	no_stock: { color: "red", label: __("No serial in stock"), help: __("Can't be transferred to a warehouse until it is received into stock") },
+	pending: { color: "yellow", label: __("Pending approval"), help: __("A transfer is waiting for a stock approver; nothing moves until it is approved") },
 };
 
 // Used by the Warehouse form: the seals whose custody is frm.doc.name, colour-
@@ -164,7 +165,7 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 				$body.text(__("No seals are currently held in this warehouse."));
 				return;
 			}
-			const stateOf = (d) => (d.in_stock ? "in_stock" : "no_stock");
+			const stateOf = (d) => (d.pending_transfer ? "pending" : d.in_stock ? "in_stock" : "no_stock");
 			const pill = (key) => {
 				const p = TNT_SEAL_STOCK[key];
 				return `<span class="indicator-pill ${p.color}" title="${e(p.help)}">${e(p.label)}</span>`;
@@ -180,7 +181,11 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 						<td><input type="checkbox" class="tnt-cs-pick" data-seal="${e(d.name)}"></td>
 						<td><a href="/app/seal-device/${encodeURIComponent(d.name)}">${e(d.seal_number || d.name)}</a></td>
 						<td>${e(d.device_id || "")}</td>
-						<td>${pill(stateOf(d))}${d.stock_warehouse ? ` <span class="text-muted">${e(d.stock_warehouse)}</span>` : ""}</td>
+						<td>${pill(stateOf(d))}${
+							d.pending_transfer
+								? ` <a href="/app/stock-entry/${encodeURIComponent(d.pending_transfer)}">${e(d.pending_transfer)}</a>`
+								: d.stock_warehouse ? ` <span class="text-muted">${e(d.stock_warehouse)}</span>` : ""
+						}</td>
 						<td>${e(d.current_status || "")}</td>
 						<td>${e(d.lock_status || "")}</td>
 						<td>${e(d.condition || "")}</td>
@@ -197,6 +202,7 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 					.tnt-cs-row > td:first-child { border-left: 4px solid transparent; }
 					.tnt-cs-row--in_stock > td:first-child { border-left-color: var(--green-500); }
 					.tnt-cs-row--no_stock > td:first-child { border-left-color: var(--red-500); }
+					.tnt-cs-row--pending > td:first-child { border-left-color: var(--yellow-500); }
 				</style>
 				<p class="text-muted">${__("{0} seal(s)", [rows.length])}
 					<button class="btn btn-xs btn-default tnt-cs-transfer" style="margin-left:10px">${__("Transfer selected")}</button></p>
@@ -211,12 +217,81 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 					</table>
 				</div>`);
 			$body.find(".tnt-cs-transfer").on("click", () => {
-				const picked = $body.find(".tnt-cs-pick:checked").map((_i, el) => $(el).data("seal")).get();
+				// dataset, not .data(): jQuery turns digit-only seal names into numbers.
+				const picked = $body.find(".tnt-cs-pick:checked").map((_i, el) => el.dataset.seal).get();
 				window.tnt_transfer_seals(picked, () => window.tnt_render_custody_seals(frm, custody_type, title));
 			});
 		},
 	});
+	_tnt_render_transfer_approvals(frm, $box, () => window.tnt_render_custody_seals(frm, custody_type, title));
 };
+
+// Seal Material Transfers into or out of this warehouse that are waiting for a
+// stock approver, with Approve / Return For Amendment for users the Stock Entry
+// workflow allows (e.g. Stock Manager). Others just see what is pending.
+function _tnt_render_transfer_approvals(frm, $box, onDone) {
+	const e = frappe.utils.escape_html;
+	const name = frm.doc.name;
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.get_seal_transfer_approvals",
+		args: { warehouse: name },
+		callback(r) {
+			if (frm.doc.name !== name) return;
+			const pending = (r && r.message) || [];
+			if (!pending.length) return;
+			const rows = pending
+				.map((p) => {
+					const buttons = (p.actions || [])
+						.map(
+							(action) =>
+								`<button class="btn btn-xs ${action === "Approve" ? "btn-primary" : "btn-default"} tnt-ta-act"
+									data-entry="${e(p.stock_entry)}" data-action="${e(action)}">${e(__(action))}</button>`
+						)
+						.join(" ");
+					return `<tr>
+						<td><a href="/app/stock-entry/${encodeURIComponent(p.stock_entry)}">${e(p.stock_entry)}</a></td>
+						<td>${e(p.from.join(", "))} → ${e(p.to.join(", "))}</td>
+						<td>${e(p.seals.join(", "))}</td>
+						<td>${e(p.requested_by || "")}<div class="text-muted small">${frappe.datetime.str_to_user(p.requested_on)}</div></td>
+						<td class="text-right" style="white-space:nowrap">${buttons || `<span class="text-muted">${__("Awaiting a stock approver")}</span>`}</td>
+					</tr>`;
+				})
+				.join("");
+			$(`
+				<div class="tnt-ta" style="margin: 4px 0 14px;">
+					<div class="section-head" style="font-size: var(--text-md);">${__("Transfers awaiting approval")}</div>
+					<div class="table-responsive">
+						<table class="table table-bordered table-sm">
+							<thead><tr>
+								<th>${__("Stock Entry")}</th><th>${__("From → To")}</th><th>${__("Seals")}</th>
+								<th>${__("Requested By")}</th><th></th>
+							</tr></thead>
+							<tbody>${rows}</tbody>
+						</table>
+					</div>
+				</div>
+			`).insertAfter($box.find(".section-head").first());
+			$box.find(".tnt-ta-act").on("click", function () {
+				const entry = this.dataset.entry;
+				const action = this.dataset.action;
+				const message = action === "Approve"
+					? __("Approve {0}? The seals' stock and custody move to the target warehouse.", [entry])
+					: __("Return {0} for amendment? Nothing moves.", [entry]);
+				frappe.confirm(message, () =>
+					frappe.call({
+						method: "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.act_on_seal_transfer",
+						args: { stock_entry: entry, action },
+						freeze: true,
+						callback(res) {
+							frappe.show_alert({ message: __("{0}: {1}", [entry, res.message]), indicator: action === "Approve" ? "green" : "orange" }, 6);
+							onDone();
+						},
+					})
+				);
+			});
+		},
+	});
+}
 
 /* Placement view, kept for later: listed seals here by custody OR by stock and
    colour-coded whether the two agree. Needs the commented-out placement
@@ -307,7 +382,8 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 					</table>
 				</div>`);
 			$body.find(".tnt-cs-transfer").on("click", () => {
-				const picked = $body.find(".tnt-cs-pick:checked").map((_i, el) => $(el).data("seal")).get();
+				// dataset, not .data(): jQuery turns digit-only seal names into numbers.
+				const picked = $body.find(".tnt-cs-pick:checked").map((_i, el) => el.dataset.seal).get();
 				window.tnt_transfer_seals(picked, () => window.tnt_render_custody_seals(frm, custody_type, title));
 			});
 		},
@@ -323,17 +399,19 @@ window.tnt_transfer_seals = function (seals, onDone) {
 		frappe.msgprint(__("Select at least one seal first."));
 		return;
 	}
-	// Warehouses come as a plain list: some roles that hand seals over can't
-	// search the ERPNext Warehouse doctype through a Link field.
+	// Warehouses and items come as plain lists: some roles that hand seals over
+	// can't search the ERPNext Warehouse or Item doctypes through a Link field.
 	frappe.call({
-		method: "tnt_seal_management.tnt_seal_management.api.seal_warehouses.get_seal_warehouse_options",
+		method: "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.get_seal_transfer_options",
+		args: { seals },
 		callback(r) {
-			_tnt_transfer_dialog(seals, (r.message || []).map((w) => w.name), onDone);
+			_tnt_transfer_dialog(seals, r.message || {}, onDone);
 		},
 	});
 };
 
-function _tnt_transfer_dialog(seals, warehouses, onDone) {
+function _tnt_transfer_dialog(seals, options, onDone) {
+	const warehouses = options.warehouses || [];
 	const d = new frappe.ui.Dialog({
 		title: __("Transfer {0} seal(s)", [seals.length]),
 		fields: [
@@ -348,13 +426,29 @@ function _tnt_transfer_dialog(seals, warehouses, onDone) {
 					const type = d.get_value("to_custody_type");
 					d.set_df_property("to_user", "hidden", type !== "User");
 					d.set_df_property("to_user", "reqd", type === "User");
-					d.set_df_property("to_point", "hidden", type !== "Warehouse");
-					d.set_df_property("to_point", "reqd", type === "Warehouse");
+					// A warehouse transfer posts a Material Transfer, under an item code.
+					for (const field of ["to_point", "item_code"]) {
+						d.set_df_property(field, "hidden", type !== "Warehouse");
+						d.set_df_property(field, "reqd", type === "Warehouse");
+					}
+					// Auto-fill the seals' own item code, but never over one the user
+					// has picked; it stays editable either way.
+					if (type === "Warehouse" && options.default_item && !d.get_value("item_code")) {
+						d.set_value("item_code", options.default_item);
+					}
 				},
 			},
 			{ fieldname: "to_user", fieldtype: "Link", options: "User", label: __("Person"), reqd: 1,
 				get_query: () => ({ filters: { enabled: 1, user_type: "System User" } }) },
 			{ fieldname: "to_point", fieldtype: "Select", options: ["", ...warehouses].join("\n"), label: __("Warehouse"), hidden: 1 },
+			{
+				fieldname: "item_code",
+				fieldtype: "Autocomplete",
+				label: __("Item Code"),
+				options: options.items || [],
+				hidden: 1,
+				description: __("Seal items are listed first. The selected seals must be stocked under this item."),
+			},
 			{ fieldname: "remarks", fieldtype: "Small Text", label: __("Remarks (Optional)") },
 		],
 		primary_action_label: __("Transfer"),
@@ -362,13 +456,29 @@ function _tnt_transfer_dialog(seals, warehouses, onDone) {
 			const to = values.to_custody_type === "User" ? values.to_user : values.to_point;
 			frappe.call({
 				method: "tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device.transfer_custody",
-				args: { seals, to_custody_type: values.to_custody_type, to_custodian: to, remarks: values.remarks },
+				args: {
+					seals,
+					to_custody_type: values.to_custody_type,
+					to_custodian: to,
+					remarks: values.remarks,
+					item_code: values.to_custody_type === "Warehouse" ? values.item_code : null,
+				},
 				freeze: true,
 				callback(r) {
 					if (!r.message) return;
 					d.hide();
-					const stock = r.message.stock_entry ? __(" — stock moved by {0}", [r.message.stock_entry]) : "";
-					frappe.show_alert({ message: __("{0} seal(s) handed to {1}", [r.message.transferred, to]) + stock, indicator: "green" }, 8);
+					const m = r.message;
+					if (m.awaiting_approval) {
+						frappe.msgprint({
+							title: __("Sent for approval"),
+							indicator: "orange",
+							message: __("{0} seal(s) will move to {1} once a stock approver approves {2}. Nothing has moved yet.", [m.awaiting_approval, to, m.stock_entry])
+								+ (m.transferred ? "<br>" + __("{0} seal(s) already stocked there were handed over now.", [m.transferred]) : ""),
+						});
+					} else {
+						const stock = m.stock_entry ? __(" — stock moved by {0}", [m.stock_entry]) : "";
+						frappe.show_alert({ message: __("{0} seal(s) handed to {1}", [m.transferred, to]) + stock, indicator: "green" }, 8);
+					}
 					if (onDone) onDone(r.message);
 				},
 			});

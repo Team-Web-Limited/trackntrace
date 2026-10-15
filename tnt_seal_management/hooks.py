@@ -27,6 +27,7 @@ fixtures = [
 					"Customer-custom_tax_category",
 					"Customer-custom_division",
 					"Warehouse-custom_division",
+					"Item-custom_is_seal",
 					"Warehouse-custom_seal_management_section",
 					"Warehouse-custom_is_main_seal_store",
 					"Warehouse-custom_seal_column",
