@@ -26,7 +26,8 @@ from tnt_seal_management.tnt_seal_management.api.seal_lease_billing import (
 # finance action and represent a finalized state.
 TERMINAL_BILLING_STATUSES = ("Billed", "Cancelled")
 
-ARRIVAL_CONFIRMATION_FIELDS = ("untagging_confirmation", "seal_unlocked_confirmation", "arrival_remarks")
+FLOW_CONFIRMATION_FIELDS = ("untagging_confirmation", "seal_unlocked_confirmation")
+ARRIVAL_CONFIRMATION_FIELDS = ("arrival_remarks",)
 _ARRIVAL_FIELD_LABELS = {
 	"untagging_confirmation": "Untagging Confirmation",
 	"seal_unlocked_confirmation": "Seal Unlocked Confirmation",
@@ -369,18 +370,27 @@ class SealJourney(Document):
 		return 1 if self.assigned_seal else 0
 
 	def enforce_arrival_field_locks(self):
-		"""Untagging Confirmation / Seal Unlocked Confirmation / Arrival Remarks may
-		only be edited by hand while untagging is actually in progress — keeps a
-		Control Room user from pre-ticking confirmations before the seal is
-		physically untagged. The transition methods below set
-		``ignore_field_locks`` since they drive these fields themselves."""
+		"""Untagging Confirmation / Seal Unlocked Confirmation are set only by the
+		journey flow (confirm_arrival, untagging confirmation), never by hand.
+		Arrival Remarks may be edited by hand only while untagging is in
+		progress. The transition methods set ``ignore_field_locks`` since they
+		drive these fields themselves."""
 		if self.is_new() or self.flags.get("ignore_field_locks"):
 			return
-		if "System Manager" in set(frappe.get_roles()):
+		previous = self.get_doc_before_save()
+		if not previous:
 			return
 
-		previous = self.get_doc_before_save()
-		if not previous or self.journey_status == "Untagging In Progress":
+		for fieldname in FLOW_CONFIRMATION_FIELDS:
+			if cint(self.get(fieldname)) != cint(previous.get(fieldname)):
+				frappe.throw(
+					_("{0} is set by the journey flow and can't be changed by hand.").format(
+						_(_ARRIVAL_FIELD_LABELS.get(fieldname, fieldname))
+					),
+					title=_("Not Permitted"),
+				)
+
+		if "System Manager" in set(frappe.get_roles()) or self.journey_status == "Untagging In Progress":
 			return
 
 		for fieldname in ARRIVAL_CONFIRMATION_FIELDS:
@@ -1103,17 +1113,8 @@ def complete_untagging(docname):
 			_("Untagging can only be completed once it has started."),
 			title=_("Invalid Status"),
 		)
-	if not cint(doc.untagging_confirmation):
-		frappe.throw(
-			_("Tick Untagging Confirmation to confirm the seal has been removed."),
-			title=_("Confirmation Required"),
-		)
-	if not cint(doc.seal_unlocked_confirmation):
-		frappe.throw(
-			_("Tick Seal Unlocked Confirmation to confirm the seal has been unlocked."),
-			title=_("Confirmation Required"),
-		)
-
+	doc.untagging_confirmation = 1
+	doc.seal_unlocked_confirmation = 1
 	doc.untagging_completed_date_time = doc.untagging_completed_date_time or now_datetime()
 	doc.untagging_status = "Completed"
 	doc.journey_status = "Untagged"

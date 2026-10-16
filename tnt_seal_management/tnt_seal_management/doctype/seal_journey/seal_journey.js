@@ -263,14 +263,11 @@ function _seed_pre_tagging_checklist(frm) {
 const SJ_METHOD = (name) =>
 	`tnt_seal_management.tnt_seal_management.doctype.seal_journey.seal_journey.${name}`;
 
-// Untagging Confirmation / Seal Unlocked Confirmation / Arrival Remarks are
-// only hand-edited by Operations Control Room, and only while untagging is
-// actually in progress — mirrors enforce_arrival_field_locks() server-side.
-const SJ_ARRIVAL_CONFIRMATION_FIELDS = [
-	"untagging_confirmation",
-	"seal_unlocked_confirmation",
-	"arrival_remarks",
-];
+// Arrival Remarks is only hand-edited by Operations Control Room, and only while
+// untagging is actually in progress — mirrors enforce_arrival_field_locks()
+// server-side. The two confirmation checkboxes are always read-only (set by the
+// journey flow).
+const SJ_ARRIVAL_CONFIRMATION_FIELDS = ["arrival_remarks"];
 
 function _apply_arrival_field_locks(frm) {
 	const isAdmin = frappe.user.has_role("System Manager");

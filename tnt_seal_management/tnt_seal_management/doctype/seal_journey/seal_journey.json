@@ -701,8 +701,7 @@
    "fieldname": "destination_entered_date_time",
    "fieldtype": "Datetime",
    "label": "Entered Destination Geofence",
-   "read_only": 1,
-   "description": "Set by the seal sync when the seal's GPS is first inside the destination's Uffizio geofence; the journey then shows in the Control Room Arrivals."
+   "read_only": 1
   },
   {
    "fieldname": "arrival_date_time",
@@ -747,8 +746,7 @@
    "fieldtype": "Select",
    "label": "Seal Unlock Method",
    "options": "\nPhysical\nRemote\nRemote - Seal Retained\nEnded - No Collection",
-   "read_only": 1,
-   "description": "How the seal was unlocked at arrival. Physical unlock routes through the untagging cycle; Remote unlock skips untagging and goes straight to seal return; Remote - Seal Retained is used when the destination is too far to collect from — the seal stays on the vehicle, the journey completes at unlock and the seal returns to the pool for the vehicle's next tagging booking; Ended - No Collection is used when nobody at the destination can unlock or collect anything at all — same outcome as Remote - Seal Retained, recorded under its own reason."
+   "read_only": 1
   },
   {
    "fieldname": "arrival_row_3_section",
@@ -769,7 +767,8 @@
    "fieldname": "untagging_confirmation",
    "fieldtype": "Check",
    "label": "Untagging Confirmation",
-   "description": "Editable by Operations Control Room only while untagging is in progress."
+   "description": "Ticked when the Tag Operator confirms untagging.",
+   "read_only": 1
   },
   {
    "fieldname": "arrival_row_4_section",
@@ -780,7 +779,8 @@
    "fieldname": "seal_unlocked_confirmation",
    "fieldtype": "Check",
    "label": "Seal Unlocked Confirmation",
-   "description": "Editable by Operations Control Room only while untagging is in progress."
+   "description": "Ticked when the Control Room confirms arrival.",
+   "read_only": 1
   },
   {
    "fieldname": "arrival_row_4_column",
@@ -853,7 +853,6 @@
   },
   {
    "default": "0",
-   "description": "The technician confirmation that the seal was physically returned.",
    "fieldname": "seal_return_confirmed_by_technician",
    "fieldtype": "Check",
    "label": "Confirmed by Technician",
@@ -1002,7 +1001,6 @@
   },
   {
    "collapsible": 1,
-   "description": "Scenario 6: an additional leasing charge for seals leased beyond the customer's owned pool, computed at tagging on the customer's Extra Billing agreement — on top of the Subscription charge above.",
    "fieldname": "extra_billing_section",
    "fieldtype": "Section Break",
    "label": "Extra Billing (leased seals)"
@@ -1124,7 +1122,6 @@
   },
   {
    "default": "Local",
-   "description": "Which rate set bills this journey. Mirrored from the Journey Request and re-read on every save, so changing it there re-prices the journey — until billing is Billed, which set_billing treats as terminal. Journeys with no Journey Request bill as Local.",
    "fetch_from": "journey_request.journey_type",
    "fetch_if_empty": 0,
    "fieldname": "journey_type",
