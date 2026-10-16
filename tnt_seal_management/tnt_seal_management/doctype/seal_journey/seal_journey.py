@@ -531,9 +531,9 @@ def confirm_arrival(docname, unlock_method="physical"):
 		frappe.throw(_("Invalid unlock method {0}.").format(unlock_method), title=_("Invalid Request"))
 
 	doc = _get_seal_journey(docname)
-	if doc.journey_status != "In Transit":
+	if not _awaiting_arrival_confirmation(doc):
 		frappe.throw(
-			_("Arrival can only be confirmed while the journey is In Transit."),
+			_("Arrival can only be confirmed while the journey is In Transit, or Arrived with no unlock method yet."),
 			title=_("Invalid Status"),
 		)
 
@@ -542,7 +542,9 @@ def confirm_arrival(docname, unlock_method="physical"):
 	# commits (see seal_sync._apply_to_journey), which bumps this Seal Journey's
 	# `modified`. Reload afterwards so our own save below compares against the
 	# fresh timestamp instead of tripping a "Document has been modified" conflict.
-	location = _pull_arrival_location(doc)
+	# A journey auto-arrived on geofence entry already has its arrival
+	# time and location.
+	location = None if doc.arrival_location else _pull_arrival_location(doc)
 	doc.reload()
 
 	doc.arrival_date_time = doc.arrival_date_time or now_datetime()
@@ -560,6 +562,14 @@ def confirm_arrival(docname, unlock_method="physical"):
 		_confirm_physical_unlock(doc)
 
 	frappe.db.commit()
+
+
+def _awaiting_arrival_confirmation(doc):
+	"""In Transit, or auto-arrived on destination geofence entry (see
+	geofence_arrivals._auto_arrive) with no unlock method recorded yet."""
+	return doc.journey_status == "In Transit" or (
+		doc.journey_status == "Arrived" and not doc.seal_unlock_method
+	)
 
 
 def _confirm_physical_unlock(doc):
@@ -727,8 +737,8 @@ def _confirm_end_journey_no_collection(doc):
 
 @frappe.whitelist()
 def get_arrival_queue(search=None, page=1, page_length=30, from_date=None, to_date=None):
-	"""Seal Journeys currently In Transit, awaiting the Control Room's arrival /
-	seal-unlock confirmation — for the Approve tab's Arrivals section. Search and
+	"""Seal Journeys awaiting the Control Room's arrival / seal-unlock
+	confirmation (In Transit, or auto-arrived with no unlock method yet) — for the Approve tab's Arrivals section. Search and
 	paging are applied here; `total` is the filtered count, `overall` the
 	unfiltered one."""
 	_ensure_control_room_role(include_read_only=True)
@@ -739,7 +749,7 @@ def get_arrival_queue(search=None, page=1, page_length=30, from_date=None, to_da
 	# Only journeys whose seal has entered the destination geofence (or whose
 	# destination has no geofence to detect) are awaiting arrival.
 	queue_names = arrival_queue_journey_names()
-	filters = {"journey_status": "In Transit", "name": ["in", queue_names or [""]]}
+	filters = {"journey_status": ["in", ("In Transit", "Arrived")], "name": ["in", queue_names or [""]]}
 	# Created-between filter, same as the other Control Room lists.
 	if from_date and to_date:
 		filters["creation"] = ["between", [f"{from_date} 00:00:00", f"{to_date} 23:59:59"]]
@@ -761,7 +771,7 @@ def get_arrival_queue(search=None, page=1, page_length=30, from_date=None, to_da
 	overall = len(
 		frappe.get_list(
 			"Seal Journey",
-			filters={"journey_status": "In Transit", "name": ["in", queue_names or [""]]},
+			filters={"journey_status": ["in", ("In Transit", "Arrived")], "name": ["in", queue_names or [""]]},
 			pluck="name",
 			limit_page_length=0,
 		)
@@ -778,6 +788,7 @@ def get_arrival_queue(search=None, page=1, page_length=30, from_date=None, to_da
 		fields=[
 			"name", "customer", "vehicle_plate_number", "container_number",
 			"origin", "destination", "assigned_seal", "destination_entered_date_time",
+			"journey_status", "arrival_date_time",
 			"journey_start_date_time", "current_seal_status",
 			"api_device_location", "api_last_update_time",
 			"api_latitude", "api_longitude", "assigned_technician", "journey_request",
@@ -1069,7 +1080,7 @@ def _attach_journey_list_details(journeys):
 def start_untagging(docname):
 	_ensure_control_room_role()
 	doc = _get_seal_journey(docname)
-	if doc.journey_status != "Arrived":
+	if doc.journey_status != "Arrived" or not doc.seal_unlock_method:
 		frappe.throw(
 			_("Untagging can only start after arrival has been confirmed."),
 			title=_("Invalid Status"),

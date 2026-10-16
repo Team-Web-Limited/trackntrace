@@ -1,7 +1,12 @@
 import re
 
 import frappe
-from frappe.utils import cstr
+from frappe.utils import cstr, get_datetime
+
+# GPS jitter at a geofence edge fires repeated exits from the same place; exits
+# from one place less than this far apart are one departure.
+EXIT_EVENTS = ("Exited", "Departed")
+EXIT_COLLAPSE_SECONDS = 3600
 
 # Uffizio alert_id -> milestone event.
 EVENT_BY_ALERT_ID = {"13": "Arrived", "63": "Departed", "21": "Entered", "20": "Exited"}
@@ -89,6 +94,10 @@ def record_milestone(journey, rec, source_alert_id, event_time):
 	place, geofence, address_id, location = _resolve_place(raw)
 	if address_id:
 		_note_address(address_id, place, event_time, raw)
+	if event in EXIT_EVENTS and _collapse_repeat_exit(
+		journey, event, place, geofence, address_id, event_time, raw, source_alert_id
+	):
+		return False
 	idx = (frappe.db.count("Seal Journey Milestone", {"parent": journey, "parenttype": "Seal Journey"}) or 0) + 1
 	frappe.get_doc(
 		{
@@ -111,6 +120,68 @@ def record_milestone(journey, rec, source_alert_id, event_time):
 	).db_insert()
 	_renumber(journey)
 	return True
+
+
+def _collapse_repeat_exit(journey, event, place, geofence, address_id, event_time, raw, source_alert_id):
+	"""Fold an exit into one from the same place under an hour away, keeping the
+	later time (the real departure). Returns True when folded."""
+	if geofence:
+		place_filter = {"uffizio_geofence": geofence}
+	elif address_id:
+		place_filter = {"uffizio_address_id": address_id}
+	elif place:
+		place_filter = {"place_name": place}
+	else:
+		return False
+	event_time = get_datetime(event_time)
+	rows = frappe.get_all(
+		"Seal Journey Milestone",
+		filters={"parent": journey, "parenttype": "Seal Journey", "event_type": event, **place_filter},
+		fields=["name", "event_time"],
+	)
+	near = [r for r in rows if abs((get_datetime(r.event_time) - event_time).total_seconds()) < EXIT_COLLAPSE_SECONDS]
+	if not near:
+		return False
+	row = max(near, key=lambda r: get_datetime(r.event_time))
+	if event_time > get_datetime(row.event_time):
+		frappe.db.set_value(
+			"Seal Journey Milestone",
+			row.name,
+			{
+				"event_time": event_time,
+				"latitude": raw.get("latitude") or 0,
+				"longitude": raw.get("longitude") or 0,
+				"source_alert_id": source_alert_id,
+			},
+			update_modified=False,
+		)
+		_renumber(journey)
+	return True
+
+
+def collapse_repeat_exits(journey):
+	"""Apply the same folding to milestones already recorded on a journey."""
+	rows = frappe.get_all(
+		"Seal Journey Milestone",
+		filters={"parent": journey, "parenttype": "Seal Journey", "event_type": ["in", EXIT_EVENTS]},
+		fields=["name", "event_type", "event_time", "uffizio_geofence", "uffizio_address_id", "place_name"],
+		order_by="event_time asc, creation asc",
+	)
+	kept = {}
+	removed = 0
+	for r in rows:
+		key = (r.event_type, r.uffizio_geofence or r.uffizio_address_id or r.place_name)
+		if not key[1]:
+			continue
+		prev = kept.get(key)
+		if prev and (get_datetime(r.event_time) - get_datetime(prev.event_time)).total_seconds() < EXIT_COLLAPSE_SECONDS:
+			# Keep the later exit, drop the earlier one.
+			frappe.db.delete("Seal Journey Milestone", prev.name)
+			removed += 1
+		kept[key] = r
+	if removed:
+		_renumber(journey)
+	return removed
 
 
 def _renumber(journey):

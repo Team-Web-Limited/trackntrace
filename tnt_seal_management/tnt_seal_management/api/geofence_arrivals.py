@@ -70,8 +70,9 @@ def destination_geofence(destination, destination_geofence=None):
 
 def check_destination_entry(journey_name, lat, lng):
 	"""Stamp destination_entered_date_time (and an Arrived milestone) the first
-	time an In Transit journey's seal is inside its destination geofence. Returns
-	True when the entry was recorded on this call."""
+	time an In Transit journey's seal is inside its destination geofence, and
+	move the journey to Arrived. Returns True when the entry was recorded on this
+	call."""
 	lat, lng = flt(lat), flt(lng)
 	if not journey_name or (not lat and not lng):
 		return False
@@ -93,7 +94,33 @@ def check_destination_entry(journey_name, lat, lng):
 	)
 	_record_entry_milestone(journey_name, journey.destination, geofence, entered, lat, lng)
 	frappe.db.commit()
+
+	# The entry stamp and milestone are already committed; if the status change
+	# fails the journey stays In Transit in the Arrivals queue for confirming by hand.
+	try:
+		_auto_arrive(journey_name, entered, geofence)
+		frappe.db.commit()
+	except Exception as exc:
+		frappe.db.rollback()
+		frappe.log_error(
+			f"Auto-arrival failed for {journey_name}: {exc}", "Seal Journey Destination Geofence"
+		)
 	return True
+
+
+def _auto_arrive(journey_name, entered, geofence):
+	"""Arrival on geofence entry. No unlock method is picked and no untagging or
+	seal-return request is raised: the journey stays in the Control Room Arrivals
+	until confirm_arrival records how the seal was unlocked."""
+	doc = frappe.get_doc("Seal Journey", journey_name)
+	if doc.journey_status != "In Transit":
+		return
+	doc.arrival_date_time = doc.arrival_date_time or entered
+	doc.arrival_location = doc.arrival_location or doc.api_device_location or geofence.geofence_name
+	doc.journey_status = "Arrived"
+	doc.flags.ignore_field_locks = True
+	doc.flags.ignore_permissions = True
+	doc.save()
 
 
 def _record_entry_milestone(journey_name, destination, geofence, entered, lat, lng):
@@ -121,19 +148,23 @@ def _record_entry_milestone(journey_name, destination, geofence, entered, lat, l
 
 
 def arrival_queue_journey_names():
-	"""In Transit journeys that belong in the Control Room Arrivals: those whose
-	seal has entered the destination geofence, plus those whose destination has no
-	geofence to detect (legacy free-text destinations, or a Transport Location not
-	yet linked to Uffizio), which still need confirming by hand."""
+	"""Journeys that belong in the Control Room Arrivals: those auto-arrived on
+	geofence entry that still need an unlock method, In Transit journeys whose
+	seal has entered the destination geofence, plus those whose destination has
+	no geofence to detect (legacy free-text destinations, or a Transport Location
+	not yet linked to Uffizio), which still need confirming by hand."""
 	return frappe.db.sql_list(
 		"""
 		select sj.name
 		from `tabSeal Journey` sj
 		left join `tabTransport Location` tl on tl.name = sj.destination
-		where sj.journey_status = 'In Transit'
-			and (
-				sj.destination_entered_date_time is not null
-				or (ifnull(sj.destination_geofence, '') = '' and ifnull(tl.uffizio_geofence, '') = '')
+		where (
+				sj.journey_status = 'In Transit'
+				and (
+					sj.destination_entered_date_time is not null
+					or (ifnull(sj.destination_geofence, '') = '' and ifnull(tl.uffizio_geofence, '') = '')
+				)
 			)
+			or (sj.journey_status = 'Arrived' and ifnull(sj.seal_unlock_method, '') = '')
 		"""
 	)

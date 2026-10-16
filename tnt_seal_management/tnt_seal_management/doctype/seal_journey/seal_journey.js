@@ -289,7 +289,8 @@ function _add_arrival_workflow_buttons(frm) {
 
 	const status = frm.doc.journey_status;
 
-	if (status === "Arrived") {
+	// An auto-arrived journey has no unlock method until the Control Room confirms it.
+	if (status === "Arrived" && frm.doc.seal_unlock_method) {
 		frm.add_custom_button(__("Start Untagging"), () => {
 			frappe.call({
 				method: SJ_METHOD("start_untagging"),

@@ -793,7 +793,9 @@ function _control_room_arrival_card(journey, early = false) {
 			<footer class="cr-arrival-actions">
 				<div class="cr-arrival-unlock-prompt">${early
 					? __("Confirm arrival before the destination (e.g. vehicle broke down) — how is the seal unlocked?")
-					: __("Confirm arrival — how is the seal unlocked?")}</div>
+					: journey.journey_status === "Arrived"
+						? __("Arrived automatically on entering the destination — how is the seal unlocked?")
+						: __("Confirm arrival — how is the seal unlocked?")}</div>
 				<div class="cr-arrival-unlock-buttons">
 					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--physical" data-name="${frappe.utils.escape_html(journey.name)}" data-method="physical">
 						${__("Physical Unlock — Send for Untagging")}
