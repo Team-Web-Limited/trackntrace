@@ -845,6 +845,10 @@ def scheduled_sync_all_devices():
 	)
 	frappe.db.commit()
 
+	# Import first: the unfiltered call it makes is limited to one a minute,
+	# so it goes before the batched calls below rather than straight after.
+	auto_import_new_devices()
+
 	result = sync_all_devices(sync_type="Scheduled Full Fleet Sync")
 
 	updates = {}
@@ -1621,8 +1625,34 @@ def import_devices_from_api():
 	_require_admin_permission()
 
 	raw = get_live_data(sync_type="Manual Device Sync")
-	records = normalize_live_data_response(raw)
+	return _import_new_devices(normalize_live_data_response(raw))
 
+
+def auto_import_new_devices():
+	"""
+	Create Seal Devices for seals newly added to the Uffizio account, so the
+	ERP picks them up without anyone running the manual import. Uses the
+	unfiltered company call — the only one that lists IMEIs the ERP does not
+	know yet. Uffizio allows that call once a minute; when it is refused the
+	run is skipped (the failure is in the Seal API Sync Log) and the next
+	full-fleet sync tries again.
+	"""
+	try:
+		raw = get_live_data(sync_type="Scheduled Full Fleet Sync")
+	except Exception:
+		return None
+	result = _import_new_devices(normalize_live_data_response(raw))
+	if result["errors"]:
+		frappe.log_error(
+			"Seal Device Auto Import",
+			f"{result['errors']} new seal(s) could not be created: {result['error_details']}",
+		)
+	return result
+
+
+def _import_new_devices(records):
+	"""Create a Seal Device for every IMEI in ``records`` that does not exist
+	yet. Returns a summary dict: created, skipped, errors."""
 	# Build set of existing IMEIs for fast lookup
 	existing = {
 		r["imei_number"]
