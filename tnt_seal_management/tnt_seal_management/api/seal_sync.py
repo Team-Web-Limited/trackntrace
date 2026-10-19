@@ -136,6 +136,8 @@ def sync_seal_device(seal_device_name, sync_type="Manual Device Sync"):
 			{"last_failed_sync_time": now_datetime(), "api_error_message": str(exc)[:500]},
 		)
 		frappe.db.commit()
+		if str(device.imei_number) in _extract_unowned_imeis(exc):
+			_mark_removed_from_uffizio([str(device.imei_number)])
 		raise
 
 	records = normalize_live_data_response(raw)
@@ -511,8 +513,14 @@ def scheduled_sync_active_journeys():
 	}
 
 	try:
-		raw = get_live_data(imei_nos=all_imeis, sync_type="Scheduled Sync")
-		records = normalize_live_data_response(raw)
+		# Chunked fetch: one seal removed from Uffizio mid-journey must not
+		# fail the sync for every other active seal.
+		records, unowned, batch_errors = _fetch_live_data_chunked(
+			list(imei_device.keys()), "Scheduled Sync"
+		)
+		_mark_removed_from_uffizio(unowned)
+		if batch_errors and not records:
+			raise Exception("; ".join(batch_errors))
 
 		synced = 0
 		updated = 0
@@ -567,7 +575,7 @@ def scheduled_sync_active_journeys():
 				"sync_completed_at": now_datetime(),
 				"devices_synced": synced,
 				"journeys_updated": updated,
-				"response_body": json.dumps(raw)[:3000],
+				"response_body": json.dumps(records)[:3000],
 			}
 		)
 
@@ -616,6 +624,30 @@ def _extract_unowned_imeis(error_message):
 	if not match:
 		return []
 	return [part.strip() for part in match.group(1).split(",") if part.strip()]
+
+
+def _mark_removed_from_uffizio(imeis):
+	"""
+	Flag the Seal Devices whose IMEIs the Uffizio account no longer holds
+	(transferred or removed there), so they drop out of every list, count and
+	seal picker. _apply_to_device clears the flag again if Uffizio ever returns
+	the IMEI. Returns the IMEIs that were newly flagged by this call.
+	"""
+	if not imeis:
+		return []
+	newly = frappe.db.sql_list(
+		"""select imei_number from `tabSeal Device`
+		where imei_number in %(imeis)s and ifnull(in_uffizio, 1) = 1""",
+		{"imeis": tuple(imeis)},
+	)
+	if newly:
+		frappe.db.sql(
+			"""update `tabSeal Device` set in_uffizio = 0, removed_from_uffizio_on = %(now)s
+			where imei_number in %(imeis)s""",
+			{"imeis": tuple(newly), "now": now_datetime()},
+		)
+		frappe.db.commit()
+	return newly
 
 
 def _fetch_live_data_chunked(imeis, sync_type, chunk_size=_FLEET_CHUNK_SIZE):
@@ -734,12 +766,15 @@ def sync_all_devices(sync_type="Manual Device Sync"):
 
 		frappe.db.commit()
 
-		failed = len(devices) - synced
+		# Seals Uffizio no longer holds are not failures — they leave the ERP's
+		# view. Only the ones dropping out on this run are worth reporting.
+		newly_removed = _mark_removed_from_uffizio(unowned)
+		failed = len(devices) - synced - len(unowned)
 
 		problems = []
-		if unowned:
+		if newly_removed:
 			problems.append(
-				f"{len(unowned)} IMEI(s) not owned by the API account: {','.join(unowned)}"
+				f"{len(newly_removed)} seal(s) no longer in the Uffizio account, now hidden: {','.join(newly_removed)}"
 			)
 		problems.extend(batch_errors)
 
@@ -911,7 +946,7 @@ def sync_alert_data(from_dt=None, to_dt=None, imei_nos=None, sync_type="Alert Da
 	if imeis:
 		rows = frappe.get_all(
 			"Seal Device",
-			filters={"imei_number": ["in", list(imeis)]},
+			filters={"imei_number": ["in", list(imeis)], "in_uffizio": 1},
 			fields=["name", "imei_number", "current_journey", "current_journey_request"],
 		)
 		device_by_imei = {str(r.imei_number): r for r in rows}
@@ -1138,6 +1173,7 @@ def get_device_dashboard_data():
 
 	devices = frappe.db.get_all(
 		"Seal Device",
+		filters={"in_uffizio": 1},
 		fields=[
 			"name", "device_id", "imei_number",
 			"current_status", "condition", "current_vehicle", "current_journey",
@@ -1370,6 +1406,9 @@ def _apply_to_device(device_name, rec):
 		"last_successful_sync_time": now_datetime(),
 		"api_error_message": "",
 		"raw_api_response": json.dumps(rec.get("_raw", {}))[:5000],
+		# Uffizio returned it, so the account holds it (again).
+		"in_uffizio": 1,
+		"removed_from_uffizio_on": None,
 	}
 	if rec.get("status"):
 		upd["last_api_status"] = str(rec["status"])[:140]

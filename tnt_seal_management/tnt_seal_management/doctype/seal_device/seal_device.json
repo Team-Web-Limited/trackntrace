@@ -35,6 +35,8 @@
   "last_known_api_location",
   "api_branch",
   "last_api_status",
+  "in_uffizio",
+  "removed_from_uffizio_on",
   "lock_status",
   "last_api_sync_time",
   "battery_level",
@@ -225,6 +227,21 @@
    "label": "Last API Status"
   },
   {
+   "default": "1",
+   "description": "Cleared by the sync when the Uffizio account no longer holds this IMEI. Seals outside Uffizio are hidden from lists, counts and seal pickers until Uffizio returns them again.",
+   "fieldname": "in_uffizio",
+   "fieldtype": "Check",
+   "label": "In Uffizio Account",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:!doc.in_uffizio",
+   "fieldname": "removed_from_uffizio_on",
+   "fieldtype": "Datetime",
+   "label": "Removed From Uffizio On",
+   "read_only": 1
+  },
+  {
    "fieldname": "lock_status",
    "fieldtype": "Select",
    "label": "Lock Status",
@@ -357,7 +374,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-07-14 12:45:00.000000",
+ "modified": "2026-10-19 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Device",

@@ -149,7 +149,11 @@ def _division_warehouse_rows():
 	held = dict(
 		frappe.get_all(
 			"Seal Device",
-			filters={"current_custody_type": "Warehouse", "current_custodian": ["in", names or [""]]},
+			filters={
+				"current_custody_type": "Warehouse",
+				"current_custodian": ["in", names or [""]],
+				"in_uffizio": 1,
+			},
 			fields=["current_custodian", "count(name)"],
 			group_by="current_custodian",
 			as_list=True,
@@ -192,6 +196,7 @@ def _seals_by_warehouse(warehouses):
 			and exists (
 				select 1 from `tabSeal Device` sd
 				where sn.name in (sd.name, sd.serial_number, sd.imei_number)
+					and ifnull(sd.in_uffizio, 1) = 1
 			)
 		group by sn.warehouse
 		""",
@@ -204,7 +209,11 @@ def _seals_held_by_custodian():
 	"""{(custody_type, custodian): seal count} for seals held by a User or Customer."""
 	rows = frappe.get_all(
 		"Seal Device",
-		filters={"current_custody_type": ["in", _HOLDER_STATUSES], "current_custodian": ["is", "set"]},
+		filters={
+			"current_custody_type": ["in", _HOLDER_STATUSES],
+			"current_custodian": ["is", "set"],
+			"in_uffizio": 1,
+		},
 		fields=["current_custody_type", "current_custodian", "count(name) as seals"],
 		group_by="current_custody_type, current_custodian",
 		limit_page_length=0,

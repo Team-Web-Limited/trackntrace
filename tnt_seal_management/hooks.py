@@ -202,6 +202,7 @@ after_migrate = "tnt_seal_management.install.after_migrate"
 # Permissions evaluated in scripted ways
 
 permission_query_conditions = {
+	"Seal Device": "tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device.get_permission_query_conditions",
 	"PCB Assignment": "tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment.get_permission_query_conditions",
 	"Journey Request": "tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.get_permission_query_conditions",
 }

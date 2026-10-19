@@ -348,9 +348,14 @@ class JourneyRequest(Document):
 
 
 def _ensure_seal_available(seal_device, journey_request_name):
-	status, current_journey_request = frappe.db.get_value(
-		"Seal Device", seal_device, ["current_status", "current_journey_request"]
-	) or (None, None)
+	status, current_journey_request, in_uffizio = frappe.db.get_value(
+		"Seal Device", seal_device, ["current_status", "current_journey_request", "in_uffizio"]
+	) or (None, None, 1)
+	if not in_uffizio:
+		frappe.throw(
+			_("Seal Device {0} is no longer in the Uffizio account and cannot be used.").format(seal_device),
+			title=_("Seal Unavailable"),
+		)
 	if status not in ASSIGNABLE_SEAL_STATUSES and current_journey_request != journey_request_name:
 		frappe.throw(
 			_("Seal Device {0} is not Available (current status: {1}).").format(
@@ -1938,6 +1943,7 @@ def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
 			name, seal_number
 		from `tabSeal Device`
 		where (current_status = 'Available' or current_journey_request = %(journey_request)s)
+			and ifnull(in_uffizio, 1) = 1
 			and (name like %(txt)s or seal_number like %(txt)s)
 		order by
 			case when name like %(txt)s then 0 else 1 end,

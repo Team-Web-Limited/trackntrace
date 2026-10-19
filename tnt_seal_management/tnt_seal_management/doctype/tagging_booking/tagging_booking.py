@@ -232,7 +232,7 @@ def get_branch_options():
 	rows = frappe.get_all(
 		"Seal Device",
 		fields=["api_branch"],
-		filters={"api_branch": ["!=", ""]},
+		filters={"api_branch": ["!=", ""], "in_uffizio": 1},
 		distinct=True,
 		order_by="api_branch asc",
 		limit_page_length=0,

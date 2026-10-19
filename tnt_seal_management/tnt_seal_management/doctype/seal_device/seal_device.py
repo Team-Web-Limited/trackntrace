@@ -13,6 +13,13 @@ class SealDevice(Document):
 
 _DOCTYPE = "Seal Device"
 
+
+def get_permission_query_conditions(user=None):
+	"""Seals the Uffizio account no longer holds (in_uffizio = 0, set by the
+	sync) are left out of every list, report, count and link search for every
+	user. They come back on their own once Uffizio returns the IMEI again."""
+	return "ifnull(`tabSeal Device`.`in_uffizio`, 1) = 1"
+
 # Custody types allowed on the dynamic pointer. Each maps to the field on the
 # target doctype that yields a human-friendly name for the custodian.
 _CUSTODY_LABEL_FIELD = {
