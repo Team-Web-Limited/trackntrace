@@ -1043,7 +1043,7 @@ def _attach_journey_list_details(journeys):
 		for d in frappe.get_all(
 			"Seal Device",
 			filters={"name": ["in", all_devices or [""]]},
-			fields=["name", "seal_number", "last_known_api_location", "latitude", "longitude"],
+			fields=["name", "seal_number", "seal_category", "last_known_api_location", "latitude", "longitude"],
 		)
 	}
 	entries = dict(
@@ -1068,6 +1068,7 @@ def _attach_journey_list_details(journeys):
 			{
 				"seal_device": name,
 				"seal_number": (devices.get(name) or {}).get("seal_number") or name,
+				"seal_category": (devices.get(name) or {}).get("seal_category"),
 			}
 			for name in j.seal_devices
 		]

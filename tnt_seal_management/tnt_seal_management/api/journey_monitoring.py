@@ -144,6 +144,7 @@ def _attach_seals(journeys):
 			seals.append({
 				"seal_device": r.get("seal_device"),
 				"seal_number": r.get("seal_number") or r.get("seal_device"),
+				"seal_category": device.get("seal_category"),
 				"lock_status": lock or "",
 				"battery_level": r.get("battery_level"),
 				"api_device_status": r.get("api_device_status"),
@@ -370,7 +371,7 @@ def _device_map(rows, journeys):
 	device_rows = frappe.db.get_all(
 		"Seal Device",
 		filters={"name": ["in", list(seal_names)]},
-		fields=["name", "lock_status", "latitude", "longitude"],
+		fields=["name", "lock_status", "latitude", "longitude", "seal_category"],
 	)
 	return {d["name"]: d for d in device_rows}
 

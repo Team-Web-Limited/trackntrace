@@ -1050,7 +1050,7 @@ function _control_room_seal_row(seal, sealNumberByDevice = {}, vehicleLabelFor =
 		<tr class="${isSubSeal ? "cr-seal-row--sub" : ""}">
 			${vehicleLabelFor ? `<td>${frappe.utils.escape_html(vehicleLabelFor(seal.vehicle) || "—")}</td>` : ""}
 			<td>
-				<div class="cr-seal-no">${isSubSeal ? "↳ " : ""}${frappe.utils.escape_html(seal.seal_number || seal.seal_device || "—")}</div>
+				<div class="cr-seal-no"><span class="cr-sealcat cr-sealcat--${_cr_seal_category_class(seal.seal_category)}" title="${__(seal.seal_category || "Lease")}">${isSubSeal ? "↳ " : ""}${frappe.utils.escape_html(seal.seal_number || seal.seal_device || "—")}</span></div>
 				<div class="cr-seal-dev">${frappe.utils.escape_html(seal.seal_device || "")}</div>
 			</td>
 			<td>${relationship}</td>
@@ -1402,7 +1402,7 @@ function _cr_journey_rows_html(j, completed) {
 			const sealNo = completed && allSeals.length > 1
 				? `<button class="cr-seals-btn" data-journey="${esc(j.name)}" title="${__("View seals")}">${__("{0} seals", [allSeals.length])}</button>`
 				: s
-				? `<a href="/app/seal-device/${encodeURIComponent(s.seal_device)}" target="_blank" rel="noopener">${esc(s.seal_number || s.seal_device)}</a>`
+				? _cr_seal_link_html(s)
 				: dash;
 			const lock = s && s.lock_status
 				? `<span class="cr-badge cr-badge--${s.lock_status === "Locked" ? "active" : "offline"}">${esc(s.lock_status)}</span>`
@@ -1427,6 +1427,17 @@ function _cr_journey_rows_html(j, completed) {
 			`;
 		})
 		.join("");
+}
+
+// Seal numbers are colour-coded by Seal Category, as on the Seal Device
+// Dashboard: Lease is purple, Outright Purchase pink (blank counts as Lease).
+function _cr_seal_category_class(category) {
+	return category === "Outright Purchase" ? "outright" : "lease";
+}
+
+function _cr_seal_link_html(s) {
+	const esc = frappe.utils.escape_html;
+	return `<a class="cr-sealcat cr-sealcat--${_cr_seal_category_class(s.seal_category)}" href="/app/seal-device/${encodeURIComponent(s.seal_device)}" target="_blank" rel="noopener" title="${esc(__(s.seal_category || "Lease"))}">${esc(s.seal_number || s.seal_device)}</a>`;
 }
 
 // Seal numbers of a completed journey with several seals, each linked to its record.
@@ -1466,7 +1477,7 @@ function _control_room_show_journey_seals(journey) {
 	const esc = frappe.utils.escape_html;
 	const rows = (journey.seals || [])
 		.map(
-			(s) => `<tr><td><a href="/app/seal-device/${encodeURIComponent(s.seal_device)}" target="_blank" rel="noopener">${esc(s.seal_number || s.seal_device)}</a></td></tr>`
+			(s) => `<tr><td>${_cr_seal_link_html(s)}</td></tr>`
 		)
 		.join("");
 	const dialog = new frappe.ui.Dialog({
@@ -3121,6 +3132,12 @@ function _control_room_inject_styles() {
 		}
 		.cr-seal-table td { padding: 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; color: #1e293b; }
 		.cr-seal-no { font-weight: 700; }
+		.cr-sealcat { display: inline-block; padding: 1px 8px; border-radius: 6px; font-weight: 600; border-left: 3px solid transparent; }
+		a.cr-sealcat:hover { text-decoration: none; filter: brightness(0.95); }
+		.cr-sealcat--lease { background: #ede9fe; color: #6d28d9; border-left-color: #7c3aed; }
+		.cr-sealcat--outright { background: #fce7f3; color: #be185d; border-left-color: #db2777; }
+		[data-theme="dark"] .cr-sealcat--lease { background: #2e1065; color: #ddd6fe; }
+		[data-theme="dark"] .cr-sealcat--outright { background: #500724; color: #fbcfe8; }
 		.cr-seal-dev { font-size: 11px; color: #94a3b8; }
 		.cr-seal-loc { max-width: 260px; }
 		.cr-seal-empty { text-align: center; color: #94a3b8; padding: 16px; }

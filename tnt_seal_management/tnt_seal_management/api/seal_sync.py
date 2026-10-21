@@ -1187,6 +1187,7 @@ def get_device_dashboard_data():
 			"last_api_status", "lock_status", "transmission_status",
 			"last_successful_sync_time", "last_failed_sync_time",
 			"api_error_message", "remarks",
+			"seal_category", "category_customer", "category_customer_name",
 		],
 		order_by="last_successful_sync_time desc",
 	)

@@ -59,6 +59,8 @@ function _build_seal_device_page(page) {
 		["moving", __("Moving Now")],
 		["in_transit", __("In Transit")],
 		["offline", __("Offline")],
+		["lease", __("Lease")],
+		["outright", __("Outright Purchase")],
 	];
 
 	$(page.body).html(`
@@ -109,6 +111,12 @@ function _build_seal_device_page(page) {
 					</div>
 				</div>
 			</section>
+
+			<div class="sd-category-legend">
+				<span class="sd-legend-title">${__("Seal category")}:</span>
+				<span class="sd-cat sd-cat--lease">${__("Lease")}</span>
+				<span class="sd-cat sd-cat--outright">${__("Outright Purchase")}</span>
+			</div>
 
 			<section class="sd-table-panel">
 				<div class="sd-table-scroll"><div class="sd-table-wrap"></div></div>
@@ -331,6 +339,8 @@ function _seal_device_filter_counts(devices) {
 		moving: devices.filter(_is_moving_now).length,
 		in_transit: devices.filter(d => Boolean(d.current_journey)).length,
 		offline: devices.filter(d => _api_bucket(d) === "offline").length,
+		lease: devices.filter(d => d.seal_category !== "Outright Purchase").length,
+		outright: devices.filter(d => d.seal_category === "Outright Purchase").length,
 	};
 }
 
@@ -409,6 +419,7 @@ function _render_seal_device_table(page) {
 			<thead>
 				<tr>
 					<th>${__("Seal")}</th>
+					<th>${__("Category")}</th>
 					<th>${__("Status")}</th>
 					<th>${__("API Status")}</th>
 					<th>${__("Lock Status")}</th>
@@ -462,13 +473,19 @@ function _seal_device_row_html(d) {
 	const lockClass = d.lock_status === "Locked" ? "available" : d.lock_status === "Unlocked" ? "issue" : "neutral";
 	const lockHtml = d.lock_status ? `<span class="sd-badge sd-badge--${lockClass}">${esc(d.lock_status)}</span>` : "—";
 	const speed = d.speed != null ? `${d.speed} km/h` : "—";
+	const categoryClass = _seal_category_class(d.seal_category);
+	const customer = d.category_customer_name || d.category_customer;
+	const categoryHtml = `<span class="sd-cat sd-cat--${categoryClass}">${esc(__(d.seal_category || "Lease"))}</span>${customer
+		? `<div class="sd-cat-customer" title="${esc(d.category_customer || "")}">${esc(customer)}</div>`
+		: ""}`;
 	const errorHtml = d.api_error_message
 		? `<span title="${esc(d.api_error_message)}">${esc(d.api_error_message.slice(0, 80))}</span>`
 		: "—";
 
 	return `
 		<tr class="sd-device-row" data-name="${frappe.utils.escape_html(d.name)}">
-			<td><span class="sd-strong">${frappe.utils.escape_html(d.name)}</span>${excludedBadge}</td>
+			<td class="sd-cat-stripe sd-cat-stripe--${categoryClass}"><span class="sd-strong">${frappe.utils.escape_html(d.name)}</span>${excludedBadge}</td>
+			<td>${categoryHtml}</td>
 			<td><span class="sd-badge sd-badge--${statusClass}">${frappe.utils.escape_html(status)}</span></td>
 			<td>${apiStatus}</td>
 			<td>${lockHtml}</td>
@@ -683,7 +700,9 @@ function _get_filtered_seal_devices(page) {
 			(filter === "active" && _api_bucket(d) === "active") ||
 			(filter === "moving" && _is_moving_now(d)) ||
 			(filter === "in_transit" && Boolean(d.current_journey)) ||
-			(filter === "offline" && _api_bucket(d) === "offline");
+			(filter === "offline" && _api_bucket(d) === "offline") ||
+			(filter === "lease" && d.seal_category !== "Outright Purchase") ||
+			(filter === "outright" && d.seal_category === "Outright Purchase");
 
 		if (!matchesFilter) return false;
 		if (branch && (d.api_branch || "") !== branch) return false;
@@ -707,10 +726,18 @@ function _seal_device_search_text(d) {
 		d.last_api_status,
 		d.api_branch,
 		d.remarks,
+		d.seal_category,
+		d.category_customer,
+		d.category_customer_name,
 	]
 		.filter(value => value !== null && value !== undefined && value !== "")
 		.join(" ")
 		.toLowerCase();
+}
+
+// Seals are leased unless sold outright (blank only before the default backfill).
+function _seal_category_class(category) {
+	return category === "Outright Purchase" ? "outright" : "lease";
 }
 
 function _seal_device_status_class(status) {
@@ -989,6 +1016,16 @@ function _inject_seal_device_styles() {
 		.sd-badge--assigned { background: #e0f2fe; color: #0369a1; }
 		.sd-badge--issue { background: #fee2e2; color: #b91c1c; }
 		.sd-badge--neutral { background: #e5e7eb; color: #4b5563; }
+		.sd-cat { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+		.sd-cat--lease { background: #ede9fe; color: #6d28d9; }
+		.sd-cat--outright { background: #fce7f3; color: #be185d; }
+		.sd-cat-customer { font-size: 11px; color: var(--text-muted); margin-top: 2px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		.sd-cat-stripe { border-left: 4px solid transparent; }
+		.sd-cat-stripe--lease { border-left-color: #7c3aed; }
+		.sd-cat-stripe--outright { border-left-color: #db2777; }
+		.sd-category-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 2px; font-size: 12px; color: var(--text-muted); }
+		[data-theme="dark"] .sd-cat--lease { background: #2e1065; color: #ddd6fe; }
+		[data-theme="dark"] .sd-cat--outright { background: #500724; color: #fbcfe8; }
 		.sd-badge--excluded { background: #fef3c7; color: #92400e; margin-left: 6px; cursor: help; }
 		.sd-coord-link { color: var(--sd-blue); text-decoration: none; font-size: 12px; }
 		.sd-coord-link:hover { text-decoration: underline; }

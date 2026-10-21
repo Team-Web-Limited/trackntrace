@@ -8,7 +8,13 @@ from frappe.utils import cstr, now_datetime
 
 
 class SealDevice(Document):
-	pass
+	def validate(self):
+		# Seals are leased unless sold; a sold seal always names its owner.
+		self.seal_category = self.seal_category or "Lease"
+		if self.seal_category == "Outright Purchase" and not self.category_customer:
+			frappe.throw(_("Select the customer who bought this seal."))
+		if not self.category_customer:
+			self.category_customer_name = None
 
 
 _DOCTYPE = "Seal Device"
