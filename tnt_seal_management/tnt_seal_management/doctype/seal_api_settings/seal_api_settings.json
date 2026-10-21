@@ -150,8 +150,7 @@
    "default": "15",
    "fieldname": "sync_frequency_minutes",
    "fieldtype": "Int",
-   "label": "Sync Frequency Minutes",
-   "description": "How often the scheduler syncs active journeys (informational — change hooks.py cron to adjust)"
+   "label": "Sync Frequency Minutes"
   },
   {
    "default": "0",
@@ -199,15 +198,13 @@
    "fieldname": "last_full_fleet_sync_time",
    "fieldtype": "Datetime",
    "label": "Last Full Fleet Sync Time",
-   "read_only": 1,
-   "description": "Last time the automatic full-fleet sync ran successfully"
+   "read_only": 1
   },
   {
    "fieldname": "last_active_journey_sync_time",
    "fieldtype": "Datetime",
    "label": "Last Active Journey Sync Time",
-   "read_only": 1,
-   "description": "Last time the active-journey sync cycle ran. Tracked separately from Last Successful Sync Time, which any successful API call updates."
+   "read_only": 1
   },
   {
    "fieldname": "status_col",
@@ -257,8 +254,7 @@
   {
    "fieldname": "open_uffizio_geofences",
    "fieldtype": "Button",
-   "label": "Open Uffizio Geofences",
-   "description": "Geofences pulled from Uffizio (daily at 03:00, or Sync from Uffizio on the page). Pick them as a Journey Request's origin and destination so seal journeys arrive automatically when the seal enters the destination."
+   "label": "Open Uffizio Geofences"
   },
   {
    "fieldname": "checklist_section",
@@ -282,7 +278,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-12 12:00:00.000000",
+ "modified": "2026-10-21 19:45:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal API Settings",
