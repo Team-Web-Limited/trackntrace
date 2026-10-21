@@ -6,6 +6,7 @@
 import math
 
 import frappe
+from frappe import _
 from frappe.utils import cint, flt
 
 ECTS_DIVISION = "ECTS Division"
@@ -94,6 +95,29 @@ _ALL_HOLDERS_ROLES = frozenset({
 })
 
 
+# The seal journey life-cycle roles, as shown in the Warehouses page's Role
+# column for staff holding seals (oversight roles like Management are left out).
+_LIFECYCLE_ROLE_LABELS = {
+	"Field Technician": "TO",
+	"PCB Team Leader": "PCB Team Leader",
+	"Operations Control Room": "Control Room",
+	"Finance PCB": "Finance PCB",
+	"Account Manager": "Account Manager",
+}
+
+
+# Who may set a staff member's base location on the Warehouses page (besides the
+# staff member themselves). Stored on a hidden User field, so this replaces the
+# System Manager-only User form.
+_BASE_LOCATION_EDITORS = frozenset({
+	"System Manager",
+	"Operations Control Room",
+	"Management",
+	"Managing Director",
+	"PCB Team Leader",
+})
+
+
 def is_technician_only(user=None):
 	roles = set(frappe.get_roles(user or frappe.session.user))
 	return "Field Technician" in roles and not roles & _ALL_HOLDERS_ROLES
@@ -144,7 +168,22 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25):
 		"summary": summary,
 		"can_create": frappe.has_permission("Warehouse", "create"),
 		"can_read_warehouse": frappe.has_permission("Warehouse", "read"),
+		"can_edit_base_location": bool(set(frappe.get_roles()) & _BASE_LOCATION_EDITORS),
+		"session_user": frappe.session.user,
 	}
+
+
+@frappe.whitelist()
+def set_staff_base_location(user, base_location=None):
+	"""Set a staff member's fixed base (e.g. Mombasa office), shown on the
+	Warehouses page next to the live GPS position of the seals they hold."""
+	if user != frappe.session.user and not set(frappe.get_roles()) & _BASE_LOCATION_EDITORS:
+		frappe.throw(_("Not permitted to set another staff member's base location."), frappe.PermissionError)
+	if not frappe.db.exists("User", user):
+		frappe.throw(_("User {0} not found").format(user))
+	base_location = (base_location or "").strip() or None
+	frappe.db.set_value("User", user, "custom_seal_base_location", base_location)
+	return base_location
 
 
 def _parse_statuses(status, known):
@@ -161,7 +200,7 @@ def _division_warehouse_rows():
 		filters={"custom_division": ["in", SEAL_DIVISIONS], "is_group": 0},
 		fields=[
 			"name", "warehouse_name", "company", "parent_warehouse", "disabled", "city", "address_line_1",
-			"custom_is_main_seal_store",
+			"custom_is_main_seal_store", "custom_location",
 		],
 		order_by="custom_is_main_seal_store desc, disabled asc, warehouse_name asc",
 	)
@@ -190,6 +229,7 @@ def _division_warehouse_rows():
 			"disabled": cint(w.disabled),
 			"is_main_seal_store": cint(w.custom_is_main_seal_store),
 			"region": w.city,
+			"location": w.custom_location,
 			"address_line": w.address_line_1,
 			# Seals Held is custody (what is physically there, as on the Warehouse
 			# form); In Stock is ERPNext's Serial No count, shown alongside so the
@@ -197,7 +237,7 @@ def _division_warehouse_rows():
 			"seals_held": cint(held.get(w.name)),
 			"in_stock": stock.get(w.name, 0),
 			"search_text": " ".join(
-				str(v or "") for v in (w.name, w.warehouse_name, w.company, w.city, w.address_line_1)
+				str(v or "") for v in (w.name, w.warehouse_name, w.company, w.city, w.custom_location, w.address_line_1)
 			).lower(),
 		}
 		for w in warehouses
@@ -246,9 +286,12 @@ def _holder_rows(held):
 	"""One row per User or Customer holding seals right now, most seals first."""
 	users = [c for (t, c) in held if t == "User"]
 	customers = [c for (t, c) in held if t == "Customer"]
-	user_names = dict(
-		frappe.get_all("User", filters={"name": ["in", users]}, fields=["name", "full_name"], as_list=True)
-	) if users else {}
+	user_info = {
+		u.name: u
+		for u in frappe.get_all(
+			"User", filters={"name": ["in", users]}, fields=["name", "full_name", "custom_seal_base_location"]
+		)
+	} if users else {}
 	customer_info = {
 		c.name: c
 		for c in frappe.get_all(
@@ -256,10 +299,18 @@ def _holder_rows(held):
 		)
 	} if customers else {}
 
+	user_roles = _lifecycle_roles(users)
+	user_locations = _staff_locations(users)
+
 	rows = []
 	for (custody_type, custodian), seals in held.items():
+		role = location = base_location = None
 		if custody_type == "User":
-			label, region, detail = user_names.get(custodian) or custodian, None, custodian
+			info = user_info.get(custodian) or frappe._dict()
+			label, region, detail = info.full_name or custodian, None, custodian
+			role = ", ".join(user_roles.get(custodian, [])) or None
+			location = user_locations.get(custodian)
+			base_location = info.custom_seal_base_location
 		elif custody_type == "Customer":
 			info = customer_info.get(custodian) or frappe._dict()
 			# The root territory says nothing about where the customer is.
@@ -273,10 +324,54 @@ def _holder_rows(held):
 				"label": label,
 				"holder_type": custody_type,
 				"region": region,
+				"location": location,
+				"base_location": base_location,
+				"role": role,
 				"address_line": detail,
 				"seals_held": seals,
-				"search_text": " ".join(str(v or "") for v in (custodian, label, region, custody_type)).lower(),
+				"search_text": " ".join(
+					str(v or "") for v in (custodian, label, region, base_location, location, role, custody_type)
+				).lower(),
 			}
 		)
 	rows.sort(key=lambda r: (r["holder_type"], -r["seals_held"], r["label"].lower()))
 	return rows
+
+
+def _lifecycle_roles(users):
+	"""{user: [life-cycle role labels]} for the given users, in a fixed order."""
+	if not users:
+		return {}
+	held = {}
+	for user, role in frappe.get_all(
+		"Has Role",
+		filters={"parenttype": "User", "parent": ["in", users], "role": ["in", list(_LIFECYCLE_ROLE_LABELS)]},
+		fields=["parent", "role"],
+		as_list=True,
+	):
+		held.setdefault(user, set()).add(role)
+	return {
+		user: [label for role, label in _LIFECYCLE_ROLE_LABELS.items() if role in roles]
+		for user, roles in held.items()
+	}
+
+
+def _staff_locations(users):
+	"""{user: location} — a person holding seals is a moving warehouse, so their
+	location is the latest GPS fix among the seals in their custody."""
+	if not users:
+		return {}
+	locations = {}
+	for d in frappe.get_all(
+		"Seal Device",
+		filters={
+			"current_custody_type": "User",
+			"current_custodian": ["in", users],
+			"in_uffizio": 1,
+			"last_known_api_location": ["is", "set"],
+		},
+		fields=["current_custodian", "last_known_api_location"],
+		order_by="last_api_sync_time desc",
+	):
+		locations.setdefault(d.current_custodian, d.last_known_api_location)
+	return locations

@@ -41,7 +41,7 @@ function _wh_build_page(page) {
 				<div class="wh-toolbar">
 					<div class="wh-toolbar-top">
 						<label class="wh-field wh-search-inline">
-							<input class="wh-search" type="search" placeholder="${__("Warehouse, staff, customer, city or address")}">
+							<input class="wh-search" type="search" placeholder="${__("Warehouse, staff, role, customer, location or address")}">
 						</label>
 
 						<div class="wh-filter-dropdown">
@@ -117,6 +117,11 @@ function _wh_build_page(page) {
 
 	$(page.body).on("click", ".wh-clear-btn", () => _wh_clear(page));
 
+	$(page.body).on("click", ".wh-base-edit", function (e) {
+		e.stopPropagation(); // the row itself opens the seals held
+		_wh_edit_base_location(page, $(this).data("user"), $(this).data("base") || "");
+	});
+
 	$(page.body).on("click", ".wh-row", function () {
 		const name = $(this).data("name");
 		const type = $(this).data("holder-type");
@@ -153,6 +158,8 @@ function _wh_load(page) {
 			const data = r.message || {};
 			page.wh_state.total = data.total || 0;
 			page.wh_can_read_warehouse = !!data.can_read_warehouse;
+			page.wh_can_edit_base_location = !!data.can_edit_base_location;
+			page.wh_session_user = data.session_user;
 			_wh_render_stats(page, data.summary || {});
 			_wh_set_create_action(page, data.can_create);
 			_wh_render_table(page, data.warehouses || []);
@@ -214,6 +221,8 @@ function _wh_render_table(page, warehouses) {
 			<thead><tr>
 				<th>${__("Holder")}</th>
 				<th>${__("Type")}</th>
+				<th title="${__("Seal journey role of the staff member holding the seals")}">${__("Role")}</th>
+				<th title="${__("Warehouse location; for staff, their base and the latest GPS position of the seals they hold")}">${__("Location")}</th>
 				<th>${__("Status")}</th>
 				<th>${__("Seals Held")}</th>
 				<th title="${__("Seal serials ERPNext has in stock in this warehouse")}">${__("In Stock (ERP)")}</th>
@@ -222,12 +231,41 @@ function _wh_render_table(page, warehouses) {
 				<th>${__("City")}</th>
 				<th>${__("Address / Contact")}</th>
 			</tr></thead>
-			<tbody>${warehouses.map(_wh_row_html).join("")}</tbody>
+			<tbody>${warehouses.map((w) => _wh_row_html(page, w)).join("")}</tbody>
 		</table>
 	`);
 }
 
-function _wh_row_html(w) {
+// Staff: fixed base (editable here, the only place it shows) over the live GPS
+// position of the seals they hold. Customers: GPS only.
+function _wh_staff_location_html(page, w) {
+	const esc = frappe.utils.escape_html;
+	const canEdit = w.holder_type === "User"
+		&& (page.wh_can_edit_base_location || w.name === page.wh_session_user);
+	const base = w.holder_type === "User"
+		? `<div class="wh-base">${w.base_location ? esc(w.base_location) : `<span class="wh-muted">${__("No base set")}</span>`}${canEdit
+			? ` <button class="wh-base-edit" data-user="${esc(w.name)}" data-base="${esc(w.base_location || "")}" title="${__("Set base location")}">✎</button>`
+			: ""}</div>`
+		: "";
+	const gps = w.location ? `<div class="wh-muted">${__("GPS")}: ${esc(w.location)}</div>` : "";
+	return base + gps || "—";
+}
+
+function _wh_edit_base_location(page, user, current) {
+	frappe.prompt(
+		{ fieldname: "base_location", fieldtype: "Data", label: __("Base Location"), default: current,
+			description: __("Fixed base of this staff member, e.g. Mombasa office. Leave empty to clear.") },
+		(values) => frappe.call({
+			method: "tnt_seal_management.tnt_seal_management.api.seal_warehouses.set_staff_base_location",
+			args: { user, base_location: values.base_location },
+			callback: () => _wh_load(page),
+		}),
+		__("Set Base Location"),
+		__("Save")
+	);
+}
+
+function _wh_row_html(page, w) {
 	const esc = frappe.utils.escape_html;
 	const dash = "—";
 	const isWarehouse = w.holder_type === "Warehouse";
@@ -241,6 +279,8 @@ function _wh_row_html(w) {
 		<tr class="wh-row" data-name="${esc(w.name)}" data-holder-type="${esc(w.holder_type)}">
 			<td><span class="wh-name">${esc(w.label || w.name)}</span></td>
 			<td>${type}</td>
+			<td>${w.role ? `<span class="wh-badge wh-badge--role">${esc(w.role)}</span>` : dash}</td>
+			<td class="wh-address" title="${esc(w.location || "")}">${isWarehouse ? esc(w.location || dash) : _wh_staff_location_html(page, w)}</td>
 			<td>${status}</td>
 			<td><b>${w.seals_held || 0}</b></td>
 			<td>${isWarehouse
@@ -575,10 +615,16 @@ function _wh_inject_styles() {
 		.wh-badge--active      { background: #dbeafe; color: #1d4ed8; }
 		.wh-badge--main        { background: #fef3c7; color: #b45309; }
 		.wh-badge--user        { background: #ede9fe; color: #6d28d9; }
+		.wh-badge--role        { background: #e0f2fe; color: #0369a1; }
+		.wh-base               { font-weight: 600; }
+		.wh-muted              { color: var(--text-muted); font-size: 0.85em; font-weight: 400; }
+		.wh-base-edit          { border: 0; background: none; padding: 0 4px; color: var(--text-muted); cursor: pointer; }
+		.wh-base-edit:hover    { color: var(--primary); }
 		.wh-stock-diff { color: #b45309; font-weight: 700; }
 		[data-theme="dark"] .wh-stock-diff { color: #fbbf24; }
 		.wh-badge--customer    { background: #dcfce7; color: #15803d; }
 		[data-theme="dark"] .wh-badge--user     { background: #2e1065; color: #ddd6fe; }
+		[data-theme="dark"] .wh-badge--role     { background: #082f49; color: #bae6fd; }
 		[data-theme="dark"] .wh-badge--customer { background: #052e16; color: #bbf7d0; }
 		.wh-address { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 		.wh-badge--inactive    { background: #e2e8f0; color: #475569; }

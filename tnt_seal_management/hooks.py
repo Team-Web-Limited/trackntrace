@@ -30,6 +30,8 @@ fixtures = [
 					"Item-custom_is_seal",
 					"Warehouse-custom_seal_management_section",
 					"Warehouse-custom_is_main_seal_store",
+					"Warehouse-custom_location",
+					"User-custom_seal_base_location",
 					"Warehouse-custom_seal_column",
 					"Warehouse-custom_seal_latitude",
 					"Warehouse-custom_seal_longitude",
