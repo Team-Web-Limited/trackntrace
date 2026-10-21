@@ -8,11 +8,25 @@ from frappe.utils import cstr, now_datetime
 
 
 class SealDevice(Document):
+	@property
+	def leased_to(self):
+		"""The customer a leased seal is with right now: it follows the seal's
+		custody through the journey cycle, so it is blank while the seal is in a
+		warehouse or with staff."""
+		if self.seal_category != "Outright Purchase" and self.current_custody_type == "Customer":
+			# The label reads "Customer: <name>"; show just the name.
+			return (self.current_custody_label or self.current_custodian or "").removeprefix("Customer: ")
+		return None
+
 	def validate(self):
-		# Seals are leased unless sold; a sold seal always names its owner.
+		# Seals are leased unless sold; a sold seal always names its owner, and a
+		# leased seal has none (its customer is the live custody, see leased_to).
 		self.seal_category = self.seal_category or "Lease"
-		if self.seal_category == "Outright Purchase" and not self.category_customer:
-			frappe.throw(_("Select the customer who bought this seal."))
+		if self.seal_category == "Outright Purchase":
+			if not self.category_customer:
+				frappe.throw(_("Select the customer who bought this seal."))
+		else:
+			self.category_customer = None
 		if not self.category_customer:
 			self.category_customer_name = None
 

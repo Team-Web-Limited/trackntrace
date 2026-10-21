@@ -419,7 +419,6 @@ function _render_seal_device_table(page) {
 			<thead>
 				<tr>
 					<th>${__("Seal")}</th>
-					<th>${__("Category")}</th>
 					<th>${__("Status")}</th>
 					<th>${__("API Status")}</th>
 					<th>${__("Lock Status")}</th>
@@ -474,18 +473,13 @@ function _seal_device_row_html(d) {
 	const lockHtml = d.lock_status ? `<span class="sd-badge sd-badge--${lockClass}">${esc(d.lock_status)}</span>` : "—";
 	const speed = d.speed != null ? `${d.speed} km/h` : "—";
 	const categoryClass = _seal_category_class(d.seal_category);
-	const customer = d.category_customer_name || d.category_customer;
-	const categoryHtml = `<span class="sd-cat sd-cat--${categoryClass}">${esc(__(d.seal_category || "Lease"))}</span>${customer
-		? `<div class="sd-cat-customer" title="${esc(d.category_customer || "")}">${esc(customer)}</div>`
-		: ""}`;
 	const errorHtml = d.api_error_message
 		? `<span title="${esc(d.api_error_message)}">${esc(d.api_error_message.slice(0, 80))}</span>`
 		: "—";
 
 	return `
 		<tr class="sd-device-row" data-name="${frappe.utils.escape_html(d.name)}">
-			<td class="sd-cat-stripe sd-cat-stripe--${categoryClass}"><span class="sd-strong">${frappe.utils.escape_html(d.name)}</span>${excludedBadge}</td>
-			<td>${categoryHtml}</td>
+			<td><span class="sd-strong sd-sealcat sd-sealcat--${categoryClass}" title="${esc(__(d.seal_category || "Lease"))}">${frappe.utils.escape_html(d.name)}</span>${excludedBadge}</td>
 			<td><span class="sd-badge sd-badge--${statusClass}">${frappe.utils.escape_html(status)}</span></td>
 			<td>${apiStatus}</td>
 			<td>${lockHtml}</td>
@@ -727,8 +721,7 @@ function _seal_device_search_text(d) {
 		d.api_branch,
 		d.remarks,
 		d.seal_category,
-		d.category_customer,
-		d.category_customer_name,
+		d.seal_category,
 	]
 		.filter(value => value !== null && value !== undefined && value !== "")
 		.join(" ")
@@ -1019,13 +1012,14 @@ function _inject_seal_device_styles() {
 		.sd-cat { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 		.sd-cat--lease { background: #ede9fe; color: #6d28d9; }
 		.sd-cat--outright { background: #fce7f3; color: #be185d; }
-		.sd-cat-customer { font-size: 11px; color: var(--text-muted); margin-top: 2px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-		.sd-cat-stripe { border-left: 4px solid transparent; }
-		.sd-cat-stripe--lease { border-left-color: #7c3aed; }
-		.sd-cat-stripe--outright { border-left-color: #db2777; }
+		.sd-sealcat { display: inline-block; padding: 3px 10px; border-radius: 8px; border-left: 4px solid transparent; }
+		.sd-sealcat--lease { background: #ede9fe; color: #5b21b6; border-left-color: #7c3aed; }
+		.sd-sealcat--outright { background: #fce7f3; color: #9d174d; border-left-color: #db2777; }
 		.sd-category-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 2px; font-size: 12px; color: var(--text-muted); }
 		[data-theme="dark"] .sd-cat--lease { background: #2e1065; color: #ddd6fe; }
 		[data-theme="dark"] .sd-cat--outright { background: #500724; color: #fbcfe8; }
+		[data-theme="dark"] .sd-sealcat--lease { background: #2e1065; color: #ddd6fe; }
+		[data-theme="dark"] .sd-sealcat--outright { background: #500724; color: #fbcfe8; }
 		.sd-badge--excluded { background: #fef3c7; color: #92400e; margin-left: 6px; cursor: help; }
 		.sd-coord-link { color: var(--sd-blue); text-decoration: none; font-size: 12px; }
 		.sd-coord-link:hover { text-decoration: underline; }
