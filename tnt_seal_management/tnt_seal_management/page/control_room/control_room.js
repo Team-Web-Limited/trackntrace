@@ -909,17 +909,12 @@ function _control_room_request_table(requests, kind = "tagging") {
 	`;
 }
 
-const CR_REQUEST_STATUS_LABEL = {
-	tagging: () => __("Pending Control Room Approval"),
-};
-
 function _control_room_request_card(req, kind = "tagging") {
 	const seals = req.seals || [];
 	const sealNumberByDevice = {};
 	seals.forEach((s) => {
 		if (s.seal_device) sealNumberByDevice[s.seal_device] = s.seal_number || s.seal_device;
 	});
-	const statusLabel = (CR_REQUEST_STATUS_LABEL[kind] || CR_REQUEST_STATUS_LABEL.tagging)();
 	const vehicles = req.vehicles || [];
 	const multiVehicle = vehicles.length > 1;
 	const vehicleBlock = vehicles.length ? _control_room_vehicle_block(vehicles) : "";
@@ -933,14 +928,6 @@ function _control_room_request_card(req, kind = "tagging") {
 
 	return `
 		<article class="cr-req" data-req="${frappe.utils.escape_html(req.name)}" data-kind="${kind}">
-			<header class="cr-req-head">
-				<div>
-					<span class="cr-req-id">${frappe.utils.escape_html(req.name)}</span>
-					<span class="cr-req-status">${statusLabel}</span>
-				</div>
-				<div class="cr-req-client">${frappe.utils.escape_html(req.client_name || "—")}</div>
-			</header>
-
 			<div class="cr-meta">
 				${_cr_meta(__("Tag Operator"), req.assigned_technician_name || "—")}
 				${_cr_meta(__("Job Order"), req.job_order || "—")}
@@ -3079,26 +3066,6 @@ function _control_room_inject_styles() {
 			overflow: hidden;
 			box-shadow: 0 2px 10px rgba(15,23,42,.04);
 		}
-		.cr-req-head {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			gap: 12px;
-			padding: 16px 20px;
-			background: linear-gradient(135deg, #eff6ff 0%, #ecfeff 100%);
-			border-bottom: 1px solid #e2e8f0;
-		}
-		.cr-req-id { font-size: 15px; font-weight: 800; color: #0f172a; margin-right: 10px; }
-		.cr-req-status {
-			display: inline-block;
-			padding: 3px 10px;
-			border-radius: 999px;
-			background: #fef9c3;
-			color: #854d0e;
-			font-size: 11px;
-			font-weight: 800;
-		}
-		.cr-req-client { font-size: 14px; font-weight: 700; color: #334155; text-align: right; }
 
 		.cr-meta {
 			display: grid;
@@ -3234,7 +3201,6 @@ function _control_room_inject_styles() {
 		[data-theme="dark"] .cr-info-pill--warning .cr-info-pill-count { background: #451a03; color: #fcd34d; }
 		[data-theme="dark"] .cr-info-pill--info { border-color: #075985; color: #7dd3fc; }
 		[data-theme="dark"] .cr-info-pill--info .cr-info-pill-count { background: #082f49; color: #7dd3fc; }
-		[data-theme="dark"] .cr-req-head { background: #0b3a52; border-color: #334155; }
 		[data-theme="dark"] .cr-arrival { background: #1e293b; border-color: #075985; }
 		[data-theme="dark"] .cr-arrival-head { background: #082f49; border-color: #075985; }
 		[data-theme="dark"] .cr-arrival-actions { background: #172033; border-color: #075985; }
@@ -3251,9 +3217,9 @@ function _control_room_inject_styles() {
 		[data-theme="dark"] .cr-arrival-journey { color: #f8fafc !important; }
 		[data-theme="dark"] .cr-arrival-open, [data-theme="dark"] .cr-journey-arrive-btn { background: #082f49; border-color: #0284c7; color: #bae6fd; }
 		[data-theme="dark"] .cr-section-title { color: #f8fafc; }
-		[data-theme="dark"] .cr-req-id, [data-theme="dark"] .cr-queue-head h3,
+		[data-theme="dark"] .cr-queue-head h3,
 		[data-theme="dark"] .cr-empty h3 { color: #f8fafc; }
-		[data-theme="dark"] .cr-req-client, [data-theme="dark"] .cr-meta-value,
+		[data-theme="dark"] .cr-meta-value,
 		[data-theme="dark"] .cr-seal-table td, [data-theme="dark"] .cr-queue-table td { color: #e2e8f0; }
 		[data-theme="dark"] .cr-seal-table th, [data-theme="dark"] .cr-queue-table th { background: #0f172a; color: #94a3b8; border-color: #334155; }
 		[data-theme="dark"] .cr-seal-table td, [data-theme="dark"] .cr-queue-table td { border-color: #334155; }
@@ -3288,8 +3254,6 @@ function _control_room_inject_styles() {
 			.cr-alert-refresh-btn { width: 100%; }
 			.cr-meta { grid-template-columns: 1fr; }
 			.cr-meta-item--wide { grid-column: span 1; }
-			.cr-req-head { flex-direction: column; align-items: flex-start; }
-			.cr-req-client { text-align: left; }
 		}
 	`;
 	document.head.appendChild(style);
