@@ -146,7 +146,9 @@ CARD_COUNT_RULES = {
 			{
 				"roles": ["Operations Control Room", "System Manager", "Management", "Managing Director"],
 				"label": "Open alerts",
-				"filters": {"is_resolved": 0},
+				# Only alerts on journeys still In Transit; alerts on idle seals or
+				# ended journeys aren't the Control Room's live concern.
+				"filters": lambda: {"is_resolved": 0, "seal_journey": ["in", _in_transit_journeys() or [""]]},
 			},
 		],
 	},
@@ -346,6 +348,10 @@ def _billing_customers():
 	from tnt_seal_management.tnt_seal_management.api.current_customers import get_billing_customer_names
 
 	return get_billing_customer_names()
+
+
+def _in_transit_journeys():
+	return frappe.get_all("Seal Journey", filters={"journey_status": "In Transit"}, pluck="name")
 
 
 def _arrival_queue():
