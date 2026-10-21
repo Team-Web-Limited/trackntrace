@@ -81,6 +81,23 @@ def find_nearest_seal_warehouse(latitude, longitude):
 _WAREHOUSE_STATUSES = {"Active": 0, "Inactive": 1}  # value of Warehouse.disabled
 _HOLDER_STATUSES = ("User", "Customer")
 
+# Page roles that see every seal holder. A Field Technician (tag operator) with
+# none of them sees only the seals in their own custody — where a seal rests is
+# dynamic (Seal Device custody), so their "warehouse" is themselves.
+_ALL_HOLDERS_ROLES = frozenset({
+	"System Manager",
+	"Operations Control Room",
+	"Management",
+	"Managing Director",
+	"PCB Team Leader",
+	"Account Manager",
+})
+
+
+def is_technician_only(user=None):
+	roles = set(frappe.get_roles(user or frappe.session.user))
+	return "Field Technician" in roles and not roles & _ALL_HOLDERS_ROLES
+
 
 @frappe.whitelist()
 def get_warehouse_list(search=None, status="All", page=1, page_length=25):
@@ -99,7 +116,11 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25):
 	page_length = min(max(cint(page_length) or 25, 1), 100)
 	search = (search or "").strip().lower()
 
-	rows = _division_warehouse_rows() + _holder_rows(_seals_held_by_custodian())
+	if is_technician_only():
+		mine = ("User", frappe.session.user)
+		rows = _holder_rows({k: v for k, v in _seals_held_by_custodian().items() if k == mine})
+	else:
+		rows = _division_warehouse_rows() + _holder_rows(_seals_held_by_custodian())
 
 	def in_status(row, key):
 		if key == "All":

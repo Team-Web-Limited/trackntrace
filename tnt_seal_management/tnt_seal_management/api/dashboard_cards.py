@@ -275,11 +275,21 @@ CARD_COUNT_RULES = {
 					"Management",
 					"Managing Director",
 					"PCB Team Leader",
-					"Field Technician",
 					"Account Manager",
 				],
 				"label": "Active warehouses",
 				"filters": {"custom_division": ["in", ["ECTS Division", "Both"]], "is_group": 0, "disabled": 0},
+			},
+			# A tag operator only sees the seals in their own custody.
+			{
+				"roles": ["Field Technician"],
+				"doctype": "Seal Device",
+				"label": "Seals I hold",
+				"filters": lambda: {
+					"current_custody_type": "User",
+					"current_custodian": frappe.session.user,
+					"in_uffizio": 1,
+				},
 			},
 		],
 	},
@@ -318,12 +328,12 @@ def get_card_counts():
 
 		try:
 			filters = rule["filters"]() if callable(rule["filters"]) else rule["filters"]
-			count = frappe.db.count(config["doctype"], filters)
+			count = frappe.db.count(rule.get("doctype") or config["doctype"], filters)
 		except Exception:
 			# A missing doctype/field should never break the whole dashboard.
 			frappe.log_error(
 				title="TNT dashboard card count failed",
-				message=f"route={route} doctype={config['doctype']}",
+				message=f"route={route} doctype={rule.get('doctype') or config['doctype']}",
 			)
 			continue
 
