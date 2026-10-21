@@ -51,13 +51,8 @@ def point_in_geofence(geofence, lat, lng):
 	return False
 
 
-def destination_geofence(destination, destination_geofence=None):
-	"""The Uffizio Geofence behind a journey's destination: the geofence picked on
-	the Journey Request, or for older journeys the one linked to the destination's
-	Transport Location."""
-	geofence = destination_geofence
-	if not geofence and destination:
-		geofence = frappe.db.get_value("Transport Location", destination, "uffizio_geofence")
+def destination_geofence(geofence):
+	"""The journey's destination Uffizio Geofence (picked on the Journey Request)."""
 	if not geofence:
 		return None
 	return frappe.db.get_value(
@@ -84,7 +79,7 @@ def check_destination_entry(journey_name, lat, lng):
 	)
 	if not journey or journey.journey_status != "In Transit" or journey.destination_entered_date_time:
 		return False
-	geofence = destination_geofence(journey.destination, journey.destination_geofence)
+	geofence = destination_geofence(journey.destination_geofence)
 	if not geofence or not point_in_geofence(geofence, lat, lng):
 		return False
 
@@ -150,19 +145,18 @@ def _record_entry_milestone(journey_name, destination, geofence, entered, lat, l
 def arrival_queue_journey_names():
 	"""Journeys that belong in the Control Room Arrivals: those auto-arrived on
 	geofence entry that still need an unlock method, In Transit journeys whose
-	seal has entered the destination geofence, plus those whose destination has
-	no geofence to detect (legacy free-text destinations, or a Transport Location
-	not yet linked to Uffizio), which still need confirming by hand."""
+	seal has entered the destination geofence, plus those with no destination
+	geofence to detect (legacy free-text destinations), which still need
+	confirming by hand."""
 	return frappe.db.sql_list(
 		"""
 		select sj.name
 		from `tabSeal Journey` sj
-		left join `tabTransport Location` tl on tl.name = sj.destination
 		where (
 				sj.journey_status = 'In Transit'
 				and (
 					sj.destination_entered_date_time is not null
-					or (ifnull(sj.destination_geofence, '') = '' and ifnull(tl.uffizio_geofence, '') = '')
+					or ifnull(sj.destination_geofence, '') = ''
 				)
 			)
 			or (sj.journey_status = 'Arrived' and ifnull(sj.seal_unlock_method, '') = '')

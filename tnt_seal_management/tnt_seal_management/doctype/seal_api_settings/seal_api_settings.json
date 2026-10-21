@@ -258,7 +258,7 @@
    "fieldname": "open_uffizio_geofences",
    "fieldtype": "Button",
    "label": "Open Uffizio Geofences",
-   "description": "Geofences pulled from Uffizio (daily at 03:00, or Sync from Uffizio on the page). Link them to Transport Locations so seal journeys arrive automatically when the seal enters the destination."
+   "description": "Geofences pulled from Uffizio (daily at 03:00, or Sync from Uffizio on the page). Pick them as a Journey Request's origin and destination so seal journeys arrive automatically when the seal enters the destination."
   },
   {
    "fieldname": "checklist_section",

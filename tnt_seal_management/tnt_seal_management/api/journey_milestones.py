@@ -19,11 +19,11 @@ def _norm(value):
 def _resolve_place(raw):
 	"""(place_name, geofence, address_id, transport_location) for one alert.
 
-	Enter/Out Of Geofence (20/21) carry a geofence_id, which resolves through
-	Uffizio Geofence to a Transport Location. Reached/Depart Address (13/63) carry
-	a different Uffizio concept — an address-book entry — whose id is not in the
-	geofence list; those resolve through Uffizio Address (linked by hand to a
-	Transport Location), or when the address name equals a Transport Location."""
+	Enter/Out Of Geofence (20/21) carry a geofence_id, kept as the milestone's
+	Uffizio Geofence. Reached/Depart Address (13/63) carry a different Uffizio
+	concept — an address-book entry — whose id is not in the geofence list; those
+	resolve through Uffizio Address (linked by hand to a Transport Location). Either
+	way the place also resolves when its name equals a Transport Location."""
 	geofence = cstr(raw.get("geofence_id")).strip() or None
 	if geofence and not frappe.db.exists("Uffizio Geofence", geofence):
 		geofence = None
@@ -31,17 +31,7 @@ def _resolve_place(raw):
 	place = cstr(raw.get("geofence_name") or raw.get("address_name")).strip()
 
 	location = None
-	if geofence:
-		rows = frappe.get_all(
-			"Transport Location",
-			filters={"uffizio_geofence": geofence},
-			fields=["name", "location_role"],
-		)
-		# Prefer the Checkpoint record when a place has both a Checkpoint and a
-		# Terminal entry (e.g. "Eldoret" and "Eldoret, Kenya").
-		rows.sort(key=lambda r: r.location_role != "Checkpoint")
-		location = rows[0].name if rows else None
-	elif address_id:
+	if address_id and not geofence:
 		location = frappe.db.get_value("Uffizio Address", address_id, "transport_location")
 	if not location and place and frappe.db.exists("Transport Location", place):
 		location = place

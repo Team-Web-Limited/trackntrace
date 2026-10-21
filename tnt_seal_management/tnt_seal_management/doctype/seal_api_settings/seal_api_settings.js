@@ -25,11 +25,10 @@ function _render_uffizio_geofence_summary(frm) {
 		args: { scope: "ours", page_length: 1 },
 		callback(r) {
 			const d = r.message || {};
-			const s = d.summary || {};
 			const synced = d.last_synced ? frappe.datetime.prettyDate(d.last_synced) : __("never");
 			$wrapper.html(`
 				<div class="text-muted small">
-					${__("{0} of our geofences, {1} linked to a Transport Location, {2} not linked.", [s.all || 0, s.linked || 0, s.unlinked || 0])}
+					${__("{0} of our geofences.", [d.total || 0])}
 					<br>${__("{0} shared from other accounts. Last synced {1}.", [(d.scope_counts || {}).shared || 0, frappe.utils.escape_html(synced)])}
 				</div>
 			`);

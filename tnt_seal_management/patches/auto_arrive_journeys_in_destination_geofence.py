@@ -15,7 +15,7 @@ def execute():
 		fields=["name", "destination", "destination_geofence", "destination_entered_date_time"],
 	)
 	for r in rows:
-		geofence = destination_geofence(r.destination, r.destination_geofence) or frappe._dict(geofence_name=None)
+		geofence = destination_geofence(r.destination_geofence) or frappe._dict(geofence_name=None)
 		try:
 			_auto_arrive(r.name, r.destination_entered_date_time, geofence)
 		except Exception:

@@ -34,8 +34,6 @@
   "radius",
   "tolerance",
   "point_count",
-  "link_section",
-  "transport_locations",
   "sync_section",
   "last_synced",
   "coordinates"
@@ -146,19 +144,6 @@
    "fieldtype": "Int",
    "label": "Boundary Points",
    "read_only": 1
-  },
-  {
-   "fieldname": "link_section",
-   "fieldtype": "Section Break",
-   "label": "Transport Location"
-  },
-  {
-   "fieldname": "transport_locations",
-   "fieldtype": "Small Text",
-   "label": "Linked Transport Locations",
-   "read_only": 1,
-   "description": "Transport Locations pointing at this geofence.",
-   "in_list_view": 1
   },
   {
    "fieldname": "sync_section",

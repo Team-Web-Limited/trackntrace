@@ -8,6 +8,10 @@ def execute():
 	them so arrival detection keeps working."""
 	if not frappe.db.table_exists("Journey Request") or not frappe.db.table_exists("Transport Location"):
 		return
+	# Transport Location's geofence link was later removed; nothing to convert
+	# on a site created after that.
+	if not frappe.db.has_column("Transport Location", "uffizio_geofence"):
+		return
 
 	geofence_of = dict(
 		frappe.get_all(

@@ -156,8 +156,8 @@ class TaggingBooking(Document):
 					"tagging_booking": self.name,
 					"journey_status": "Draft",
 					# Free text from the booking, kept apart from the route: Origin and
-					# Destination are the geofenced Transport Locations picked on the
-					# Journey Request at tagging.
+					# Destination are the Uffizio geofences picked on the Journey
+					# Request at tagging.
 					"booking_location": self.location,
 					"vehicle_plate_number": plate,
 				}

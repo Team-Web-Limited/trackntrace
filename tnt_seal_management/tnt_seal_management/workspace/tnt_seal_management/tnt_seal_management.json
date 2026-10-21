@@ -58,7 +58,7 @@
    "type": "Page"
   },
   {
-   "doc_view": "List",
+   "doc_view": "",
    "label": "Seal Settings",
    "link_to": "Seal API Settings",
    "type": "DocType"
