@@ -22,6 +22,28 @@ frappe.router.on('change', () => {
 	frappe.set_route(TNT_LANDING_PAGE);
 });
 
+// Which module (TNT or RECTS) the user is working in, kept in sessionStorage so
+// it survives a refresh and is per tab. Every TNT / RECTs landing page and list
+// sets it on show; the Seal Device form reads it for its breadcrumb and Back
+// button, so the two modules never bleed into each other's pages.
+const TNT_MODULE_KEY = 'tnt_active_module';
+
+window.tnt_set_module = function (module) {
+	try {
+		sessionStorage.setItem(TNT_MODULE_KEY, module);
+	} catch (e) {
+		// storage unavailable (private mode / blocked): callers fall back
+	}
+};
+
+window.tnt_get_module = function () {
+	try {
+		return sessionStorage.getItem(TNT_MODULE_KEY);
+	} catch (e) {
+		return null;
+	}
+};
+
 // Clicking the workspace in the desk sidebar asks which system to open (TNT or
 // RECTS) instead of navigating straight away. Captured on document so it runs
 // before Frappe's router link handler; modified clicks (new tab etc.) and direct

@@ -55,10 +55,16 @@ frappe.pages["seal-device-dashboard"].on_page_load = function (wrapper) {
 frappe.pages["seal-device-dashboard"].on_page_show = function (wrapper) {
 	const page = wrapper.page;
 	if (!page) return;
-	if (page.sd_system === "RECTS" || _sd_route_system() === "RECTS") {
+	const system = _sd_route_system();
+	window.tnt_set_module(system);
+	// Breadcrumbs are cached per route, so set this route's every time: RECTs gets
+	// its own crumb, TNT goes back to the module's default (never the RECTs one).
+	if (system === "RECTS") {
 		frappe.breadcrumbs.add({ type: "Custom", label: __("RECTs Sealmanagement"), route: "/app/rects" });
+	} else {
+		frappe.breadcrumbs.add("Tnt Seal Management");
 	}
-	if (page.sd_system === _sd_route_system()) return;
+	if (page.sd_system === system) return;
 	page.sd_system = _sd_route_system();
 	page.sd_state.selected.clear();
 	_sd_apply_system(page);
@@ -255,8 +261,6 @@ function _build_seal_device_page(page) {
 		if ($(e.target).closest(".sd-check-cell").length) return;
 		const name = $(this).data("name");
 		if (!name) return;
-		// Tell the Seal Device form which dashboard to go back to.
-		window.tnt_seal_dashboard_route = page.sd_system === "RECTS" ? "seal-device-dashboard/rects" : "seal-device-dashboard";
 		frappe.set_route("Form", "Seal Device", name);
 	});
 	$(page.body).on("click", ".sd-page-btn", function () {

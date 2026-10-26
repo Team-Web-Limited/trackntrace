@@ -21,6 +21,7 @@ frappe.pages["tnt-seal-management"].on_page_load = function (wrapper) {
 // the dashboard first loaded (e.g. before an assignment was cancelled) until
 // "Refresh" was clicked. on_page_show fires on every such re-entry.
 frappe.pages["tnt-seal-management"].on_page_show = function (wrapper) {
+	window.tnt_set_module("TNT");
 	if (wrapper.page) load_card_counts(wrapper.page);
 };
 

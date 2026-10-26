@@ -5,12 +5,9 @@ frappe.ui.form.on("Seal Device", {
 	refresh(frm) {
 		_set_rects_breadcrumb(frm);
 
-		// Back returns to the dashboard the seal was opened from (TNT or RECTs).
-		// Opened any other way (a link, a refresh), a RECTs seal goes to the
-		// RECTs dashboard and every other seal to the TNT one.
+		// Back returns to the dashboard of the module the user is in (TNT or RECTs).
 		frm.add_custom_button(__("Back"), () => {
-			const route = window.tnt_seal_dashboard_route
-				|| (frm.doc.belongs_to === "RECTs" ? "seal-device-dashboard/rects" : "seal-device-dashboard");
+			const route = _seal_module(frm) === "RECTS" ? "seal-device-dashboard/rects" : "seal-device-dashboard";
 			frappe.set_route(...route.split("/"));
 		});
 
@@ -74,12 +71,19 @@ function _add_sync_button(frm) {
 	}, __("Actions"));
 }
 
-// RECTs seals sit under the RECTs module, so the form's first breadcrumb (the
-// TNT workspace, set by the module) reads "RECTs Sealmanagement" and links to the
-// RECTs dashboard. Frappe rebuilds the breadcrumbs on every refresh, so
-// other seals keep the default.
+// The module the user is working in (remembered in sessionStorage by the TNT and
+// RECTs pages). Opened with none remembered (a direct link in a new tab), a
+// RECTs seal counts as RECTs and every other seal as TNT.
+function _seal_module(frm) {
+	return window.tnt_get_module() || (frm.doc.belongs_to === "RECTs" ? "RECTS" : "TNT");
+}
+
+// In the RECTs module the form's first breadcrumb (the TNT workspace, set by the
+// doctype's module) reads "RECTs Sealmanagement" and links to the RECTs
+// dashboard. Frappe rebuilds the breadcrumbs on every refresh, so the TNT module
+// keeps the default.
 function _set_rects_breadcrumb(frm) {
-	if (frm.doc.belongs_to !== "RECTs") return;
+	if (_seal_module(frm) !== "RECTS") return;
 	const $first = $("#navbar-breadcrumbs li").first().find("a");
 	if ($first.length) {
 		$first.text(__("RECTs Sealmanagement")).attr("href", "/app/rects");

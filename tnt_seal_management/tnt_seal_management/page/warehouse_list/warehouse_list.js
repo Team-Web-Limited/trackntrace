@@ -54,8 +54,11 @@ frappe.pages["warehouse-list"].on_page_load = function (wrapper) {
 // Switching between /app/warehouse-list and /app/warehouse-list/rects reuses
 // the loaded page, so start over with the other system's warehouses.
 frappe.pages["warehouse-list"].on_page_show = function (wrapper) {
+	window.tnt_set_module(_wh_route_system());
 	if (_wh_route_system() === "RECTS") {
 		frappe.breadcrumbs.add({ type: "Custom", label: __("RECTs Sealmanagement"), route: "/app/rects" });
+	} else {
+		frappe.breadcrumbs.add("Tnt Seal Management");
 	}
 	const page = wrapper.page;
 	if (!page || page.wh_system === _wh_route_system()) return;

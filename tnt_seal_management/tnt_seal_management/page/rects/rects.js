@@ -24,6 +24,7 @@ function set_rects_breadcrumb() {
 }
 
 frappe.pages["rects"].on_page_show = function (wrapper) {
+	window.tnt_set_module("RECTS");
 	set_rects_breadcrumb();
 	if (wrapper.page) load_rects_card_counts(wrapper.page);
 };
