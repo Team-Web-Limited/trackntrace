@@ -339,6 +339,23 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
+	# The RECTs dashboard's Seal Device card: only the seals that belong to RECTs.
+	"seal-device-dashboard/rects": {
+		"doctype": "Seal Device",
+		"rules": [
+			{
+				"roles": [
+					"Operations Control Room",
+					"System Manager",
+					"Management",
+					"Managing Director",
+					"PCB Team Leader",
+				],
+				"label": "Total devices",
+				"filters": {"in_uffizio": 1, "belongs_to": "RECTs"},
+			},
+		],
+	},
 }
 
 

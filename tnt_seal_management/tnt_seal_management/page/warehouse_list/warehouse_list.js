@@ -9,7 +9,7 @@ const WH_SYSTEMS = {
 		empty_hint: "Warehouses appear here when their Branch is ECTS Division or Both. Clear the filters to see more.",
 	},
 	RECTS: {
-		title: "RECTS Warehouses",
+		title: "RECTs Warehouses",
 		dashboard: "rects",
 		division: "RECTS Division",
 		empty_hint: "Warehouses appear here when their Branch is RECTS Division. Clear the filters to see more.",
@@ -54,6 +54,9 @@ frappe.pages["warehouse-list"].on_page_load = function (wrapper) {
 // Switching between /app/warehouse-list and /app/warehouse-list/rects reuses
 // the loaded page, so start over with the other system's warehouses.
 frappe.pages["warehouse-list"].on_page_show = function (wrapper) {
+	if (_wh_route_system() === "RECTS") {
+		frappe.breadcrumbs.add({ type: "Custom", label: __("RECTs Sealmanagement"), route: "/app/rects" });
+	}
 	const page = wrapper.page;
 	if (!page || page.wh_system === _wh_route_system()) return;
 	page.wh_system = _wh_route_system();

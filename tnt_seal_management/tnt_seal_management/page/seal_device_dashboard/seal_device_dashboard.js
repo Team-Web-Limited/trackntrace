@@ -1,9 +1,29 @@
+// The same page serves both systems: /app/seal-device-dashboard shows every
+// seal (and is where seals are assigned to TNT or RECTs), while
+// /app/seal-device-dashboard/rects shows only the seals that belong to RECTs.
+const SD_SYSTEMS = {
+	TNT: { title: "Seal Device Dashboard", dashboard: "tnt-seal-management", belongs_to: null },
+	RECTS: { title: "RECTs Seal Device Dashboard", dashboard: "rects", belongs_to: "RECTs" },
+};
+
+function _sd_route_system() {
+	return String(frappe.get_route()[1] || "").toLowerCase() === "rects" ? "RECTS" : "TNT";
+}
+
+function _sd_apply_system(page) {
+	const system = SD_SYSTEMS[page.sd_system];
+	page.set_title(__(system.title));
+	$(page.body).find(".sd-page").toggleClass("sd-page--rects", page.sd_system === "RECTS");
+}
+
 frappe.pages["seal-device-dashboard"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: "Seal Device Dashboard",
 		single_column: true,
 	});
+	wrapper.page = page;
+	page.sd_system = _sd_route_system();
 
 	page.sd_state = {
 		devices: [],
@@ -12,9 +32,10 @@ frappe.pages["seal-device-dashboard"].on_page_load = function (wrapper) {
 		branch: "",
 		page: 1,
 		page_size: 30,
+		selected: new Set(), // seal names ticked for the bulk "Belongs To" action
 	};
 
-	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Dashboard"), () => frappe.set_route(SD_SYSTEMS[page.sd_system].dashboard));
 	page.add_inner_button(__("Excel"), () => _export_seal_devices_excel(page), __("Download Report"));
 	page.add_inner_button(__("PDF"), () => _export_seal_devices_pdf(page), __("Download Report"));
 	page.add_inner_button(__("Refresh"), () => _load_seal_devices(page));
@@ -25,6 +46,22 @@ frappe.pages["seal-device-dashboard"].on_page_load = function (wrapper) {
 
 	_inject_seal_device_styles();
 	_build_seal_device_page(page);
+	_sd_apply_system(page);
+	_load_seal_devices(page);
+};
+
+// Moving between /app/seal-device-dashboard and its /rects variant reuses the
+// loaded page, so reload it for the other system.
+frappe.pages["seal-device-dashboard"].on_page_show = function (wrapper) {
+	const page = wrapper.page;
+	if (!page) return;
+	if (page.sd_system === "RECTS" || _sd_route_system() === "RECTS") {
+		frappe.breadcrumbs.add({ type: "Custom", label: __("RECTs Sealmanagement"), route: "/app/rects" });
+	}
+	if (page.sd_system === _sd_route_system()) return;
+	page.sd_system = _sd_route_system();
+	page.sd_state.selected.clear();
+	_sd_apply_system(page);
 	_load_seal_devices(page);
 };
 
@@ -32,11 +69,15 @@ function _load_seal_devices(page) {
 	_set_seal_device_loading(page, true);
 	frappe.call({
 		method: "tnt_seal_management.tnt_seal_management.api.seal_sync.get_device_dashboard_data",
+		args: { belongs_to: SD_SYSTEMS[page.sd_system].belongs_to },
 		callback(r) {
 			_set_seal_device_loading(page, false);
 			const data = r.message || {};
 			page.sd_state.devices = Array.isArray(data.devices) ? data.devices : [];
 			page.sd_state.page = 1;
+			// Drop ticked seals that have since been assigned or have left the list.
+			const movable = new Set(page.sd_state.devices.filter((d) => !_is_belongs_to_locked(d)).map((d) => d.name));
+			page.sd_state.selected = new Set([...page.sd_state.selected].filter((name) => movable.has(name)));
 			_render_branch_filter(page);
 			_render_seal_device_stats(page, data.summary || {});
 			_render_seal_device_table(page);
@@ -95,6 +136,13 @@ function _build_seal_device_page(page) {
 						</label>
 
 						<div class="sd-actions">
+							<div class="sd-action-dropdown sd-bulk-dropdown" style="display:none">
+								<button class="sd-btn sd-btn-bulk" type="button"></button>
+								<div class="sd-action-menu">
+									<button class="sd-bulk-item" data-belongs-to="RECTs">${__("RECTs")}</button>
+									<button class="sd-bulk-item" data-belongs-to="TNT">${__("TNT")}</button>
+								</div>
+							</div>
 							<button class="sd-clear-btn" type="button">${__("Clear filters")}</button>
 							<div class="sd-action-dropdown">
 								<button class="sd-btn sd-btn-actions" type="button">${__("Actions")} <span class="sd-caret">&#9662;</span></button>
@@ -180,9 +228,36 @@ function _build_seal_device_page(page) {
 		$(page.body).find(".sd-action-dropdown").removeClass("open");
 		$(page.body).find(".sd-filter-menu").removeClass("open");
 	});
-	$(page.body).on("click", ".sd-device-row", function () {
+	$(page.body).on("click", ".sd-btn-bulk", function (e) {
+		e.stopPropagation();
+		$(page.body).find(".sd-bulk-dropdown").toggleClass("open");
+	});
+	$(page.body).on("click", ".sd-bulk-item", function () {
+		$(page.body).find(".sd-bulk-dropdown").removeClass("open");
+		_set_selected_belongs_to(page, $(this).data("belongs-to"));
+	});
+	$(page.body).on("change", ".sd-row-check", function () {
+		const name = $(this).attr("data-name");
+		if (this.checked) page.sd_state.selected.add(name);
+		else page.sd_state.selected.delete(name);
+		_sync_seal_selection(page);
+	});
+	$(page.body).on("change", ".sd-check-all", function () {
+		const checked = this.checked;
+		$(page.body).find(".sd-row-check:not(:disabled)").each(function () {
+			$(this).prop("checked", checked);
+			if (checked) page.sd_state.selected.add($(this).attr("data-name"));
+			else page.sd_state.selected.delete($(this).attr("data-name"));
+		});
+		_sync_seal_selection(page);
+	});
+	$(page.body).on("click", ".sd-device-row", function (e) {
+		if ($(e.target).closest(".sd-check-cell").length) return;
 		const name = $(this).data("name");
-		if (name) frappe.set_route("Form", "Seal Device", name);
+		if (!name) return;
+		// Tell the Seal Device form which dashboard to go back to.
+		window.tnt_seal_dashboard_route = page.sd_system === "RECTS" ? "seal-device-dashboard/rects" : "seal-device-dashboard";
+		frappe.set_route("Form", "Seal Device", name);
 	});
 	$(page.body).on("click", ".sd-page-btn", function () {
 		if ($(this).prop("disabled")) return;
@@ -191,6 +266,47 @@ function _build_seal_device_page(page) {
 		page.sd_state.page = nextPage;
 		_render_seal_device_table(page);
 	});
+}
+
+// Show the bulk "Belongs To" button only while seals are ticked, and keep the
+// header checkbox in step with the rows on this page.
+function _sync_seal_selection(page) {
+	const count = page.sd_state.selected.size;
+	$(page.body).find(".sd-bulk-dropdown").toggle(count > 0);
+	$(page.body).find(".sd-btn-bulk").html(
+		`${__("Belongs To")} (${count}) <span class="sd-caret">&#9662;</span>`
+	);
+	const $rows = $(page.body).find(".sd-row-check:not(:disabled)");
+	const ticked = $rows.filter(":checked").length;
+	$(page.body).find(".sd-check-all")
+		.prop("checked", $rows.length > 0 && ticked === $rows.length)
+		.prop("indeterminate", ticked > 0 && ticked < $rows.length);
+}
+
+function _set_selected_belongs_to(page, belongsTo) {
+	const seals = [...page.sd_state.selected];
+	if (!seals.length) return;
+	frappe.confirm(
+		__("Set {0} seal(s) to belong to {1}?", [seals.length, belongsTo]),
+		() => {
+			frappe.call({
+				method: "tnt_seal_management.tnt_seal_management.api.seal_sync.set_seals_belongs_to",
+				args: { seals: JSON.stringify(seals), belongs_to: belongsTo },
+				freeze: true,
+				callback() {
+					page.sd_state.devices.forEach((d) => {
+						if (page.sd_state.selected.has(d.name)) d.belongs_to = belongsTo;
+					});
+					page.sd_state.selected.clear();
+					frappe.show_alert({
+						message: __("{0} seal(s) now belong to {1}", [seals.length, belongsTo]),
+						indicator: "green",
+					});
+					_render_seal_device_table(page);
+				},
+			});
+		}
+	);
 }
 
 function _sync_active_journeys(page) {
@@ -418,7 +534,9 @@ function _render_seal_device_table(page) {
 		<table class="sd-table">
 			<thead>
 				<tr>
+					<th class="sd-check-cell"><input type="checkbox" class="sd-check-all" title="${__("Select all on this page")}"></th>
 					<th>${__("Seal")}</th>
+					<th>${__("Belongs To")}</th>
 					<th>${__("Status")}</th>
 					<th>${__("API Status")}</th>
 					<th>${__("Lock Status")}</th>
@@ -434,11 +552,12 @@ function _render_seal_device_table(page) {
 					<th>${__("Error")}</th>
 				</tr>
 			</thead>
-			<tbody>${visibleDevices.map(_seal_device_row_html).join("")}</tbody>
+			<tbody>${visibleDevices.map((d) => _seal_device_row_html(d, page.sd_state.selected)).join("")}</tbody>
 		</table>
 	`);
 
 	_render_seal_device_pagination(page, devices.length, start + 1, Math.min(start + pageSize, devices.length));
+	_sync_seal_selection(page);
 }
 
 // A device is "sync excluded" when its IMEI was cleared because the tracking
@@ -448,7 +567,12 @@ function _is_sync_excluded(d) {
 	return (d.remarks || "").includes("[SYNC EXCLUDED");
 }
 
-function _seal_device_row_html(d) {
+// Seals on an assignment or a journey are in use and cannot change system.
+function _is_belongs_to_locked(d) {
+	return ["Assigned", "In Journey"].includes(d.current_status);
+}
+
+function _seal_device_row_html(d, selected = new Set()) {
 	const status = d.current_status || __("Unknown");
 	const statusClass = _seal_device_status_class(status);
 	const excludedBadge = _is_sync_excluded(d)
@@ -479,7 +603,11 @@ function _seal_device_row_html(d) {
 
 	return `
 		<tr class="sd-device-row" data-name="${frappe.utils.escape_html(d.name)}">
+			<td class="sd-check-cell"><input type="checkbox" class="sd-row-check" data-name="${frappe.utils.escape_html(d.name)}" ${_is_belongs_to_locked(d)
+				? `disabled title="${__("Assigned seals cannot be moved")}"`
+				: selected.has(d.name) ? "checked" : ""}></td>
 			<td><span class="sd-strong sd-sealcat sd-sealcat--${categoryClass}" title="${esc(__(d.seal_category || "Lease"))}">${frappe.utils.escape_html(d.name)}</span>${excludedBadge}</td>
+			<td>${esc(d.belongs_to || "TNT")}</td>
 			<td><span class="sd-badge sd-badge--${statusClass}">${frappe.utils.escape_html(status)}</span></td>
 			<td>${apiStatus}</td>
 			<td>${lockHtml}</td>
@@ -868,6 +996,7 @@ function _inject_seal_device_styles() {
 		.sd-filter-dropdown,
 		.sd-action-dropdown { position: relative; }
 		.sd-filter-btn,
+		.sd-btn-bulk,
 		.sd-btn-actions {
 			display: inline-flex;
 			align-items: center;
@@ -885,6 +1014,7 @@ function _inject_seal_device_styles() {
 			transition: border-color .15s;
 		}
 		.sd-filter-btn:hover,
+		.sd-btn-bulk:hover,
 		.sd-btn-actions:hover:not(:disabled) { border-color: var(--sd-blue); }
 		.sd-filter-btn-count,
 		.sd-fcount {
@@ -995,6 +1125,25 @@ function _inject_seal_device_styles() {
 			letter-spacing: .08em;
 			text-transform: uppercase;
 		}
+		/* Seals are assigned to a system from the TNT side only. */
+		.sd-page--rects .sd-check-cell,
+		.sd-page--rects .sd-bulk-dropdown { display: none !important; }
+		.sd-check-cell { width: 36px; text-align: center !important; }
+		.sd-check-cell input { cursor: pointer; margin: 0; }
+		.sd-check-cell input:disabled { cursor: not-allowed; opacity: .4; }
+		.sd-bulk-item {
+			display: block;
+			width: 100%;
+			padding: 9px 14px;
+			border: 0;
+			background: transparent;
+			color: #075985;
+			font-size: 13px;
+			font-weight: 700;
+			text-align: left;
+			cursor: pointer;
+		}
+		.sd-bulk-item:hover { background: #f0f9ff; }
 		.sd-device-row { cursor: pointer; }
 		.sd-device-row:hover { background: rgba(224, 242, 254, .7); }
 		.sd-strong { font-weight: 800; color: #0c4a6e; }

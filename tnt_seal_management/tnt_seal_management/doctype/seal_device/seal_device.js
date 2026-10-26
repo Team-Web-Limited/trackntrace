@@ -3,8 +3,15 @@
 
 frappe.ui.form.on("Seal Device", {
 	refresh(frm) {
+		_set_rects_breadcrumb(frm);
+
+		// Back returns to the dashboard the seal was opened from (TNT or RECTs).
+		// Opened any other way (a link, a refresh), a RECTs seal goes to the
+		// RECTs dashboard and every other seal to the TNT one.
 		frm.add_custom_button(__("Back"), () => {
-			frappe.set_route("seal-device-dashboard");
+			const route = window.tnt_seal_dashboard_route
+				|| (frm.doc.belongs_to === "RECTs" ? "seal-device-dashboard/rects" : "seal-device-dashboard");
+			frappe.set_route(...route.split("/"));
 		});
 
 		if (!frm.is_new()) {
@@ -65,4 +72,16 @@ function _add_sync_button(frm) {
 			}
 		);
 	}, __("Actions"));
+}
+
+// RECTs seals sit under the RECTs module, so the form's first breadcrumb (the
+// TNT workspace, set by the module) reads "RECTs Sealmanagement" and links to the
+// RECTs dashboard. Frappe rebuilds the breadcrumbs on every refresh, so
+// other seals keep the default.
+function _set_rects_breadcrumb(frm) {
+	if (frm.doc.belongs_to !== "RECTs") return;
+	const $first = $("#navbar-breadcrumbs li").first().find("a");
+	if ($first.length) {
+		$first.text(__("RECTs Sealmanagement")).attr("href", "/app/rects");
+	}
 }

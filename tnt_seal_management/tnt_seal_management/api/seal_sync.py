@@ -1171,13 +1171,20 @@ def normalize_elock_status(raw):
 
 
 @frappe.whitelist()
-def get_device_dashboard_data():
-	"""Return all Seal Devices with their last-synced API fields for the dashboard."""
+def get_device_dashboard_data(belongs_to=None):
+	"""Return all Seal Devices with their last-synced API fields for the dashboard.
+	``belongs_to`` (TNT / RECTs) narrows it to that system's seals; the TNT
+	dashboard passes nothing and sees every seal, so seals can be moved between
+	systems from there."""
 	_require_dashboard_permission()
+
+	filters = {"in_uffizio": 1}
+	if belongs_to:
+		filters["belongs_to"] = belongs_to
 
 	devices = frappe.db.get_all(
 		"Seal Device",
-		filters={"in_uffizio": 1},
+		filters=filters,
 		fields=[
 			"name", "device_id", "imei_number",
 			"current_status", "condition", "current_vehicle", "current_journey",
@@ -1187,7 +1194,7 @@ def get_device_dashboard_data():
 			"last_api_status", "lock_status", "transmission_status",
 			"last_successful_sync_time", "last_failed_sync_time",
 			"api_error_message", "remarks",
-			"seal_category",
+			"seal_category", "belongs_to",
 		],
 		order_by="last_successful_sync_time desc",
 	)
@@ -1371,6 +1378,37 @@ def trigger_sync_all_devices():
 _SYNC_ROLES = {"System Manager", "Operations Control Room"}
 _ADMIN_ROLES = {"System Manager"}
 _DASHBOARD_ROLES = _SYNC_ROLES | {"Management", "PCB Team Leader", "Account Manager"}
+
+
+_BELONGS_TO_LOCKED_STATUSES = ("Assigned", "In Journey")
+
+
+@frappe.whitelist()
+def set_seals_belongs_to(seals, belongs_to):
+	"""Set which system (TNT or RECTs) the given Seal Devices belong to. Needs
+	write access on every seal, so the Seal Device permissions decide who may."""
+	seals = frappe.parse_json(seals) if isinstance(seals, str) else seals
+	# Seal numbers can be all digits, which JSON clients may send as numbers.
+	seals = [str(seal) for seal in seals or []]
+	if belongs_to not in ("TNT", "RECTs"):
+		frappe.throw(_("Belongs To must be TNT or RECTs."))
+	if not seals:
+		frappe.throw(_("Select at least one seal."))
+	for seal in seals:
+		frappe.has_permission("Seal Device", "write", seal, throw=True)
+
+	# A seal on an assignment or a journey is in use, so it cannot change system.
+	busy = frappe.get_all(
+		"Seal Device",
+		filters={"name": ["in", seals], "current_status": ["in", list(_BELONGS_TO_LOCKED_STATUSES)]},
+		pluck="name",
+	)
+	if busy:
+		frappe.throw(
+			_("Seals that are Assigned or In Journey cannot be moved: {0}").format(", ".join(busy))
+		)
+	frappe.db.set_value("Seal Device", {"name": ["in", seals]}, "belongs_to", belongs_to)
+	return len(seals)
 
 
 def _require_dashboard_permission():

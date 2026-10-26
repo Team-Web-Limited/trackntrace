@@ -1,7 +1,7 @@
 frappe.pages["rects"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
-		title: "RECTS",
+		title: "RECTs",
 		single_column: true,
 	});
 
@@ -18,7 +18,13 @@ frappe.pages["rects"].on_page_load = function (wrapper) {
 	});
 };
 
+// The page's module would otherwise show the TNT workspace in the breadcrumb.
+function set_rects_breadcrumb() {
+	frappe.breadcrumbs.add({ type: "Custom", label: __("RECTs Sealmanagement"), route: "/app/rects" });
+}
+
 frappe.pages["rects"].on_page_show = function (wrapper) {
+	set_rects_breadcrumb();
 	if (wrapper.page) load_rects_card_counts(wrapper.page);
 };
 
@@ -53,7 +59,7 @@ const RECTS_DASHBOARD_CARDS = [
 			{ label: "Arrivals", count: 0, variant: "arrival" },
 		],
 	},
-	{ title: "Seal Device", icon: "🔒", route: "", count: 0 },
+	{ title: "Seal Device", icon: "🔒", route: "seal-device-dashboard/rects", count: 0 },
 	{ title: "Warehouses", icon: "🏬", route: "warehouse-list/rects", count: 0, label: "Active warehouses" },
 	{ title: "Seal Journeys", icon: "🚚", route: "", primary: true, count: 0 },
 	{ title: "Customer Billing", icon: "🧾", route: "", count: 0, label: "Customers" },

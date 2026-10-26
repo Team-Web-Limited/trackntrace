@@ -18,6 +18,7 @@
   "parent_seal",
   "seal_category_section",
   "seal_category",
+  "belongs_to",
   "seal_category_col",
   "leased_to",
   "category_customer",
@@ -135,6 +136,15 @@
    "in_standard_filter": 1,
    "default": "Lease",
    "reqd": 1
+  },
+  {
+   "fieldname": "belongs_to",
+   "fieldtype": "Select",
+   "label": "Belongs To",
+   "options": "TNT\nRECTs",
+   "default": "TNT",
+   "in_list_view": 1,
+   "in_standard_filter": 1
   },
   {
    "fieldname": "seal_category_col",

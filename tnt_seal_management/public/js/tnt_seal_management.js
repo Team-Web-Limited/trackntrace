@@ -28,7 +28,7 @@ frappe.router.on('change', () => {
 // URLs still fall through to the bounce above.
 const TNT_SYSTEM_CHOICES = [
 	{ label: 'TNT', description: __('Seal management'), route: TNT_LANDING_PAGE },
-	{ label: 'RECTS', description: __('RECTS module'), route: 'rects' },
+	{ label: 'RECTs', description: __('RECTs module'), route: 'rects' },
 ];
 
 function tnt_show_system_chooser() {
