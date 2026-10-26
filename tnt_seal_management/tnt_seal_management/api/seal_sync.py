@@ -1173,9 +1173,8 @@ def normalize_elock_status(raw):
 @frappe.whitelist()
 def get_device_dashboard_data(belongs_to=None):
 	"""Return all Seal Devices with their last-synced API fields for the dashboard.
-	``belongs_to`` (TNT / RECTs) narrows it to that system's seals; the TNT
-	dashboard passes nothing and sees every seal, so seals can be moved between
-	systems from there."""
+	``belongs_to`` (TNT / RECTs) narrows it to that system's seals; with none
+	given every seal is returned."""
 	_require_dashboard_permission()
 
 	filters = {"in_uffizio": 1}

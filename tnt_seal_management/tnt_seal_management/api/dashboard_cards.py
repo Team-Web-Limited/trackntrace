@@ -335,7 +335,7 @@ CARD_COUNT_RULES = {
 					"PCB Team Leader",
 				],
 				"label": "Total devices",
-				"filters": {"in_uffizio": 1},
+				"filters": {"in_uffizio": 1, "belongs_to": ["!=", "RECTs"]},
 			},
 		],
 	},

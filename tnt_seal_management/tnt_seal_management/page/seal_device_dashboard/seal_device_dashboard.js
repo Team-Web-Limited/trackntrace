@@ -1,8 +1,8 @@
-// The same page serves both systems: /app/seal-device-dashboard shows every
-// seal (and is where seals are assigned to TNT or RECTs), while
+// The same page serves both systems: /app/seal-device-dashboard shows the seals
+// that belong to TNT (and is where seals are assigned to RECTs), while
 // /app/seal-device-dashboard/rects shows only the seals that belong to RECTs.
 const SD_SYSTEMS = {
-	TNT: { title: "Seal Device Dashboard", dashboard: "tnt-seal-management", belongs_to: null },
+	TNT: { title: "Seal Device Dashboard", dashboard: "tnt-seal-management", belongs_to: "TNT" },
 	RECTS: { title: "RECTs Seal Device Dashboard", dashboard: "rects", belongs_to: "RECTs" },
 };
 
@@ -298,15 +298,14 @@ function _set_selected_belongs_to(page, belongsTo) {
 				args: { seals: JSON.stringify(seals), belongs_to: belongsTo },
 				freeze: true,
 				callback() {
-					page.sd_state.devices.forEach((d) => {
-						if (page.sd_state.selected.has(d.name)) d.belongs_to = belongsTo;
-					});
 					page.sd_state.selected.clear();
 					frappe.show_alert({
 						message: __("{0} seal(s) now belong to {1}", [seals.length, belongsTo]),
 						indicator: "green",
 					});
-					_render_seal_device_table(page);
+					// Reload: seals moved to the other system leave this list, and
+					// the stats counts change with them.
+					_load_seal_devices(page);
 				},
 			});
 		}
