@@ -295,6 +295,34 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
+	# The RECTS dashboard's Warehouses card: same as above for RECTS Division.
+	"warehouse-list/rects": {
+		"doctype": "Warehouse",
+		"rules": [
+			{
+				"roles": [
+					"Operations Control Room",
+					"System Manager",
+					"Management",
+					"Managing Director",
+					"PCB Team Leader",
+					"Account Manager",
+				],
+				"label": "Active warehouses",
+				"filters": {"custom_division": "RECTS Division", "is_group": 0, "disabled": 0},
+			},
+			{
+				"roles": ["Field Technician"],
+				"doctype": "Seal Device",
+				"label": "Seals I hold",
+				"filters": lambda: {
+					"current_custody_type": "User",
+					"current_custodian": frappe.session.user,
+					"in_uffizio": 1,
+				},
+			},
+		],
+	},
 	"seal-device-dashboard": {
 		"doctype": "Seal Device",
 		"rules": [

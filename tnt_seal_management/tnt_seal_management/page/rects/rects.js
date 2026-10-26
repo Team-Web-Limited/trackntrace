@@ -6,18 +6,25 @@ frappe.pages["rects"].on_page_load = function (wrapper) {
 	});
 
 	page.set_primary_action(__("Refresh"), () => {
+		load_rects_card_counts(page);
 		frappe.show_alert({ message: __("Dashboard counts refreshed"), indicator: "green" });
 	}, "octicon octicon-sync");
 
 	$(page.body).html(get_rects_landing_html());
+	load_rects_card_counts(page);
 	$(page.body).on("click", "[data-route]", function () {
 		const route = $(this).data("route");
 		if (route) frappe.set_route(...String(route).split("/"));
 	});
 };
 
-// Same card layout as the TNT landing page. Counts are placeholders (always 0)
-// until RECTS has its own data. `badges` gives a card several labeled counts;
+frappe.pages["rects"].on_page_show = function (wrapper) {
+	if (wrapper.page) load_rects_card_counts(wrapper.page);
+};
+
+// Same card layout as the TNT landing page. Cards with a real route take their
+// count (and label) from dashboard_cards.get_card_counts under that route; the
+// rest are placeholders (always 0) until RECTS has its own data. `badges` gives a card several labeled counts;
 // otherwise `count` (if set) is a single badge and `label` a line under the
 // title. A card with an empty `route` does nothing on click until its RECTS
 // page exists.
@@ -47,18 +54,36 @@ const RECTS_DASHBOARD_CARDS = [
 		],
 	},
 	{ title: "Seal Device", icon: "🔒", route: "", count: 0 },
-	{ title: "Warehouses", icon: "🏬", route: "", count: 0, label: "Active warehouses" },
+	{ title: "Warehouses", icon: "🏬", route: "warehouse-list/rects", count: 0, label: "Active warehouses" },
 	{ title: "Seal Journeys", icon: "🚚", route: "", primary: true, count: 0 },
 	{ title: "Customer Billing", icon: "🧾", route: "", count: 0, label: "Customers" },
 	{ title: "Vehicles", icon: "🚘", route: "", count: 0 },
-	{ title: "Seal Settings", icon: "⚙️", route: "" },
 ];
 
-function get_rects_count_html(count, variant) {
+function get_rects_count_html(count, variant, route) {
 	const classes = ["rects-count"];
 	if (variant) classes.push(`rects-count--${variant}`);
 	if (count > 0) classes.push("rects-count--active");
-	return `<span class="${classes.join(" ")}">${count}</span>`;
+	const data = route ? ` data-count="${frappe.utils.escape_html(route)}"` : "";
+	return `<span class="${classes.join(" ")}"${data}>${count}</span>`;
+}
+
+function load_rects_card_counts(page) {
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.api.dashboard_cards.get_card_counts",
+		callback(r) {
+			const counts = (r && r.message) || {};
+			$(page.body).find("[data-count]").each(function () {
+				const route = $(this).data("count");
+				if (!counts[route]) return;
+				const { count, label } = counts[route];
+				$(this).text(count).toggleClass("rects-count--active", count > 0);
+				$(page.body)
+					.find(`[data-count-label="${CSS.escape(route)}"]`)
+					.text(__(label));
+			});
+		},
+	});
 }
 
 function get_rects_card_html(card) {
@@ -77,7 +102,7 @@ function get_rects_card_html(card) {
 					.join("")}
 			</div>`;
 	} else if (card.count !== undefined) {
-		badges = get_rects_count_html(card.count);
+		badges = get_rects_count_html(card.count, null, card.route);
 	}
 
 	return `
@@ -87,7 +112,9 @@ function get_rects_card_html(card) {
 				${badges}
 			</div>
 			<h3>${__(card.title)}</h3>
-			${card.label ? `<p class="rects-count-label">${__(card.label)}</p>` : ""}
+			${card.label
+				? `<p class="rects-count-label" data-count-label="${frappe.utils.escape_html(card.route)}">${__(card.label)}</p>`
+				: ""}
 		</div>
 	`;
 }

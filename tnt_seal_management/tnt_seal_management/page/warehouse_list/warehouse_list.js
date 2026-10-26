@@ -1,9 +1,34 @@
+// The same page serves both systems: /app/warehouse-list for TNT and
+// /app/warehouse-list/rects for RECTS. Seals are shared; each system lists the
+// warehouses of its own Branch (see SYSTEM_DIVISIONS in seal_warehouses.py).
+const WH_SYSTEMS = {
+	TNT: {
+		title: "Warehouses",
+		dashboard: "tnt-seal-management",
+		division: "ECTS Division",
+		empty_hint: "Warehouses appear here when their Branch is ECTS Division or Both. Clear the filters to see more.",
+	},
+	RECTS: {
+		title: "RECTS Warehouses",
+		dashboard: "rects",
+		division: "RECTS Division",
+		empty_hint: "Warehouses appear here when their Branch is RECTS Division. Clear the filters to see more.",
+	},
+};
+
+function _wh_route_system() {
+	return String(frappe.get_route()[1] || "").toLowerCase() === "rects" ? "RECTS" : "TNT";
+}
+
 frappe.pages["warehouse-list"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: __("Warehouses"),
 		single_column: true,
 	});
+	wrapper.page = page;
+	page.wh_system = _wh_route_system();
+	page.set_title(__(WH_SYSTEMS[page.wh_system].title));
 
 	page.wh_state = {
 		search: "",
@@ -14,7 +39,7 @@ frappe.pages["warehouse-list"].on_page_load = function (wrapper) {
 		request_id: 0,
 	};
 
-	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Dashboard"), () => frappe.set_route(WH_SYSTEMS[page.wh_system].dashboard));
 	page.add_inner_button(__("Refresh"), () => _wh_load(page));
 
 	const $statsBar = $('<div class="wh-header-stats"></div>');
@@ -23,6 +48,18 @@ frappe.pages["warehouse-list"].on_page_load = function (wrapper) {
 
 	_wh_inject_styles();
 	_wh_build_page(page);
+	_wh_load(page);
+};
+
+// Switching between /app/warehouse-list and /app/warehouse-list/rects reuses
+// the loaded page, so start over with the other system's warehouses.
+frappe.pages["warehouse-list"].on_page_show = function (wrapper) {
+	const page = wrapper.page;
+	if (!page || page.wh_system === _wh_route_system()) return;
+	page.wh_system = _wh_route_system();
+	page.set_title(__(WH_SYSTEMS[page.wh_system].title));
+	Object.assign(page.wh_state, { search: "", statuses: [], page: 1 });
+	$(page.body).find(".wh-search").val("");
 	_wh_load(page);
 };
 
@@ -151,6 +188,7 @@ function _wh_load(page) {
 			status: JSON.stringify(page.wh_state.statuses),
 			page: page.wh_state.page,
 			page_length: page.wh_state.page_length,
+			system: page.wh_system,
 		},
 		callback(r) {
 			if (requestId !== page.wh_state.request_id) return;
@@ -198,11 +236,11 @@ function _wh_render_stats(page, summary) {
 }
 
 // "New Warehouse" only for users who may create ERPNext Warehouses; it starts
-// in the ECTS division so it shows up here.
+// in the current system's division so it shows up here.
 function _wh_set_create_action(page, canCreate) {
 	if (!canCreate || page.wh_create_added) return;
 	page.wh_create_added = true;
-	page.set_primary_action(__("New Warehouse"), () => frappe.new_doc("Warehouse", { custom_division: "ECTS Division" }));
+	page.set_primary_action(__("New Warehouse"), () => frappe.new_doc("Warehouse", { custom_division: WH_SYSTEMS[page.wh_system].division }));
 }
 
 function _wh_render_table(page, warehouses) {
@@ -210,7 +248,7 @@ function _wh_render_table(page, warehouses) {
 		$(page.body).find(".wh-table-wrap").html(`
 			<div class="wh-empty">
 				<strong>${__("No seal holders found")}</strong>
-				<span>${__("Warehouses appear here when their Branch is ECTS Division or Both. Clear the filters to see more.")}</span>
+				<span>${__(WH_SYSTEMS[page.wh_system].empty_hint)}</span>
 			</div>
 		`);
 		return;
