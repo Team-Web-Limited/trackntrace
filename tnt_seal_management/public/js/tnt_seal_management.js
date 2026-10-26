@@ -22,6 +22,54 @@ frappe.router.on('change', () => {
 	frappe.set_route(TNT_LANDING_PAGE);
 });
 
+// Clicking the workspace in the desk sidebar asks which system to open (TNT or
+// RECTS) instead of navigating straight away. Captured on document so it runs
+// before Frappe's router link handler; modified clicks (new tab etc.) and direct
+// URLs still fall through to the bounce above.
+const TNT_SYSTEM_CHOICES = [
+	{ label: 'TNT', description: __('Seal management'), route: TNT_LANDING_PAGE },
+	{ label: 'RECTS', description: __('RECTS module'), route: 'rects' },
+];
+
+function tnt_show_system_chooser() {
+	const dialog = new frappe.ui.Dialog({ title: __('Choose System') });
+	const $options = $('<div class="tnt-system-chooser"></div>');
+
+	TNT_SYSTEM_CHOICES.forEach((choice) => {
+		$(`
+			<button type="button" class="btn btn-default btn-block text-left"
+				style="padding: 16px; margin-bottom: 12px;">
+				<div style="font-size: 16px; font-weight: 600;">${choice.label}</div>
+				<div class="text-muted small">${choice.description}</div>
+			</button>
+		`)
+			.on('click', () => {
+				dialog.hide();
+				frappe.set_route(choice.route);
+			})
+			.appendTo($options);
+	});
+
+	$(dialog.body).append($options);
+	dialog.show();
+}
+
+document.addEventListener(
+	'click',
+	(e) => {
+		if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+		const anchor = e.target.closest('.sidebar-item-container .item-anchor');
+		if (!anchor) return;
+		const name = anchor.closest('.sidebar-item-container').getAttribute('item-name');
+		if (!TNT_WORKSPACE_TITLES.includes(name)) return;
+
+		e.preventDefault();
+		e.stopPropagation();
+		tnt_show_system_chooser();
+	},
+	true
+);
+
 // /app/uffizio-geofence is the DocType's list route, which the router matches
 // before any Page, so the custom "uffizio-geofence-list" page takes over by
 // bouncing the list view there. Forms (/app/uffizio-geofence/<id>) are untouched.
