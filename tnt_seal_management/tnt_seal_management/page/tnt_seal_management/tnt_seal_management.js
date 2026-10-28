@@ -116,7 +116,7 @@ const TNT_DASHBOARD_CARDS = [
 		title: "Seal Settings",
 		icon: "⚙️",
 		route: "Form/Seal API Settings",
-		roles: ["System Manager"],
+		roles: ["System Manager", "Seal Settings Manager"],
 	},
 ];
 
