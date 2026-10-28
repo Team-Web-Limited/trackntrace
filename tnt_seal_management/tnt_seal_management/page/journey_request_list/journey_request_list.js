@@ -38,6 +38,10 @@ function _jrl_build_page(page) {
 		["Tagging", __("Tagging")],
 		["Journey Ready", __("Journey Ready")],
 		["Untagging", __("Untagging")],
+		["Awaiting Seal Return", __("Awaiting Seal Return")],
+		["Pending Seal Return Approval", __("Pending Seal Return Approval")],
+		["Seal Returned", __("Seal Returned")],
+		["Closed - Seal Retained", __("Closed - Seal Retained")],
 		["Cancelled", __("Cancelled")],
 	];
 
@@ -452,6 +456,7 @@ function _jrl_status_class(status) {
 	if (status === "Closed - Seal Retained") return "approved";
 	if (status === "Cancelled") return "rejected";
 	if (status === "Pending Control Room Approval" || status === "Pending") return "pending";
+	if (status === "Awaiting Seal Return" || status === "Pending Seal Return Approval") return "seal-return";
 	if (status === "Tagging" || status === "Tagged") return "tagging";
 	if (status === "Untagging" || status === "Untagged") return "untagging";
 	return "draft";
@@ -1019,6 +1024,7 @@ function _jrl_inject_styles() {
 		.jrl-badge--pending { background: #fef3c7; color: #92400e; }
 		.jrl-badge--tagging { background: #e0f2fe; color: #0369a1; }
 		.jrl-badge--untagging { background: #fff7ed; color: #c2410c; }
+		.jrl-badge--seal-return { background: #ede9fe; color: #5b21b6; }
 		.jrl-badge--ready { background: #dbeafe; color: #1d4ed8; }
 		.jrl-badge--draft { background: #e5e7eb; color: #4b5563; }
 		.jrl-empty { padding: 60px 20px; text-align: center; color: #64748b; }
