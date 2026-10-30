@@ -189,26 +189,29 @@ def ensure_seed_current_customers():
 	return created
 
 
-# The Current Customers page lists customers of this Branch (Customer.custom_division),
-# including those flagged "Both" (served by FMS and ECTS).
-CURRENT_CUSTOMER_DIVISIONS = ("ECTS Division", "Both")
+# The Current Customers page lists customers ticked for the ECTS Division branch
+# (Customer.custom_division_ects), whether or not they are also FMS / RECTS.
 
 
-def get_billing_customer_names():
-	"""Names of the customers listed on Customer Billing (ECTS Division or Both).
-	Other pages that should only deal with these customers (e.g. the Vehicle
-	list) filter on this."""
-	return frappe.get_all(
-		"Customer", filters={"custom_division": ["in", CURRENT_CUSTOMER_DIVISIONS]}, pluck="name"
-	)
+def _branch_field(system):
+	"""Customer branch checkbox a system's Customer Billing lists (PCB = ECTS, RECTs = RECTS)."""
+	return "custom_division_rects" if system == "RECTS" else "custom_division_ects"
+
+
+def get_billing_customer_names(system="TNT"):
+	"""Names of the customers listed on Customer Billing (the system's branch
+	ticked). Other pages that should only deal with these customers (e.g. the
+	Vehicle list) filter on this."""
+	return frappe.get_all("Customer", filters={_branch_field(system): 1}, pluck="name")
 
 
 @frappe.whitelist()
-def get_current_customer_list(search=None, status=None, page=1, page_length=25, billing_type=None):
+def get_current_customer_list(search=None, status=None, page=1, page_length=25, billing_type=None, system="TNT"):
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length), 1), 100)
 
-	filters = [["custom_division", "in", CURRENT_CUSTOMER_DIVISIONS]]
+	branch = _branch_field(system)
+	filters = [[branch, "=", 1]]
 	if status == "Active":
 		filters.append(["disabled", "=", 0])
 	elif status == "Disabled":
@@ -322,10 +325,11 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25, 
 			ifnull(disabled, 0) as disabled,
 			count(*) as count
 		from `tabCustomer`
-		where custom_division in %(divisions)s
+		where {branch} = 1
 			{search_clause}
 		group by ifnull(disabled, 0)
 		""".format(
+			branch=branch,
 			search_clause="" if not search else """
 			and (
 				name like %(txt)s
@@ -335,7 +339,7 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25, 
 			)
 			"""
 		),
-		{"divisions": CURRENT_CUSTOMER_DIVISIONS, **({"txt": f"%{search.strip()}%"} if search else {})},
+		{"txt": f"%{search.strip()}%"} if search else {},
 		as_dict=True,
 	)
 	for row in summary_rows:
@@ -344,7 +348,7 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25, 
 		summary["All"] += cint(row.count)
 
 	division_customers = set(
-		frappe.get_all("Customer", filters={"custom_division": ["in", CURRENT_CUSTOMER_DIVISIONS]}, pluck="name")
+		frappe.get_all("Customer", filters={branch: 1}, pluck="name")
 	)
 	summary["RatesAll"] = len(division_customers)
 	for rate_type in ("Subscription", "Leasing"):
@@ -357,7 +361,9 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25, 
 		"page": page,
 		"page_length": page_length,
 		"summary": summary,
-		"empty_message": _("Add customers to start tracking active TNT accounts."),
+		"empty_message": _("Add customers to start tracking active RECTs accounts.")
+		if system == "RECTS"
+		else _("Add customers to start tracking active PCB accounts."),
 		"permissions": {
 			"can_create_customer": can_create_customer,
 			"can_edit_billing": can_edit_billing,

@@ -46,16 +46,54 @@ function _cb_frequency_for_terms(terms) {
 }
 
 
+// The same page serves both systems: /app/customer-billing for PCB and
+// /app/customer-billing/rects for RECTs (customers ticked for that Branch).
+const CB_SYSTEMS = {
+	TNT: { title: "Customer Billing", dashboard: "tnt-seal-management", branch: { custom_division_ects: 1, custom_division_rects: 0 } },
+	RECTS: { title: "RECTs Customer Billing", dashboard: "rects", branch: { custom_division_rects: 1, custom_division_ects: 0 } },
+};
+
+function _cb_route_system() {
+	return String(frappe.get_route()[1] || "").toLowerCase() === "rects" ? "RECTS" : "TNT";
+}
+
+frappe.pages["customer-billing"].on_page_show = function (wrapper) {
+	window.tnt_set_module(_cb_route_system());
+	if (_cb_route_system() === "RECTS") {
+		frappe.breadcrumbs.add({ type: "Custom", label: __("RECTs Sealmanagement"), route: "/app/rects" });
+	} else {
+		frappe.breadcrumbs.add("Tnt Seal Management");
+	}
+	const page = wrapper.page;
+	if (!page || page.cb_system === _cb_route_system()) return;
+	// The page is reused across /rects and plain routes: start over for the other system.
+	page.cb_system = _cb_route_system();
+	page.set_title(__(CB_SYSTEMS[page.cb_system].title));
+	Object.assign(page.cb_state, { search: "", status: "All", billing_type: "All", page: 1 });
+	Object.assign(page.cj_state, { customer: "", page: 1 });
+	$(page.body).find(".cbl-search").val("");
+	page.customer_field && page.customer_field.set_value(CJV_ALL);
+	if (page.cb_state.view === "journeys") {
+		_cjv_refresh_customer_options(page);
+		_cjv_load(page);
+	} else {
+		_cb_load(page);
+	}
+};
+
 frappe.pages["customer-billing"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: __("Customer Billing"),
 		single_column: true,
 	});
+	wrapper.page = page;
+	page.cb_system = _cb_route_system();
+	page.set_title(__(CB_SYSTEMS[page.cb_system].title));
 
 	page.cb_state = { view: "customers", search: "", status: "All", billing_type: "All", page: 1, page_length: 25, total: 0, request_id: 0 };
 
-	page.add_inner_button(__("Back"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Back"), () => frappe.set_route(CB_SYSTEMS[page.cb_system].dashboard));
 	page.add_inner_button(__("Refresh"), () =>
 		page.cb_state.view === "journeys" ? _cjv_load(page) : _cb_load(page)
 	);
@@ -235,6 +273,7 @@ function _cb_load(page) {
 			billing_type: page.cb_state.billing_type,
 			page: page.cb_state.page,
 			page_length: page.cb_state.page_length,
+			system: page.cb_system,
 		},
 		callback(r) {
 			if (requestId !== page.cb_state.request_id) return;
@@ -260,8 +299,10 @@ function _cb_load(page) {
 
 function _cb_apply_permissions(page, canCreate) {
 	if (canCreate) {
-		// New customers start in the ECTS Division so they show up here.
-		page.set_primary_action(__("New Customer"), () => frappe.new_doc("Customer", { custom_division: "ECTS Division" }));
+		// New customers start in this system's Branch so they show up here.
+		page.set_primary_action(__("New Customer"), () =>
+			frappe.new_doc("Customer", { ...CB_SYSTEMS[page.cb_system].branch, custom_division_fms: 0 })
+		);
 	} else {
 		$(page.wrapper).find(".page-actions .btn-primary").remove();
 	}
@@ -2674,7 +2715,7 @@ const CJV_ALL = "All";
 function _cjv_refresh_customer_options(page) {
 	frappe.call({
 		method: "tnt_seal_management.tnt_seal_management.api.completed_journeys.get_filter_customers",
-		args: { from_date: page.cj_state.from_date || null, to_date: page.cj_state.to_date || null },
+		args: { from_date: page.cj_state.from_date || null, to_date: page.cj_state.to_date || null, system: page.cb_system },
 		callback(r) {
 			const customers = r.message || [];
 			page.cj_customers = customers;
@@ -2726,6 +2767,7 @@ function _cjv_load(page) {
 			customer: page.cj_state.customer || null,
 			page: page.cj_state.page,
 			page_length: CJV_PAGE_LENGTH,
+			system: page.cb_system,
 		},
 		callback(r) {
 			_cjv_set_loading(page, false);
@@ -3343,6 +3385,7 @@ function _cjv_generate_sales_order(page, idx) {
 				customer: c.customer,
 				from_date: page.cj_state.from_date || null,
 				to_date: page.cj_state.to_date || null,
+				system: page.cb_system,
 			},
 			callback(r) {
 				_cjv_set_loading(page, false);

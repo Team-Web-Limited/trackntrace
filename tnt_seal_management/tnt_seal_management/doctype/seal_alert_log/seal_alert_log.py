@@ -141,9 +141,9 @@ def get_escalation_email(docname):
 	)
 	message = (
 		f"<p>{_('Dear Sir/Madam,')}</p>"
-		f"<p>{_('The TNT Control Room has escalated the following seal alert and needs your urgent attention.')}</p>"
+		f"<p>{_('The PCB Control Room has escalated the following seal alert and needs your urgent attention.')}</p>"
 		f"<table>{table}</table>"
-		f"<p>{_('Please contact the TNT Control Room as soon as possible.')}</p>"
+		f"<p>{_('Please contact the PCB Control Room as soon as possible.')}</p>"
 	)
 	plate = f" ({row.get('vehicle')})" if row.get("vehicle") else ""
 	return {

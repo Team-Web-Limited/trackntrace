@@ -1,16 +1,32 @@
 const CR_QUEUE_PAGE_LENGTH = 30;
 
+// The same page serves both systems: /app/control-room for PCB and
+// /app/control-room/rects for RECTs. RECTs has no automatic arrivals or seal
+// alerts (no seal API to read them from), so it has no Arrivals tab and no alert
+// loading: the Control Room confirms arrival by hand from Active journeys.
+const CR_SYSTEMS = {
+	PCB: { title: "Control Room", dashboard: "tnt-seal-management" },
+	RECTs: { title: "RECTs Control Room", dashboard: "rects" },
+};
+
+function _cr_route_system() {
+	return String(frappe.get_route()[1] || "").toLowerCase() === "rects" ? "RECTs" : "PCB";
+}
+
 frappe.pages["control-room"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: __("Control Room"),
 		single_column: true,
 	});
+	wrapper.page = page;
+	page.set_title(__(CR_SYSTEMS[_cr_route_system()].title));
 	page.control_room_head = $('<div class="cr-head-filters"></div>').insertBefore(
 		$(wrapper).find(".page-head-content .page-actions").first()
 	);
 
 	page.control_room_state = {
+		system: _cr_route_system(),
 		tab: "requests",
 		loading: false,
 		requests: [],
@@ -55,7 +71,7 @@ frappe.pages["control-room"].on_page_load = function (wrapper) {
 		completedOverall: 0,
 	};
 
-	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Dashboard"), () => frappe.set_route(CR_SYSTEMS[page.control_room_state.system].dashboard));
 	// One refresh for the whole page: every tab's list plus the alert filter/pills.
 	page.add_inner_button(__("Refresh"), () => {
 		_control_room_load_queue(page);
@@ -88,9 +104,44 @@ frappe.pages["control-room"].on_page_load = function (wrapper) {
 // Fires every time the page is shown (including re-entering it from the bell),
 // unlike on_page_load which only runs once when the DOM is first built.
 frappe.pages["control-room"].on_page_show = function (wrapper) {
+	const system = _cr_route_system();
+	window.tnt_set_module(system === "RECTs" ? "RECTS" : "TNT");
+	if (system === "RECTs") {
+		frappe.breadcrumbs.add({ type: "Custom", label: __("RECTs Sealmanagement"), route: "/app/rects" });
+	} else {
+		frappe.breadcrumbs.add("Tnt Seal Management");
+	}
 	const page = wrapper._cr_page;
-	if (page) _control_room_apply_route_options(page);
+	if (!page) return;
+	if (page.control_room_state.system !== system) {
+		_control_room_switch_system(page, system);
+		return;
+	}
+	_control_room_apply_route_options(page);
 };
+
+// /app/control-room <-> /app/control-room/rects reuses the built page, so start
+// over with the other system's journeys.
+function _control_room_switch_system(page, system) {
+	const state = page.control_room_state;
+	_control_room_stop_alert_polling(page);
+	Object.assign(state, {
+		system,
+		tab: "requests",
+		requests: [], requestTotal: 0, requestOverall: 0, requestPage: 1,
+		arrivals: [], arrivalTotal: 0, arrivalOverall: 0, arrivalPage: 1, arrivalsLoaded: false,
+		journeys: [], journeysLoaded: false, journeyPage: 1, journeyTotal: 0, journeyOverall: 0,
+		completedOverall: 0, search: "", journeySearch: "",
+		alerts: [], alertsLoaded: false,
+		alertSummary: { open: 0, critical_open: 0, unacknowledged_open: 0 }, alertTypeGroups: [],
+	});
+	page.set_title(__(CR_SYSTEMS[system].title));
+	_control_room_render(page);
+	_control_room_load_queue(page);
+	_control_room_load_arrivals(page);
+	_control_room_load_journeys(page);
+	_control_room_load_alerts(page);
+}
 
 // Consume a pending frappe.route_options deep-link (set by the global anchor
 // handler from the bell's ?tab=alert&alert=<name> link). Returns true if a
@@ -130,6 +181,7 @@ const CR_ALERT_POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 function _control_room_start_alert_polling(page) {
 	_control_room_stop_alert_polling(page);
+	if (page.control_room_state.system === "RECTs") return;
 	page.control_room_state.alertPollTimer = setInterval(() => {
 		if (page.control_room_state.tab !== "journeys") {
 			_control_room_stop_alert_polling(page);
@@ -271,6 +323,11 @@ function _control_room_download_html() {
 
 function _control_room_render_head(page) {
 	const state = page.control_room_state;
+	// RECTs has no seal alerts, so no alert filter or pills.
+	if (state.system === "RECTs") {
+		page.control_room_head.empty();
+		return;
+	}
 	page.control_room_head.html(`
 		<div class="cr-mf" data-cr-alert-filter>${_control_room_alert_filter_html(state)}</div>
 		<div class="cr-info-pills" data-cr-info-pills>${_control_room_info_pills_html(state)}</div>
@@ -292,10 +349,10 @@ function _control_room_render(page) {
 						${__("Active journeys")}
 						<span class="cr-tab-count" data-cr-journey-count>${state.journeyOverall || 0}</span>
 					</button>
-					<button class="cr-tab ${state.tab === "arrivals" ? "active" : ""}" data-tab="arrivals">
+					${state.system === "RECTs" ? "" : `<button class="cr-tab ${state.tab === "arrivals" ? "active" : ""}" data-tab="arrivals">
 						${__("Arrivals")}
 						<span class="cr-tab-count" data-cr-arrival-count>${state.arrivalOverall || 0}</span>
-					</button>
+					</button>`}
 					<button class="cr-tab ${state.tab === "completed" ? "active" : ""}" data-tab="completed">
 						${__("Completed journeys")}
 						<span class="cr-tab-count" data-cr-completed-count>${state.completedOverall || 0}</span>
@@ -614,7 +671,7 @@ function _control_room_render_body(page) {
 			return;
 		}
 		$body.html(`
-			<div class="cr-table-wrap cr-alert-table-wrap cr-journey-table-wrap ${state.tab === "completed" ? "cr-journey-table-wrap--completed" : ""}">${_control_room_journey_table(state.journeys, state.tab === "completed")}</div>
+			<div class="cr-table-wrap cr-alert-table-wrap cr-journey-table-wrap ${state.tab === "completed" ? "cr-journey-table-wrap--completed" : ""}">${_control_room_journey_table(state.journeys, state.tab === "completed", state.system === "RECTs")}</div>
 			${_control_room_journey_pagination(state)}
 		`);
 		return;
@@ -819,7 +876,7 @@ function _control_room_confirm_arrival(page, docname, method, $btn) {
 			[docname]
 		),
 		remote: __(
-			"Confirm arrival for {0} with a REMOTE unlock? Untagging will be skipped. On the first leg of a return trip the journey completes, the seal stays on the vehicle and the return trip is booked; otherwise a seal return assignment is raised to collect the seal. Location will be captured live from the seal's GPS. This cannot be undone.",
+			"Confirm arrival for {0} with a REMOTE unlock? Untagging will be skipped.",
 			[docname]
 		),
 	};
@@ -1149,6 +1206,7 @@ function _control_room_load_queue(page) {
 			to_date: state.to_date || "",
 			page: state.requestPage || 1,
 			page_length: state.queuePageLength,
+			system: state.system,
 		},
 		callback(r) {
 			const res = r.message || {};
@@ -1187,6 +1245,7 @@ function _control_room_load_arrivals(page) {
 			to_date: state.to_date || "",
 			page: state.arrivalPage || 1,
 			page_length: state.queuePageLength,
+			system: state.system,
 		},
 		callback(r) {
 			const res = r.message || {};
@@ -1257,6 +1316,7 @@ function _control_room_load_journeys(page) {
 			page: state.journeyPage || 1,
 			page_length: state.queuePageLength,
 			view,
+			system: state.system,
 			from_date: state.from_date || "",
 			to_date: state.to_date || "",
 			// The Alert filter only applies to the Active journeys tab.
@@ -1333,7 +1393,7 @@ const CR_CUSTODY_TAG = {
 
 // One row per seal (like Journey Monitoring); the journey-level cells span the
 // journey's seals.
-function _cr_journey_rows_html(j, completed) {
+function _cr_journey_rows_html(j, completed, noAlerts = false) {
 	const esc = frappe.utils.escape_html;
 	const dash = "—";
 	const allSeals = (j.seals || []).length ? j.seals : [null];
@@ -1408,7 +1468,7 @@ function _cr_journey_rows_html(j, completed) {
 				<tr>
 					${idx === 0 ? journeyCells : ""}
 					<td class="cr-nowrap">${sealNo}</td>
-					${completed ? "" : `<td>${lock}</td><td>${battery}</td><td class="cr-nowrap">${loc}</td><td class="cr-nowrap">${lastSync}</td><td>${alerts}</td>`}
+					${completed ? "" : `<td>${lock}</td><td>${battery}</td><td class="cr-nowrap">${loc}</td><td class="cr-nowrap">${lastSync}</td>${noAlerts ? "" : `<td>${alerts}</td>`}`}
 					${idx === 0 ? taggedBy + action : ""}
 				</tr>
 			`;
@@ -1493,8 +1553,8 @@ function _control_room_journey_view_options(state) {
 
 // ``completed`` trims the live-tracking columns (warehouse, longer in journey,
 // lock, battery, location, alerts) that mean nothing once a journey has ended.
-function _control_room_journey_table(journeys, completed) {
-	const rows = journeys.map((j) => _cr_journey_rows_html(j, completed)).join("");
+function _control_room_journey_table(journeys, completed, noAlerts = false) {
+	const rows = journeys.map((j) => _cr_journey_rows_html(j, completed, noAlerts)).join("");
 
 	return `
 		<table class="cr-queue-table">
@@ -1512,7 +1572,7 @@ function _control_room_journey_table(journeys, completed) {
 					${completed ? "" : `<th>${__("Status")}</th>`}
 					${completed ? "" : `<th>${__("Warehouse")}</th><th>${__("Longer in Journey")}</th>`}
 					<th>${__("Seal Number")}</th>
-					${completed ? "" : `<th>${__("Lock")}</th><th>${__("Battery")}</th><th>${__("Current Location")}</th><th>${__("Last Signal Sync")}</th><th>${__("Alerts")}</th>`}
+					${completed ? "" : `<th>${__("Lock")}</th><th>${__("Battery")}</th><th>${__("Current Location")}</th><th>${__("Last Signal Sync")}</th>${noAlerts ? "" : `<th>${__("Alerts")}</th>`}`}
 					<th>${__("Tagged By")}</th>
 					${completed ? "" : `<th class="cr-arrival-action-col">${__("Action")}</th>`}
 				</tr>
@@ -1545,6 +1605,7 @@ function _control_room_journey_pagination(state) {
 // themselves are shown through the Active journeys table (Alerts button).
 function _control_room_load_alerts(page) {
 	const state = page.control_room_state;
+	if (state.system === "RECTs") return;
 
 	frappe.call({
 		method: "tnt_seal_management.tnt_seal_management.doctype.seal_alert_log.seal_alert_log.get_alert_queue",
@@ -1612,7 +1673,7 @@ function _control_room_fetch_all(method, args, key) {
 
 function _control_room_tab_report(state) {
 	const text = (v) => (v || v === 0 ? String(v) : "");
-	const base = { search: state.search || "", from_date: state.from_date || "", to_date: state.to_date || "" };
+	const base = { search: state.search || "", from_date: state.from_date || "", to_date: state.to_date || "", system: state.system };
 
 	if (state.tab === "requests") {
 		return _control_room_fetch_all(CR_METHOD("get_control_room_queue"), base, "requests").then((reqs) => ({
@@ -1702,10 +1763,17 @@ function _control_room_tab_report(state) {
 				]);
 			});
 		});
-		return {
+		const report = {
 			columns: [__("Journey"), __("Client Name"), __("Vehicle"), __("Entry Number"), __("Container Number"), __("Origin"), __("Destination"), __("Start Date"), __("Status"), __("Warehouse"), __("Longer in Journey"), __("Seal Number"), __("Lock"), __("Battery"), __("Current Location"), __("Alerts"), __("Tagged By")],
 			rows,
 		};
+		// RECTs has no seal alerts, so no Alerts column.
+		if (state.system === "RECTs") {
+			const at = report.columns.indexOf(__("Alerts"));
+			report.columns.splice(at, 1);
+			report.rows = report.rows.map((r) => r.filter((_, k) => k !== at));
+		}
+		return report;
 	});
 }
 

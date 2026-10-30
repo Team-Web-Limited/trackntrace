@@ -24,8 +24,11 @@ frappe.ui.form.on("Seal Journey", {
 	},
 
 	refresh(frm) {
+		// A RECTs journey goes back to the RECTs list and module, not PCB's.
+		const rects = frm.doc.system === "RECTs";
+		if (!frm.is_new()) window.tnt_set_module(rects ? "RECTS" : "TNT");
 		frm.add_custom_button(__("Back"), () => {
-			frappe.set_route("seal-journey-list");
+			frappe.set_route(...(rects ? ["seal-journey-list", "rects"] : ["seal-journey-list"]));
 		});
 
 		_lock_pre_tagging_checklist(frm);

@@ -204,7 +204,7 @@ _FIELDS = [
 
 
 @frappe.whitelist()
-def get_completed_journeys(from_date=None, to_date=None, customer=None, page=1, page_length=50):
+def get_completed_journeys(from_date=None, to_date=None, customer=None, page=1, page_length=50, system=None):
 	"""Return Completed journeys grouped by customer (only customers with a
 	completed journey in the period), each with a billing summary.
 	Shape: {"customers": [...], "grand_total": {...} | None}.
@@ -220,8 +220,8 @@ def get_completed_journeys(from_date=None, to_date=None, customer=None, page=1, 
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length) or 50, 1), 200)
 
-	journeys = _fetch_journeys(from_date, to_date, customer)
-	result = _build_customer_groups(journeys, customer)
+	journeys = _fetch_journeys(from_date, to_date, customer, system)
+	result = _build_customer_groups(journeys, customer, system)
 
 	# The page lists customers with at least one completed journey in the period;
 	# ones that only carry a recurring subscription fee are left out (that fee is
@@ -250,13 +250,15 @@ def get_completed_journeys(from_date=None, to_date=None, customer=None, page=1, 
 	return result
 
 
-def _valid_filter_customers(from_date=None, to_date=None, include_recurring=True):
+def _valid_filter_customers(from_date=None, to_date=None, include_recurring=True, system=None):
 	"""Customers with a completed journey in the period (and, unless
 	``include_recurring`` is off, those with only recurring fees)."""
 	to_datetime = f"{to_date} 23:59:59" if to_date else None
 
 	conditions = ["journey_status = 'Completed'"]
 	values = []
+	if system:
+		conditions.append("ifnull(system, 'PCB') = 'RECTs'" if system == "RECTS" else "ifnull(system, 'PCB') != 'RECTs'")
 
 	if from_date and to_datetime:
 		conditions.append("completion_date_time between %s and %s")
@@ -275,22 +277,22 @@ def _valid_filter_customers(from_date=None, to_date=None, include_recurring=True
 
 	valid_customers = {r.customer for r in journey_customers if r.customer}
 	if include_recurring:
-		valid_customers.update(_get_recurring_fees_by_customer(None).keys())
+		valid_customers.update(_get_recurring_fees_by_customer(None, system).keys())
 	return valid_customers
 
 
 @frappe.whitelist()
-def get_filter_customers(from_date=None, to_date=None):
+def get_filter_customers(from_date=None, to_date=None, system=None):
 	"""Customers with a completed journey in the period, for the page's searchable
 	Customer dropdown (the "All" option is added client-side)."""
 	_require_billing_permission()
-	return sorted(_valid_filter_customers(from_date or None, to_date or None, include_recurring=False))
+	return sorted(_valid_filter_customers(from_date or None, to_date or None, include_recurring=False, system=system))
 
 
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
 def get_valid_customers_for_filter(doctype, txt, searchfield, start, page_len, filters):
-	valid_customers = _valid_filter_customers(filters.get("from_date"), filters.get("to_date"))
+	valid_customers = _valid_filter_customers(filters.get("from_date"), filters.get("to_date"), system=filters.get("system"))
 
 	if not valid_customers:
 		return []
@@ -340,8 +342,11 @@ def _effective_untagging_date(journey):
 	return None
 
 
-def _fetch_journeys(from_date, to_date, customer):
+def _fetch_journeys(from_date, to_date, customer, system=None):
 	conditions = {"journey_status": "Completed"}
+	if system:
+		# The PCB list leaves out RECTs journeys, and RECTs lists only its own.
+		conditions["system"] = ["=", "RECTs"] if system == "RECTS" else ["!=", "RECTs"]
 	if customer:
 		# Partial match: "kenya" finds every customer with kenya in its name.
 		conditions["customer"] = ["like", f"%{customer.strip()}%"]
@@ -488,7 +493,7 @@ def _compute_compound_charge(compound_rules, group):
 	return total_charge, total_days
 
 
-def _build_customer_groups(journeys, customer_filter=None):
+def _build_customer_groups(journeys, customer_filter=None, system=None):
 	groups = {}
 	order = []
 	for j in journeys:
@@ -501,7 +506,7 @@ def _build_customer_groups(journeys, customer_filter=None):
 	# Recurring subscription fees (Scenarios 4-6) — billed independently of
 	# journeys, but merged into each customer's summary so the per-customer
 	# view reads as one consolidated invoice (the PDF's Scenario 6 requirement).
-	recurring_by_customer = _get_recurring_fees_by_customer(customer_filter)
+	recurring_by_customer = _get_recurring_fees_by_customer(customer_filter, system)
 
 	# Surface customers who carry a recurring subscription but had no completed
 	# journeys in the period — they still owe the recurring fee.
@@ -543,7 +548,7 @@ def _build_customer_groups(journeys, customer_filter=None):
 
 
 @frappe.whitelist()
-def generate_sales_order(customer, from_date=None, to_date=None):
+def generate_sales_order(customer, from_date=None, to_date=None, system=None):
 	"""Generate a Sales Order for a customer's unbilled completed journeys."""
 	_require_billing_permission()
 
@@ -557,6 +562,8 @@ def generate_sales_order(customer, from_date=None, to_date=None):
 		"billing_status": ["in", ["Pending Billing", "No Per-Journey Charge"]],
 		"sales_order_reference": ["in", ["", None]]
 	}
+	if system:
+		conditions["system"] = ["=", "RECTs"] if system == "RECTS" else ["!=", "RECTs"]
 	to_datetime = f"{to_date} 23:59:59" if to_date else None
 	if from_date and to_datetime:
 		conditions["completion_date_time"] = ["between", [from_date, to_datetime]]
@@ -578,7 +585,7 @@ def generate_sales_order(customer, from_date=None, to_date=None):
 		j["seal_number"] = seals_by_journey.get(j["name"]) or j.get("assigned_seal")
 
 	# We reuse _build_customer_groups to calculate the total charges
-	group_data = _build_customer_groups(journeys, customer)
+	group_data = _build_customer_groups(journeys, customer, system)
 	customer_data = group_data["customers"][0] if group_data["customers"] else None
 
 	if not customer_data or (not journeys and not customer_data.get("recurring_fees")):
@@ -788,7 +795,7 @@ def _sum_summaries(summaries):
 	}
 
 
-def _get_recurring_fees_by_customer(customer_filter=None):
+def _get_recurring_fees_by_customer(customer_filter=None, system=None):
 	"""Return {customer: [fee, ...]} of active recurring subscription line items
 	(Seal Lease Fee / Seal Ownership Service Fee) for the given customer, or all
 	customers when unfiltered. Each fee is one Subscription Plan row expanded to
@@ -796,6 +803,13 @@ def _get_recurring_fees_by_customer(customer_filter=None):
 	sub_filters = {"party_type": "Customer", "status": ["!=", "Cancelled"]}
 	if customer_filter:
 		sub_filters["party"] = ["like", f"%{customer_filter.strip()}%"]
+	if system:
+		# Only customers on the system's branch carry their subscription fees here.
+		from tnt_seal_management.tnt_seal_management.api.current_customers import get_billing_customer_names
+
+		sub_filters["party"] = ["in", get_billing_customer_names(system) or [""]]
+		if customer_filter:
+			sub_filters["party"] = ["in", [c for c in sub_filters["party"][1] if customer_filter.strip().lower() in c.lower()] or [""]]
 
 	subs = frappe.get_all("Subscription", filters=sub_filters, fields=["name", "party"])
 	if not subs:

@@ -1,9 +1,23 @@
+// The same page serves both systems: /app/journey-request-list for PCB and
+// /app/journey-request-list/rects for RECTs. Records never cross over.
+const JRL_SYSTEMS = {
+	PCB: { title: "Journey Requests", dashboard: "tnt-seal-management" },
+	RECTs: { title: "RECTs Journey Requests", dashboard: "rects" },
+};
+
+function _jrl_route_system() {
+	return String(frappe.get_route()[1] || "").toLowerCase() === "rects" ? "RECTs" : "PCB";
+}
+
 frappe.pages["journey-request-list"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: __("Journey Requests"),
 		single_column: true,
 	});
+	wrapper.page = page;
+	page.jrl_system = _jrl_route_system();
+	page.set_title(__(JRL_SYSTEMS[page.jrl_system].title));
 
 	page.jrl_state = {
 		search: "",
@@ -16,7 +30,7 @@ frappe.pages["journey-request-list"].on_page_load = function (wrapper) {
 		request_id: 0,
 	};
 
-	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Dashboard"), () => frappe.set_route(JRL_SYSTEMS[page.jrl_system].dashboard));
 	page.add_inner_button(__("Excel"), () => _jrl_export_excel(page), __("Download Report"));
 	page.add_inner_button(__("PDF"), () => _jrl_export_pdf(page), __("Download Report"));
 	page.add_inner_button(__("Refresh"), () => _jrl_load(page));
@@ -28,6 +42,28 @@ frappe.pages["journey-request-list"].on_page_load = function (wrapper) {
 	_jrl_inject_styles();
 	_jrl_build_page(page);
 	_jrl_load(page);
+};
+
+// Switching between /app/journey-request-list and /app/journey-request-list/rects reuses the loaded
+// page, and coming back from a record leaves it stale, so reload on every show.
+frappe.pages["journey-request-list"].on_page_show = function (wrapper) {
+	const system = _jrl_route_system();
+	window.tnt_set_module(system === "RECTs" ? "RECTS" : "TNT");
+	if (system === "RECTs") {
+		frappe.breadcrumbs.add({ type: "Custom", label: __("RECTs Sealmanagement"), route: "/app/rects" });
+	} else {
+		frappe.breadcrumbs.add("Tnt Seal Management");
+	}
+	const page = wrapper.page;
+	if (!page || !page.jrl_state) return;
+	if (page.jrl_system !== system) {
+		page.jrl_system = system;
+		page.set_title(__(JRL_SYSTEMS[system].title));
+		Object.assign(page.jrl_state, { search: "", status: "All", from_date: "", to_date: "", page: 1 });
+		if ("field_technician" in page.jrl_state) page.jrl_state.field_technician = "";
+	}
+	if (page.jrl_loaded) _jrl_load(page);
+	page.jrl_loaded = true;
 };
 
 function _jrl_build_page(page) {
@@ -164,6 +200,7 @@ function _jrl_load(page) {
 			status: page.jrl_state.status,
 			from_date: page.jrl_state.from_date,
 			to_date: page.jrl_state.to_date,
+			system: page.jrl_system,
 			page: page.jrl_state.page,
 			page_length: page.jrl_state.page_length,
 		},
@@ -199,6 +236,7 @@ function _jrl_export_pdf(page) {
 			status: page.jrl_state.status,
 			from_date: page.jrl_state.from_date,
 			to_date: page.jrl_state.to_date,
+			system: page.jrl_system,
 		},
 		freeze: true,
 		freeze_message: __("Preparing report…"),
@@ -281,6 +319,7 @@ function _jrl_export_excel(page) {
 		status: page.jrl_state.status,
 		from_date: page.jrl_state.from_date,
 		to_date: page.jrl_state.to_date,
+		system: page.jrl_system,
 		filename: `Journey Request Report - ${frappe.datetime.get_today()}`,
 	});
 }
@@ -723,7 +762,7 @@ function _jrl_inject_styles() {
 		.jrl-page {
 			--jrl-blue: #0284c7;
 			--jrl-dark: #075985;
-			max-width: 1200px;
+			max-width: 1580px;
 			margin: 0 auto;
 			padding: 32px 24px 48px;
 			position: relative;

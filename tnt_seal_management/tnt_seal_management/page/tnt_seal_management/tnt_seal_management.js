@@ -1,7 +1,7 @@
 frappe.pages["tnt-seal-management"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
-		title: "TNT Seal Management",
+		title: "PCB Seal Management",
 		single_column: true,
 	});
 
@@ -103,7 +103,6 @@ const TNT_DASHBOARD_CARDS = [
 			"Finance PCB",
 			"Management",
 			"Managing Director",
-			"Operations Control Room",
 		],
 	},
 	{
@@ -328,7 +327,7 @@ function get_landing_page_html() {
 		: `
 			<div class="tsm-empty">
 				<h3>${__("No dashboard cards available")}</h3>
-				<p>${__("Your role does not currently have access to any TNT module.")}</p>
+				<p>${__("Your role does not currently have access to any PCB module.")}</p>
 			</div>
 		`;
 

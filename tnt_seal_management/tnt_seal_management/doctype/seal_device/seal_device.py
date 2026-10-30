@@ -25,10 +25,18 @@ class SealDevice(Document):
 		if self.seal_category == "Outright Purchase":
 			if not self.category_customer:
 				frappe.throw(_("Select the customer who bought this seal."))
+			self.seal_owner = None
 		else:
 			self.category_customer = None
+			# A leased seal belongs to the company, whichever system it serves.
+			self.seal_owner = get_company_name()
 		if not self.category_customer:
 			self.category_customer_name = None
+
+
+def get_company_name():
+	"""The default company, which owns every leased seal."""
+	return frappe.defaults.get_global_default("company") or frappe.db.get_value("Company", {}, "name")
 
 
 _DOCTYPE = "Seal Device"
@@ -264,13 +272,15 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 	whose Branch is ECTS Division or Both, such as the main store). One step: custody moves as soon as this is submitted, and a
 	Seal Custody Transfer record keeps who moved what from whom to whom.
 
-	To a warehouse, stock moves with custody: a Material Transfer is raised for
-	the seals' serials under ``item_code`` and sent for approval through the
-	Stock Entry workflow (see stock_seal_transfers.request_seal_material_transfer).
+	Only a warehouse into a Main Seal Store moves stock with custody (the main
+	store only receives stock): a Material Transfer is
+	raised for those seals' serials under ``item_code`` and sent for approval
+	through the Stock Entry workflow (see stock_seal_transfers.request_seal_material_transfer).
 	Nothing moves until a stock approver approves it; the submit's hook then moves
-	custody and writes the history. Every seal must be in stock under that item; a seal
-	whose stock already sits in the target only has its custody moved. A handover
-	to a person moves custody only.
+	custody and writes the history. Each such seal must be in stock under that item;
+	a seal whose stock already sits in the target only has its custody moved. Every
+	other move — to a person, out of the main store, between other warehouses, or
+	from a person into any warehouse — is a handover that moves custody only.
 
 	Seals held by a Customer move only through the journey workflow, and a seal on
 	a journey that is In Transit can't be handed over."""
@@ -287,6 +297,9 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 		frappe.throw(_("{0} is not an active user.").format(to_custodian))
 	if to_custody_type == "Warehouse":
 		from tnt_seal_management.tnt_seal_management.api.seal_warehouses import is_seal_warehouse
+
+		if frappe.session.user != "Administrator" and "System Manager" not in frappe.get_roles():
+			frappe.throw(_("Only a System Manager can transfer seals to a warehouse."), frappe.PermissionError)
 
 		if not is_seal_warehouse(to_custodian):
 			frappe.throw(_("{0} is not an active seal warehouse (Branch ECTS Division or Both).").format(to_custodian))
@@ -326,17 +339,20 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 
 	stock_entry, pending = None, False
 	stocked = set()  # seals whose custody and history the Material Transfer handles
-	if to_custody_type == "Warehouse":
+	into_main = to_custody_type == "Warehouse" and frappe.db.get_value("Warehouse", to_custodian, "custom_is_main_seal_store")
+	if into_main and any(r["from_custody_type"] == "Warehouse" for r in rows):
 		from tnt_seal_management.tnt_seal_management.api.stock_seal_transfers import (
 			pending_seal_transfers,
 			request_seal_material_transfer,
 			seal_stock_serials,
 		)
 
-		if not item_code:
+		# Seals coming from a person are a plain handover; only stock from a warehouse moves.
+		from_store = [r["seal_device"] for r in rows if r["from_custody_type"] == "Warehouse"]
+		if from_store and not item_code:
 			frappe.throw(_("Select the Item Code the seals are stocked under."), title=_("Item Code Required"))
-		serials = seal_stock_serials([r["seal_device"] for r in rows])
-		missing = [r["seal_device"] for r in rows if r["seal_device"] not in serials]
+		serials = seal_stock_serials(from_store)
+		missing = [seal for seal in from_store if seal not in serials]
 		if missing:
 			frappe.throw(
 				_("These seals have no serial in stock, so they can't be moved to {0}: {1}. Receive them into stock first.").format(

@@ -41,7 +41,19 @@ function check_registration_number(frm) {
 }
 
 frappe.ui.form.on("Vehicle", {
+	setup(frm) {
+		// Owners come from the Branch of the module being worked in (RECTs or PCB).
+		frm.set_query("customer", () => ({
+			filters: { [window.tnt_get_module() === "RECTS" ? "custom_division_rects" : "custom_division_ects"]: 1 },
+		}));
+	},
+
 	refresh(frm) {
+		// Back to the Vehicles list of the module being worked in (RECTs or PCB).
+		const rects = window.tnt_get_module() === "RECTS";
+		frm.add_custom_button(__("Back"), () => {
+			frappe.set_route(...(rects ? ["vehicle-list", "rects"] : ["vehicle-list"]));
+		});
 		// Legacy party_type/party_name custom fields (where present) are filled
 		// from Customer (Owner) on save — see Vehicle._sync_legacy_party.
 		["party_type", "party_name"].forEach((fieldname) => {

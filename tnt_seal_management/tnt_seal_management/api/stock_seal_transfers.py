@@ -192,7 +192,17 @@ def get_seal_transfer_options(seals=None):
 		order_by="custom_is_seal desc, name asc",
 	)
 	codes = {s.item_code for s in seal_stock_serials([cstr(x) for x in seals]).values()}
+	# Only seals going from a warehouse into a main store move stock (and need an
+	# item code); every other transfer is a plain handover.
+	from_store = bool(
+		seals
+		and frappe.db.exists("Seal Device", {"name": ["in", [cstr(x) for x in seals]], "current_custody_type": "Warehouse"})
+	)
 	return {
+		"from_store": from_store,
+		"main_stores": frappe.get_all(
+			"Warehouse", filters={"custom_is_main_seal_store": 1, "disabled": 0}, pluck="name"
+		),
 		"warehouses": [w.name for w in get_seal_warehouse_options()],
 		"items": [
 			{

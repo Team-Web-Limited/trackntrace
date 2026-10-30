@@ -24,6 +24,25 @@ from tnt_seal_management.tnt_seal_management.api.notifications import (
 ASSIGNED_STATUSES = ("Assigned", "Untagging Assigned", "Seal Return Assigned")
 
 
+def mark_tagging_completed(job_order):
+	"""RECTs only: once every vehicle on the journey request is tagged, the
+	Assigned tagging assignment for its job order becomes "Tagging Completed".
+	(PCB assignments stay "Assigned".)"""
+	if not job_order:
+		return
+	frappe.db.set_value(
+		"PCB Assignment",
+		{
+			"pcb_job_order": job_order,
+			"request_type": "Tagging",
+			"assignment_status": "Assigned",
+			"system": "RECTs",
+		},
+		"assignment_status",
+		"Tagging Completed",
+	)
+
+
 def create_untagging_request(seal_journey):
 	"""Raise an untagging request for an arrived Seal Journey, queued to the PCB
 	Team Leader as a PCB Assignment of request_type "Untagging" — so it lands in
@@ -131,9 +150,24 @@ def _notify_pcb_team_leader_new_request(assignment):
 
 class PCBAssignment(Document):
 	def validate(self):
+		self._set_system()
 		self._validate_field_technician_role()
 		self._auto_progress_untagging_status()
 		self._auto_progress_seal_return_status()
+
+	def _set_system(self):
+		"""PCB or RECTs, from whatever this assignment came from: its Seal Journey
+		(untagging / seal return requests), Job Order or Tagging Booking."""
+		for doctype, name in (
+			("Seal Journey", self.seal_journey),
+			("PCB Job Order", self.pcb_job_order),
+			("Tagging Booking", self.tagging_booking),
+		):
+			if name:
+				system = frappe.db.get_value(doctype, name, "system")
+				if system:
+					self.system = system
+					return
 
 	def on_update(self):
 		"""Untagging/Seal Return assignments have no separate "Assign" action — the
@@ -958,11 +992,11 @@ def _assignment_seal_search_filters(search):
 	return or_filters
 
 
-def _build_assignment_filters(search=None, status=None, field_technician=None, from_date=None, to_date=None):
+def _build_assignment_filters(search=None, status=None, field_technician=None, from_date=None, to_date=None, system="PCB"):
 	if from_date and to_date and getdate(from_date) > getdate(to_date):
 		frappe.throw(_("From Date cannot be after To Date."))
 
-	base_filters = []
+	base_filters = [["system", "=", "RECTs" if system == "RECTs" else "PCB"]]
 	if field_technician:
 		base_filters.append(["assigned_field_technician", "=", field_technician])
 	if from_date:
@@ -987,6 +1021,10 @@ def _build_assignment_filters(search=None, status=None, field_technician=None, f
 	filters = list(base_filters)
 	if status and status != "All":
 		filters.append(["assignment_status", "=", status])
+	elif system == "RECTs":
+		# Finished RECTs tagging work is kept out of the default view; pick the
+		# "Tagging Completed" filter to see it.
+		filters.append(["assignment_status", "!=", "Tagging Completed"])
 
 	return base_filters, or_filters, filters
 
@@ -1000,12 +1038,13 @@ def get_assignment_list(
 	to_date=None,
 	page=1,
 	page_length=25,
+	system="PCB",
 ):
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length), 1), 100)
 
 	base_filters, or_filters, filters = _build_assignment_filters(
-		search, status, field_technician, from_date, to_date
+		search, status, field_technician, from_date, to_date, system
 	)
 
 	assignments = frappe.get_list(
@@ -1047,6 +1086,7 @@ def get_assignment_list(
 		"All": 0,
 		"Pending": 0,
 		"Assigned": 0,
+		"Tagging Completed": 0,
 		"Pending Untagging Assignment": 0,
 		"Untagging Assigned": 0,
 		"Pending Seal Return Assignment": 0,
@@ -1064,7 +1104,8 @@ def get_assignment_list(
 	for row in summary_rows:
 		if row.assignment_status in summary:
 			summary[row.assignment_status] = cint(row.count)
-			summary["All"] += cint(row.count)
+			if row.assignment_status != "Tagging Completed":
+				summary["All"] += cint(row.count)
 
 	return {
 		"assignments": assignments,
@@ -1076,9 +1117,13 @@ def get_assignment_list(
 
 
 @frappe.whitelist()
-def get_all_assignments_for_export(search=None, status=None, field_technician=None, from_date=None, to_date=None):
+def get_all_assignments_for_export(
+	search=None, status=None, field_technician=None, from_date=None, to_date=None, system="PCB"
+):
 	"""Same filters as get_assignment_list but unpaginated, for the PDF export."""
-	_, or_filters, filters = _build_assignment_filters(search, status, field_technician, from_date, to_date)
+	_, or_filters, filters = _build_assignment_filters(
+		search, status, field_technician, from_date, to_date, system
+	)
 
 	assignments = frappe.get_list(
 		"PCB Assignment",
@@ -1154,14 +1199,18 @@ _EXPORT_COLUMNS = (
 
 
 @frappe.whitelist()
-def export_excel(search=None, status=None, field_technician=None, from_date=None, to_date=None, filename=None):
+def export_excel(
+	search=None, status=None, field_technician=None, from_date=None, to_date=None, filename=None, system="PCB"
+):
 	"""Render the Assignment list's currently filtered rows to an .xlsx
 	workbook — the spreadsheet counterpart of export_pdf."""
 	from frappe.utils.xlsxutils import make_xlsx
 
 	_check_export_permission()
 
-	assignments = get_all_assignments_for_export(search, status, field_technician, from_date, to_date)
+	assignments = get_all_assignments_for_export(
+		search, status, field_technician, from_date, to_date, system
+	)
 	if not assignments:
 		frappe.throw(_("No assignments match the current filters."))
 

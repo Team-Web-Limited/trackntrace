@@ -6,7 +6,6 @@
 # seal management adds a few custom fields (Main Seal Store, GPS position and
 # radius) and treats them as the places a seal can rest.
 
-import math
 
 import frappe
 from frappe import _
@@ -22,8 +21,6 @@ SYSTEM_DIVISIONS = {
 	"TNT": (ECTS_DIVISION, BOTH_DIVISIONS),
 	"RECTS": (RECTS_DIVISION,),
 }
-DEFAULT_RADIUS_METERS = 300
-EARTH_RADIUS_METERS = 6371000
 
 # Link filters for picking a seal warehouse (Return Warehouse, custody handover).
 SEAL_WAREHOUSE_FILTERS = {"custom_division": ["in", SEAL_DIVISIONS], "is_group": 0, "disabled": 0}
@@ -52,38 +49,6 @@ def get_seal_warehouse_options():
 		fields=["name", "warehouse_name"],
 		order_by="custom_is_main_seal_store desc, warehouse_name asc",
 	)
-
-
-def haversine_meters(lat1, lon1, lat2, lon2):
-	"""Great-circle distance between two lat/lon points, in meters."""
-	phi1, phi2 = math.radians(lat1), math.radians(lat2)
-	d_phi = math.radians(lat2 - lat1)
-	d_lambda = math.radians(lon2 - lon1)
-	a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
-	return 2 * EARTH_RADIUS_METERS * math.asin(math.sqrt(a))
-
-
-def find_nearest_seal_warehouse(latitude, longitude):
-	"""The nearest seal warehouse whose GPS radius contains the given point, or
-	None. Used to attribute an idle seal's Uffizio GPS fix to the store it is
-	sitting in. Warehouses without a position set are skipped."""
-	latitude, longitude = flt(latitude), flt(longitude)
-	warehouses = frappe.get_all(
-		"Warehouse",
-		filters=SEAL_WAREHOUSE_FILTERS,
-		fields=["name", "custom_seal_latitude", "custom_seal_longitude", "custom_seal_geofence_radius"],
-	)
-	best, best_distance = None, None
-	for w in warehouses:
-		if not w.custom_seal_latitude and not w.custom_seal_longitude:
-			continue
-		distance = haversine_meters(latitude, longitude, w.custom_seal_latitude, w.custom_seal_longitude)
-		if distance <= (w.custom_seal_geofence_radius or DEFAULT_RADIUS_METERS):
-			if best_distance is None or distance < best_distance:
-				best, best_distance = w, distance
-	if not best:
-		return None
-	return {"warehouse": best.name, "distance_meters": round(best_distance, 1)}
 
 
 # The Warehouses page is a shortcut to where seals are: the ERPNext warehouses
@@ -154,9 +119,9 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25, system
 
 	if is_technician_only():
 		mine = ("User", frappe.session.user)
-		rows = _holder_rows({k: v for k, v in _seals_held_by_custodian().items() if k == mine})
+		rows = _holder_rows({k: v for k, v in _seals_held_by_custodian(system).items() if k == mine})
 	else:
-		rows = _division_warehouse_rows(divisions) + _holder_rows(_seals_held_by_custodian())
+		rows = _division_warehouse_rows(divisions) + _holder_rows(_seals_held_by_custodian(system))
 
 	def in_status(row, key):
 		if key == "All":
@@ -256,6 +221,32 @@ def _division_warehouse_rows(divisions):
 	]
 
 
+@frappe.whitelist()
+def get_warehouse_stock_count(warehouse):
+	"""Seal serials ERPNext has in stock in one warehouse, for the Warehouse form."""
+	frappe.has_permission("Warehouse", "read", warehouse, throw=True)
+	return _seals_by_warehouse([warehouse]).get(warehouse, 0)
+
+
+@frappe.whitelist()
+def get_holder_seals(custody_type, custodian, system="TNT"):
+	"""Seals a staff member or customer holds right now, only those of ``system``
+	(TNT / RECTS), for the holder panel on the Warehouses page."""
+	if custody_type not in _HOLDER_STATUSES or not custodian:
+		return []
+	return frappe.get_list(
+		"Seal Device",
+		filters={
+			"current_custody_type": custody_type,
+			"current_custodian": custodian,
+			"belongs_to": "RECTs" if system == "RECTS" else ["!=", "RECTs"],
+		},
+		fields=["name", "seal_number", "device_id", "current_status", "lock_status", "condition", "current_custody_since"],
+		order_by="current_custody_since desc, seal_number asc",
+		limit_page_length=0,
+	)
+
+
 def _seals_by_warehouse(warehouses):
 	"""{warehouse: seal count} from the stock ledger: Serial Nos that are seals,
 	matched on the Seal Device's name, serial number or IMEI."""
@@ -278,14 +269,16 @@ def _seals_by_warehouse(warehouses):
 	return {warehouse: cint(count) for warehouse, count in rows}
 
 
-def _seals_held_by_custodian():
-	"""{(custody_type, custodian): seal count} for seals held by a User or Customer."""
+def _seals_held_by_custodian(system="TNT"):
+	"""{(custody_type, custodian): seal count} for seals held by a User or Customer,
+	counting only the seals that belong to ``system`` (TNT / RECTS)."""
 	rows = frappe.get_all(
 		"Seal Device",
 		filters={
 			"current_custody_type": ["in", _HOLDER_STATUSES],
 			"current_custodian": ["is", "set"],
 			"in_uffizio": 1,
+			"belongs_to": "RECTs" if system == "RECTS" else ["!=", "RECTs"],
 		},
 		fields=["current_custody_type", "current_custodian", "count(name) as seals"],
 		group_by="current_custody_type, current_custodian",

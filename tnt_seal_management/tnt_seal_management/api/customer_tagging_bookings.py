@@ -160,6 +160,11 @@ def create_customer_tagging_booking(data):
 	doc = frappe.get_doc(
 		{
 			"doctype": "Tagging Booking",
+			# Portal customers book into PCB unless they are RECTs-only.
+			"system": "PCB"
+			if frappe.db.get_value("Customer", customer, "custom_division_ects")
+			or not frappe.db.get_value("Customer", customer, "custom_division_rects")
+			else "RECTs",
 			"client_name": customer,
 			"booking_status": "Pending Account Manager Review",
 			"booking_source": "Customer Portal",

@@ -3,7 +3,7 @@
 // /app/seal-device-dashboard/rects shows only the seals that belong to RECTs.
 const SD_SYSTEMS = {
 	TNT: { title: "Seal Device Dashboard", dashboard: "tnt-seal-management", belongs_to: "TNT" },
-	RECTS: { title: "RECTs Seal Device Dashboard", dashboard: "rects", belongs_to: "RECTs" },
+	RECTS: { title: "RECTs Seal Devices", dashboard: "rects", belongs_to: "RECTs" },
 };
 
 function _sd_route_system() {
@@ -146,7 +146,7 @@ function _build_seal_device_page(page) {
 								<button class="sd-btn sd-btn-bulk" type="button"></button>
 								<div class="sd-action-menu">
 									<button class="sd-bulk-item" data-belongs-to="RECTs">${__("RECTs")}</button>
-									<button class="sd-bulk-item" data-belongs-to="TNT">${__("TNT")}</button>
+									<button class="sd-bulk-item" data-belongs-to="TNT">${__("PCB")}</button>
 								</div>
 							</div>
 							<button class="sd-clear-btn" type="button">${__("Clear filters")}</button>
@@ -610,7 +610,7 @@ function _seal_device_row_html(d, selected = new Set()) {
 				? `disabled title="${__("Assigned seals cannot be moved")}"`
 				: selected.has(d.name) ? "checked" : ""}></td>
 			<td><span class="sd-strong sd-sealcat sd-sealcat--${categoryClass}" title="${esc(__(d.seal_category || "Lease"))}">${frappe.utils.escape_html(d.name)}</span>${excludedBadge}</td>
-			<td>${esc(d.belongs_to || "TNT")}</td>
+			<td>${esc((d.belongs_to || "TNT") === "TNT" ? "PCB" : d.belongs_to)}</td>
 			<td><span class="sd-badge sd-badge--${statusClass}">${frappe.utils.escape_html(status)}</span></td>
 			<td>${apiStatus}</td>
 			<td>${lockHtml}</td>

@@ -8,7 +8,7 @@ frappe.ui.form.on("PCB Assignment", {
 
 	refresh(frm) {
 		frm.add_custom_button(__("Back"), () => {
-			frappe.set_route("assignment-list");
+			frappe.set_route(...(frm.doc.system === "RECTs" ? ["assignment-list", "rects"] : ["assignment-list"]));
 		});
 
 		if (frm.is_new()) return;

@@ -19,6 +19,7 @@
   "tagging_remarks",
   "actual_untagging_date_time",
   "untagging_location",
+  "seal_outcome",
   "seal_return_condition",
   "retrieval_card_number",
   "return_warehouse",
@@ -95,6 +96,13 @@
    "fieldname": "untagging_location",
    "fieldtype": "Data",
    "label": "Untagging Location",
+   "read_only": 1
+  },
+  {
+   "fieldname": "seal_outcome",
+   "fieldtype": "Select",
+   "label": "Seal Outcome",
+   "options": "\nReturn Seal\nRetain Seal",
    "read_only": 1
   },
   {

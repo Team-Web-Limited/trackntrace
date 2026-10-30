@@ -73,6 +73,7 @@ UNTAGGING_CONFIRMATION_FIELDS = ("untagging_confirmed_by_technician",)
 # (the tick is required), which parks the request at "Pending Seal Return Approval"
 # until the PCB Team Leader approves it — only then does the return take effect.
 SEAL_RETURN_FIELDS = ("seal_return_entry_document",)
+# (The technician's confirmation now ends the return: there is no approval step.)
 SEAL_RETURN_CONFIRMATION_FIELDS = (
 	"seal_return_confirmed_by_technician",
 	"seal_return_condition",
@@ -344,13 +345,27 @@ class JourneyRequest(Document):
 
 		if self.journey_request_status == "Draft":
 			for seal_device in seal_devices:
-				_ensure_seal_available(seal_device, self.name)
+				_ensure_seal_available(seal_device, self.name, self.system)
 
 
-def _ensure_seal_available(seal_device, journey_request_name):
-	status, current_journey_request, in_uffizio = frappe.db.get_value(
-		"Seal Device", seal_device, ["current_status", "current_journey_request", "in_uffizio"]
-	) or (None, None, 1)
+def _seal_system(belongs_to):
+	"""Seal Device.belongs_to -> the system it serves (TNT seals are PCB's)."""
+	return "RECTs" if belongs_to == "RECTs" else "PCB"
+
+
+def _ensure_seal_available(seal_device, journey_request_name, system="PCB"):
+	status, current_journey_request, in_uffizio, belongs_to = frappe.db.get_value(
+		"Seal Device",
+		seal_device,
+		["current_status", "current_journey_request", "in_uffizio", "belongs_to"],
+	) or (None, None, 1, None)
+	if _seal_system(belongs_to) != system:
+		frappe.throw(
+			_("Seal Device {0} belongs to {1}, not {2}.").format(
+				seal_device, "RECTs" if system == "PCB" else "PCB", system
+			),
+			title=_("Seal Unavailable"),
+		)
 	if not in_uffizio:
 		frappe.throw(
 			_("Seal Device {0} is no longer in the Uffizio account and cannot be used.").format(seal_device),
@@ -1044,7 +1059,7 @@ def swap_seal(docname, old_seal_device, new_seal_device):
 			title=_("Duplicate Seal"),
 		)
 
-	_ensure_seal_available(new_seal_device, doc.name)
+	_ensure_seal_available(new_seal_device, doc.name, doc.system)
 
 	row.seal_device = new_seal_device
 	row.seal_number = frappe.db.get_value("Seal Device", new_seal_device, "seal_number")
@@ -1184,6 +1199,14 @@ def complete_tagging(
 	doc.flags.ignore_field_locks = True
 	doc.save()
 
+	# RECTs: the tagging assignment is done once no vehicle is left to tag.
+	if doc.system == "RECTs" and not any(r.status == "Tagging" for r in doc.vehicles):
+		from tnt_seal_management.tnt_seal_management.doctype.pcb_assignment.pcb_assignment import (
+			mark_tagging_completed,
+		)
+
+		mark_tagging_completed(doc.job_order)
+
 	for row, seal_journey, seals in finished:
 		# _finalize sets the In Transit status + child tables; mirror fills the
 		# remaining tagging detail from the now-saved request.
@@ -1242,6 +1265,10 @@ def _pull_tagging_location(doc, seals=None):
 	technician — removes the chance of a fudged or skipped location at the one
 	moment (tagging completion) it matters most for audit."""
 	from tnt_seal_management.tnt_seal_management.api.seal_sync import sync_seal_device
+
+	# RECTs seals have no seal API, so there is no live GPS to read.
+	if doc.system == "RECTs":
+		return None
 
 	for row in doc.seals if seals is None else seals:
 		if not row.seal_device:
@@ -1376,12 +1403,17 @@ def confirm_seal_return(
 	seal_return_condition=None,
 	retrieval_card_number=None,
 	return_warehouse=None,
+	seal_outcome=None,
 ):
 	"""Complete the seal return directly from the assigned Field Technician — for
 	one vehicle (`vehicle_row`) or every vehicle awaiting seal return. On a
 	multi-vehicle request the confirmation, condition, retrieval card and warehouse
 	are supplied per call (so one vehicle's values never stand in for another's);
-	a single-vehicle request keeps using the form's own fields."""
+	a single-vehicle request keeps using the form's own fields.
+
+	This is the end of the journey request: there is no approval step. The
+	technician either returns the seal to a warehouse or retains it (keeps it in
+	their own custody), and the seals go back into the pool right away."""
 	_ensure_role(
 		"Field Technician",
 		_("Only the assigned Field Technician can confirm the seal return."),
@@ -1418,12 +1450,22 @@ def confirm_seal_return(
 		doc.seal_return_condition = seal_return_condition
 		doc.retrieval_card_number = retrieval_card_number
 		doc.return_warehouse = return_warehouse
+		doc.seal_outcome = seal_outcome
 	else:
 		if cint(seal_return_confirmed):
 			doc.seal_return_confirmed_by_technician = 1
 		doc.seal_return_condition = seal_return_condition or doc.seal_return_condition
 		doc.retrieval_card_number = retrieval_card_number or doc.retrieval_card_number
 		doc.return_warehouse = return_warehouse or doc.return_warehouse
+		doc.seal_outcome = seal_outcome or doc.seal_outcome or "Return Seal"
+	if doc.seal_outcome not in ("Return Seal", "Retain Seal"):
+		frappe.throw(
+			_("Choose whether the seal is being returned or retained."),
+			title=_("Seal Outcome Required"),
+		)
+	retained = doc.seal_outcome == "Retain Seal"
+	if retained:
+		doc.return_warehouse = None
 	if not cint(doc.seal_return_confirmed_by_technician):
 		frappe.throw(
 			_("Tick Confirmed by Technician to confirm the seal has been physically returned."),
@@ -1439,50 +1481,68 @@ def confirm_seal_return(
 			_("Enter the Retrieval Card Number before confirming the seal return."),
 			title=_("Retrieval Card Number Required"),
 		)
-	if not doc.return_warehouse:
+	if not retained and not doc.return_warehouse:
 		frappe.throw(
 			_("Select the Warehouse the seal is being returned to before confirming."),
 			title=_("Warehouse Required"),
 		)
 
-	location = _pull_seal_return_location(doc, [s for group in target_seals for s in group])
-	manual_location = cstr(manual_location).strip()
-	if not location and not manual_location:
-		return {"requires_manual_location": True}
+	# RECTs seals have no seal API, so there is no GPS fix to read or to ask for.
+	if doc.system == "RECTs":
+		location = None
+		manual_location = ""
+	else:
+		location = _pull_seal_return_location(doc, [s for group in target_seals for s in group])
+		manual_location = cstr(manual_location).strip()
+		if not location and not manual_location:
+			return {"requires_manual_location": True}
 
 	now = now_datetime()
 	doc.actual_seal_return_date_time = now
-	doc.seal_return_location = location or manual_location[:140]
+	doc.seal_return_location = (location or manual_location[:140]) or None
 	for row in targets:
 		if row:
 			# The stage fields above are shared across the request, so snapshot them
 			# onto the vehicle — a later vehicle's return must not rewrite this one's.
-			row.status = "Pending Seal Return Approval"
+			row.status = "Seal Returned"
+			row.seal_outcome = doc.seal_outcome
 			row.seal_return_condition = doc.seal_return_condition
 			row.retrieval_card_number = doc.retrieval_card_number
 			row.return_warehouse = doc.return_warehouse
 			row.seal_return_location = doc.seal_return_location
 			row.actual_seal_return_date_time = now
 		vehicle = _row_label(row) if row else None
-		_append_approval_log(doc, "Seal Return Confirmed", cstr(remarks).strip() or None, vehicle=vehicle)
-		_append_approval_log(doc, "Seal Return Submitted for Approval", vehicle=vehicle)
-	# The physical return is done, but the seal only goes back into the pool once
-	# the PCB Team Leader approves it — see approve_seal_return.
+		_append_approval_log(
+			doc,
+			"Seal Return Confirmed",
+			" — ".join(
+				part
+				for part in (
+					_("Seal retained by the Tag Operator") if retained else _("Seal returned to {0}").format(doc.return_warehouse),
+					cstr(remarks).strip(),
+				)
+				if part
+			),
+			vehicle=vehicle,
+		)
 	if rows:
 		_roll_up_status(doc)
 	else:
-		doc.journey_request_status = "Pending Seal Return Approval"
+		doc.journey_request_status = "Seal Returned"
+	doc.seal_returned = 1 if doc.journey_request_status == "Seal Returned" else 0
 	doc.flags.ignore_field_locks = True
 	doc.save()
 
-	_notify_seal_return_approval_pending(doc)
+	# No approval step: the return takes effect now.
 	for row in targets:
+		_finalise_seal_return(doc, cstr(remarks).strip(), row)
 		sync_seal_journey_mirror(row.seal_journey if row else doc.journey_reference)
 	frappe.db.commit()
 	return {
 		"requires_manual_location": False,
 		"location": doc.seal_return_location,
-		"pending_approval": True,
+		"pending_approval": False,
+		"seal_outcome": doc.seal_outcome,
 	}
 
 
@@ -1602,6 +1662,9 @@ def _finalise_seal_return(doc, remarks=None, row=None):
 	location = (row.seal_return_location if row else None) or doc.seal_return_location
 	returned_at = (row.actual_seal_return_date_time if row else None) or doc.actual_seal_return_date_time
 	return_warehouse = (row.return_warehouse if row else None) or doc.return_warehouse
+	retained = ((row.seal_outcome if row else None) or doc.seal_outcome) == "Retain Seal"
+	if retained:
+		return_warehouse = None
 
 	# A journey already completed at arrival (remote unlock, no return trip)
 	# keeps its completion time; the seal return only brings the seal back.
@@ -1638,7 +1701,17 @@ def _finalise_seal_return(doc, remarks=None, row=None):
 				"current_container": None,
 			},
 		)
-		if return_warehouse:
+		if retained:
+			# The Tag Operator keeps the seal: it stays in their custody ("Seals I
+			# hold") and is Available for their next tagging.
+			set_seal_custody(
+				seal.seal_device,
+				"User",
+				doc.assigned_technician or frappe.session.user,
+				remarks=f"Retained by the Tag Operator via Journey Request {doc.name}",
+				journey=journey,
+			)
+		elif return_warehouse:
 			# Final hop: seal is back in a warehouse. Update the live pointer to that
 			# warehouse, then close the journey's single custody row by writing the
 			# return warehouse column as "selected warehouse (gps location)".
@@ -1937,6 +2010,7 @@ def get_available_journey_types(customer=None):
 @validate_and_sanitize_search_inputs
 def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
 	journey_request = (filters or {}).get("journey_request") or ""
+	rects = (filters or {}).get("system") == "RECTs"
 	return frappe.db.sql(
 		"""
 		select
@@ -1944,6 +2018,7 @@ def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
 		from `tabSeal Device`
 		where (current_status = 'Available' or current_journey_request = %(journey_request)s)
 			and ifnull(in_uffizio, 1) = 1
+			and (ifnull(belongs_to, 'TNT') = 'RECTs') = %(rects)s
 			and (name like %(txt)s or seal_number like %(txt)s)
 		order by
 			case when name like %(txt)s then 0 else 1 end,
@@ -1952,6 +2027,7 @@ def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
 		""",
 		{
 			"journey_request": journey_request,
+			"rects": 1 if rects else 0,
 			"txt": f"%{cstr(txt)}%",
 			"start": cint(start),
 			"page_len": cint(page_len),
@@ -1959,11 +2035,11 @@ def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
 	)
 
 
-def _build_journey_request_filters(search=None, status=None, from_date=None, to_date=None):
+def _build_journey_request_filters(search=None, status=None, from_date=None, to_date=None, system="PCB"):
 	if from_date and to_date and getdate(from_date) > getdate(to_date):
 		frappe.throw(_("From Date cannot be after To Date."))
 
-	base_filters = []
+	base_filters = [["system", "=", "RECTs" if system == "RECTs" else "PCB"]]
 	if from_date:
 		base_filters.append(["creation", ">=", f"{from_date} 00:00:00"])
 	if to_date:
@@ -1995,11 +2071,14 @@ def get_journey_request_list(
 	to_date=None,
 	page=1,
 	page_length=25,
+	system="PCB",
 ):
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length), 1), 100)
 
-	base_filters, or_filters, filters = _build_journey_request_filters(search, status, from_date, to_date)
+	base_filters, or_filters, filters = _build_journey_request_filters(
+		search, status, from_date, to_date, system
+	)
 
 	requests = frappe.get_list(
 		"Journey Request",
@@ -2058,9 +2137,9 @@ def get_journey_request_list(
 
 
 @frappe.whitelist()
-def get_all_journey_requests_for_export(search=None, status=None, from_date=None, to_date=None):
+def get_all_journey_requests_for_export(search=None, status=None, from_date=None, to_date=None, system="PCB"):
 	"""Same filters as get_journey_request_list but unpaginated, for the PDF export."""
-	_, or_filters, filters = _build_journey_request_filters(search, status, from_date, to_date)
+	_, or_filters, filters = _build_journey_request_filters(search, status, from_date, to_date, system)
 
 	requests = frappe.get_list(
 		"Journey Request",
@@ -2131,14 +2210,14 @@ _EXPORT_COLUMNS = (
 
 
 @frappe.whitelist()
-def export_excel(search=None, status=None, from_date=None, to_date=None, filename=None):
+def export_excel(search=None, status=None, from_date=None, to_date=None, filename=None, system="PCB"):
 	"""Render the Journey Request list's currently filtered rows to an .xlsx
 	workbook — the spreadsheet counterpart of export_pdf."""
 	from frappe.utils.xlsxutils import make_xlsx
 
 	_check_export_permission()
 
-	requests = get_all_journey_requests_for_export(search, status, from_date, to_date)
+	requests = get_all_journey_requests_for_export(search, status, from_date, to_date, system)
 	if not requests:
 		frappe.throw(_("No Journey Requests match the current filters."))
 
@@ -2276,14 +2355,14 @@ def _attach_seal_serial_numbers(requests):
 
 
 @frappe.whitelist()
-def get_control_room_queue(search=None, from_date=None, to_date=None, page=1, page_length=30):
+def get_control_room_queue(search=None, from_date=None, to_date=None, page=1, page_length=30, system="PCB"):
 	"""Journey Requests awaiting Control Room approval of the original tagging
 	proposal, with each request's full seal detail, for the Control Room page's
 	Approve tab. Honours Journey Request permissions via get_list, so a Control
 	Room user sees the whole queue. Search, date filter and paging are applied
 	here; `total` is the filtered count and `overall` the unfiltered one."""
 	return _get_approval_queue_by_status(
-		"Pending Control Room Approval", search, from_date, to_date, page, page_length
+		"Pending Control Room Approval", search, from_date, to_date, page, page_length, system
 	)
 
 
@@ -2318,15 +2397,20 @@ def _control_room_search_or_filters(search):
 	return or_filters
 
 
-def _get_approval_queue_by_status(status, search=None, from_date=None, to_date=None, page=1, page_length=30):
+def _get_approval_queue_by_status(
+	status, search=None, from_date=None, to_date=None, page=1, page_length=30, system=None
+):
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length) or 30, 1), 100)
 	search = (search or "").strip()
 
 	filters = {"journey_request_status": status}
+	filtered = [["Journey Request", "journey_request_status", "=", status]]
+	if system:
+		filters["system"] = system
+		filtered.append(["Journey Request", "system", "=", system])
 	overall = len(frappe.get_list("Journey Request", filters=filters, pluck="name", limit_page_length=0))
 
-	filtered = [["Journey Request", "journey_request_status", "=", status]]
 	if from_date:
 		filtered.append(["Journey Request", "creation", ">=", f"{from_date} 00:00:00"])
 	if to_date:

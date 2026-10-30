@@ -26,16 +26,19 @@ fixtures = [
 				[
 					"Customer-custom_tax_category",
 					"Customer-custom_division",
+					"Customer-custom_branches_section",
+					"Customer-custom_division_all",
+					"Customer-custom_division_fms",
+					"Customer-custom_division_ects",
+					"Customer-custom_division_rects",
 					"Warehouse-custom_division",
 					"Item-custom_is_seal",
 					"Warehouse-custom_seal_management_section",
 					"Warehouse-custom_is_main_seal_store",
+					"Warehouse-custom_seals_in_stock",
 					"Warehouse-custom_location",
 					"User-custom_seal_base_location",
 					"Warehouse-custom_seal_column",
-					"Warehouse-custom_seal_latitude",
-					"Warehouse-custom_seal_longitude",
-					"Warehouse-custom_seal_geofence_radius",
 					"Sales Order-custom_customer_response",
 					"Sales Order-custom_customer_response_by",
 					"Sales Order-custom_customer_response_date",
@@ -77,7 +80,7 @@ add_to_apps_screen = [
 	{
 		"name": "tnt_seal_management",
 		"logo": "/assets/tnt_seal_management/images/tnt-seal-management-logo.svg",
-		"title": "TNT Seal Management",
+		"title": "PCB Seal Management",
 		"route": "/app/tnt-seal-management",
 	}
 ]
@@ -118,7 +121,11 @@ portal_menu_items = [
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-doctype_js = {"Sales Order": "public/js/sales_order.js", "Warehouse": "public/js/warehouse.js"}
+doctype_js = {
+	"Sales Order": "public/js/sales_order.js",
+	"Warehouse": "public/js/warehouse.js",
+	"Customer": "public/js/customer.js",
+}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -220,6 +227,10 @@ has_permission = {
 # Hook on document methods and events
 
 doc_events = {
+	# Keeps the Customer Branch checkboxes consistent (All <-> FMS + ECTS + RECTS).
+	"Customer": {
+		"validate": "tnt_seal_management.tnt_seal_management.api.customer_branches.normalize_branches",
+	},
 	# Seal serials on a Material Receipt / Issue / Transfer become "Seal Transfer"
 	# history rows, and move custody when the target is a seal warehouse (Branch ECTS Division or Both).
 	"Stock Entry": {

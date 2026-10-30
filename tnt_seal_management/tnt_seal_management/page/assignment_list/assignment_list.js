@@ -1,9 +1,23 @@
+// The same page serves both systems: /app/assignment-list for PCB and
+// /app/assignment-list/rects for RECTs. Records never cross over.
+const ASG_SYSTEMS = {
+	PCB: { title: "Assignments", dashboard: "tnt-seal-management" },
+	RECTs: { title: "RECTs Assignments", dashboard: "rects" },
+};
+
+function _asg_route_system() {
+	return String(frappe.get_route()[1] || "").toLowerCase() === "rects" ? "RECTs" : "PCB";
+}
+
 frappe.pages["assignment-list"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: __("Assignments"),
 		single_column: true,
 	});
+	wrapper.page = page;
+	page.asg_system = _asg_route_system();
+	page.set_title(__(ASG_SYSTEMS[page.asg_system].title));
 
 	page.asg_state = {
 		search: "",
@@ -17,7 +31,7 @@ frappe.pages["assignment-list"].on_page_load = function (wrapper) {
 		request_id: 0,
 	};
 
-	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Dashboard"), () => frappe.set_route(ASG_SYSTEMS[page.asg_system].dashboard));
 	page.add_inner_button(__("Excel"), () => _asg_export_excel(page), __("Download Report"));
 	page.add_inner_button(__("PDF"), () => _asg_export_pdf(page), __("Download Report"));
 	page.add_inner_button(__("Refresh"), () => _asg_load(page));
@@ -28,7 +42,36 @@ frappe.pages["assignment-list"].on_page_load = function (wrapper) {
 
 	_asg_inject_styles();
 	_asg_build_page(page);
+	_asg_toggle_rects_only(page);
 	_asg_load(page);
+};
+
+// "Tagging Completed" only applies to RECTs assignments; PCB's stay "Assigned".
+function _asg_toggle_rects_only(page) {
+	$(page.body).find(".asg-rects-only").toggle(page.asg_system === "RECTs");
+}
+
+// Switching between /app/assignment-list and /app/assignment-list/rects reuses the loaded
+// page, and coming back from a record leaves it stale, so reload on every show.
+frappe.pages["assignment-list"].on_page_show = function (wrapper) {
+	const system = _asg_route_system();
+	window.tnt_set_module(system === "RECTs" ? "RECTS" : "TNT");
+	if (system === "RECTs") {
+		frappe.breadcrumbs.add({ type: "Custom", label: __("RECTs Sealmanagement"), route: "/app/rects" });
+	} else {
+		frappe.breadcrumbs.add("Tnt Seal Management");
+	}
+	const page = wrapper.page;
+	if (!page || !page.asg_state) return;
+	if (page.asg_system !== system) {
+		page.asg_system = system;
+		page.set_title(__(ASG_SYSTEMS[system].title));
+		Object.assign(page.asg_state, { search: "", status: "All", from_date: "", to_date: "", page: 1 });
+		if ("field_technician" in page.asg_state) page.asg_state.field_technician = "";
+		_asg_toggle_rects_only(page);
+	}
+	if (page.asg_loaded) _asg_load(page);
+	page.asg_loaded = true;
 };
 
 function _asg_build_page(page) {
@@ -36,6 +79,7 @@ function _asg_build_page(page) {
 		["All", __("All Assignments")],
 		["Pending", __("Awaiting Assignment")],
 		["Assigned", __("Assigned")],
+		["Tagging Completed", __("Tagging Completed")],
 		["Pending Untagging Assignment", __("Pending Untagging Assignment")],
 		["Untagging Assigned", __("Untagging Assigned")],
 		["Pending Seal Return Assignment", __("Pending Seal Return Assignment")],
@@ -60,7 +104,7 @@ function _asg_build_page(page) {
 							</button>
 							<div class="asg-filter-menu">
 								${statuses.map(([val, lbl]) => `
-									<div class="asg-filter-item ${val === "All" ? "active" : ""}" data-status="${frappe.utils.escape_html(val)}" data-label="${frappe.utils.escape_html(lbl)}">
+									<div class="asg-filter-item ${val === "All" ? "active" : ""} ${val === "Tagging Completed" ? "asg-rects-only" : ""}" data-status="${frappe.utils.escape_html(val)}" data-label="${frappe.utils.escape_html(lbl)}">
 										${frappe.utils.escape_html(lbl)}
 										<span class="asg-fcount" data-fcount="${frappe.utils.escape_html(val)}">0</span>
 									</div>
@@ -190,6 +234,7 @@ function _asg_load(page) {
 			field_technician: page.asg_state.field_technician,
 			from_date: page.asg_state.from_date,
 			to_date: page.asg_state.to_date,
+			system: page.asg_system,
 			page: page.asg_state.page,
 			page_length: page.asg_state.page_length,
 		},
@@ -226,6 +271,7 @@ function _asg_export_pdf(page) {
 			field_technician: page.asg_state.field_technician,
 			from_date: page.asg_state.from_date,
 			to_date: page.asg_state.to_date,
+			system: page.asg_system,
 		},
 		freeze: true,
 		freeze_message: __("Preparing report…"),
@@ -312,6 +358,7 @@ function _asg_export_excel(page) {
 		field_technician: page.asg_state.field_technician,
 		from_date: page.asg_state.from_date,
 		to_date: page.asg_state.to_date,
+		system: page.asg_system,
 		filename: `Assignment Report - ${frappe.datetime.get_today()}`,
 	});
 }
@@ -419,6 +466,7 @@ function _asg_render_stats(page, summary) {
 		"All": summary.All || 0,
 		"Pending": summary.Pending || 0,
 		"Assigned": summary.Assigned || 0,
+		"Tagging Completed": summary["Tagging Completed"] || 0,
 		"Pending Untagging Assignment": summary["Pending Untagging Assignment"] || 0,
 		"Untagging Assigned": summary["Untagging Assigned"] || 0,
 		"Pending Seal Return Assignment": summary["Pending Seal Return Assignment"] || 0,
@@ -466,6 +514,7 @@ function _asg_render_table(page, assignments) {
 const ASG_STATUS_LABELS = {
 	"Pending": () => __("Awaiting Assignment"),
 	"Assigned": () => __("Assigned"),
+	"Tagging Completed": () => __("Tagging Completed"),
 	"Pending Untagging Assignment": () => __("Pending Untagging Assignment"),
 	"Untagging Assigned": () => __("Untagging Assigned"),
 	"Pending Seal Return Assignment": () => __("Pending Seal Return Assignment"),
@@ -862,6 +911,7 @@ function _asg_inject_styles() {
 			white-space: nowrap;
 		}
 		.asg-badge--assigned  { background: #dbeafe; color: #1d4ed8; }
+		.asg-badge--tagging-completed { background: #dcfce7; color: #166534; }
 		.asg-badge--pending   { background: #fef3c7; color: #92400e; }
 		.asg-badge--pending-untagging-assignment { background: #fed7aa; color: #9a3412; }
 		.asg-badge--untagging-assigned { background: #ddd6fe; color: #5b21b6; }

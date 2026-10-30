@@ -10,6 +10,7 @@
   "jr_row_1_section",
   "journey_request_status",
   "job_order",
+  "system",
   "jr_row_1_column",
   "client_name",
   "journey_type",
@@ -78,6 +79,7 @@
   "retrieval_card_number",
   "jr_seal_return_row2_section",
   "actual_seal_return_date_time",
+  "seal_outcome",
   "return_warehouse",
   "jr_seal_return_row2_column",
   "seal_return_location",
@@ -114,6 +116,18 @@
    "options": "PCB Job Order",
    "read_only": 1,
    "reqd": 1
+  },
+  {
+   "default": "PCB",
+   "fetch_from": "job_order.system",
+   "fieldname": "system",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "System",
+   "options": "PCB\nRECTs",
+   "read_only": 1,
+   "search_index": 1,
+   "in_standard_filter": 1
   },
   {
    "fieldname": "jr_row_1_column",
@@ -178,7 +192,8 @@
    "fieldname": "entry_number",
    "fieldtype": "Data",
    "label": "Entry Number",
-   "reqd": 1
+   "reqd": 0,
+   "mandatory_depends_on": "eval:doc.system!=\"RECTs\""
   },
   {
    "fieldname": "jr_row_3_column",
@@ -188,7 +203,8 @@
    "fieldname": "container_number",
    "fieldtype": "Data",
    "label": "Container Number",
-   "reqd": 1
+   "reqd": 0,
+   "mandatory_depends_on": "eval:doc.system!=\"RECTs\""
   },
   {
    "fieldname": "jr_row_3b_section",
@@ -419,7 +435,7 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status) || (doc.vehicles || []).some((r) => [\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(r.status))",
+   "depends_on": "eval:doc.untagging_completed || doc.journey_request_status == \"Untagging\" || (doc.vehicles || []).some((r) => r.status == \"Untagging\")",
    "fieldname": "jr_untagging_section",
    "fieldtype": "Section Break",
    "label": "Untagging Documents"
@@ -438,7 +454,7 @@
    "description": "Tick to confirm the seal has been physically removed."
   },
   {
-   "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status) || (doc.vehicles || []).some((r) => [\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(r.status))",
+   "depends_on": "eval:doc.untagging_completed || doc.journey_request_status == \"Untagging\" || (doc.vehicles || []).some((r) => r.status == \"Untagging\")",
    "fieldname": "jr_untagging_row2_section",
    "fieldtype": "Section Break"
   },
@@ -461,7 +477,7 @@
    "description": "Pulled automatically from seal GPS when the Field Technician confirms untagging; manual entry is requested if GPS is unavailable."
   },
   {
-   "depends_on": "eval:[\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(doc.journey_request_status) || (doc.vehicles || []).some((r) => [\"Untagging\",\"Awaiting Seal Return\",\"Seal Returned\"].includes(r.status))",
+   "depends_on": "eval:doc.untagging_completed || doc.journey_request_status == \"Untagging\" || (doc.vehicles || []).some((r) => r.status == \"Untagging\")",
    "fieldname": "jr_untagging_row3_section",
    "fieldtype": "Section Break"
   },
@@ -521,12 +537,22 @@
    "description": "Stamped automatically when the Field Technician confirms the seal return."
   },
   {
+   "default": "Return Seal",
+   "description": "Retain Seal: the Tag Operator keeps the seal. Return Seal: it goes back to a seal warehouse.",
+   "fieldname": "seal_outcome",
+   "fieldtype": "Select",
+   "label": "Seal Outcome",
+   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "options": "Return Seal\nRetain Seal"
+  },
+  {
    "fieldname": "return_warehouse",
    "fieldtype": "Link",
    "options": "Warehouse",
    "label": "Warehouse",
-   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
-   "description": "Seal warehouse (Branch ECTS Division or Both) the seal is returned to. Logged with the captured GPS location, in brackets, for audit."
+   "mandatory_depends_on": "eval:doc.seal_outcome!=\"Retain Seal\" && [\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
+   "description": "Seal warehouse the seal is returned to. Logged with the captured GPS location, in brackets, for audit.",
+   "depends_on": "eval:doc.seal_outcome!=\"Retain Seal\""
   },
   {
    "fieldname": "jr_seal_return_row2_column",

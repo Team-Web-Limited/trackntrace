@@ -1,9 +1,40 @@
+// The same page serves both systems: /app/vehicle-list for PCB and
+// /app/vehicle-list/rects for RECTs (vehicles of the customers on that Branch).
+const VH_SYSTEMS = {
+	TNT: { title: "Vehicles", dashboard: "tnt-seal-management", branch: { custom_division_ects: 1 } },
+	RECTS: { title: "RECTs Vehicles", dashboard: "rects", branch: { custom_division_rects: 1 } },
+};
+
+function _vh_route_system() {
+	return String(frappe.get_route()[1] || "").toLowerCase() === "rects" ? "RECTS" : "TNT";
+}
+
+frappe.pages["vehicle-list"].on_page_show = function (wrapper) {
+	window.tnt_set_module(_vh_route_system());
+	if (_vh_route_system() === "RECTS") {
+		frappe.breadcrumbs.add({ type: "Custom", label: __("RECTs Sealmanagement"), route: "/app/rects" });
+	} else {
+		frappe.breadcrumbs.add("Tnt Seal Management");
+	}
+	const page = wrapper.page;
+	if (!page) return;
+	// Reload every time: vehicles may have been added or changed in a form since.
+	page.vh_system = _vh_route_system();
+	page.set_title(__(VH_SYSTEMS[page.vh_system].title));
+	Object.assign(page.vehicle_state, { search: "", status: "All", page: 1 });
+	$(page.body).find(".vh-search").val("");
+	_vehicle_load(page);
+};
+
 frappe.pages["vehicle-list"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: __("Vehicles"),
 		single_column: true,
 	});
+	wrapper.page = page;
+	page.vh_system = _vh_route_system();
+	page.set_title(__(VH_SYSTEMS[page.vh_system].title));
 
 	page.vehicle_state = {
 		search: "",
@@ -14,7 +45,7 @@ frappe.pages["vehicle-list"].on_page_load = function (wrapper) {
 		request_id: 0,
 	};
 
-	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Dashboard"), () => frappe.set_route(VH_SYSTEMS[page.vh_system].dashboard));
 	page.add_inner_button(__("Refresh"), () => _vehicle_load(page));
 	page.set_primary_action(__("New Vehicle"), () => frappe.new_doc("Vehicle"));
 
@@ -24,7 +55,6 @@ frappe.pages["vehicle-list"].on_page_load = function (wrapper) {
 
 	_vehicle_inject_styles();
 	_vehicle_build_page(page);
-	_vehicle_load(page);
 };
 
 function _vehicle_build_page(page) {
@@ -133,6 +163,7 @@ function _vehicle_load(page) {
 			status: page.vehicle_state.status,
 			page: page.vehicle_state.page,
 			page_length: page.vehicle_state.page_length,
+			system: page.vh_system,
 		},
 		callback(r) {
 			if (requestId !== page.vehicle_state.request_id) return;

@@ -20,6 +20,7 @@
   "seal_category",
   "belongs_to",
   "seal_category_col",
+  "seal_owner",
   "leased_to",
   "category_customer",
   "category_customer_name",
@@ -151,12 +152,19 @@
    "fieldtype": "Column Break"
   },
   {
+   "depends_on": "eval:doc.seal_category!=\"Outright Purchase\"",
+   "fieldname": "seal_owner",
+   "fieldtype": "Data",
+   "label": "Owner",
+   "read_only": 1
+  },
+  {
    "fieldname": "leased_to",
    "fieldtype": "Data",
    "label": "Leased To",
    "is_virtual": 1,
    "read_only": 1,
-   "depends_on": "eval:doc.seal_category!=\"Outright Purchase\""
+   "depends_on": "eval:doc.seal_category!=\"Outright Purchase\" && doc.current_custody_type==\"Customer\""
   },
   {
    "fieldname": "category_customer",

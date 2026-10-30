@@ -172,8 +172,8 @@ function _wh_build_page(page) {
 		if (type === "Warehouse") {
 			if (page.wh_can_read_warehouse) frappe.set_route("Form", "Warehouse", name);
 		} else {
-			// A staff member or customer: show the seals they hold right now.
-			frappe.set_route("List", "Seal Device", { current_custody_type: type, current_custodian: name });
+			// A staff member or customer: the seals they hold right now, in this system.
+			_wh_show_holder_seals(page, type, name, $(this).find(".wh-name").text());
 		}
 	});
 
@@ -266,10 +266,9 @@ function _wh_render_table(page, warehouses) {
 				<th>${__("Holder")}</th>
 				<th>${__("Type")}</th>
 				<th title="${__("Seal journey role of the staff member holding the seals")}">${__("Role")}</th>
-				<th title="${__("Warehouse location; for staff, their base and the latest GPS position of the seals they hold")}">${__("Location")}</th>
+				${page.wh_system === "RECTS" ? "" : `<th title="${__("Warehouse location; for staff, their base and the latest GPS position of the seals they hold")}">${__("Location")}</th>`}
 				<th>${__("Status")}</th>
 				<th>${__("Seals Held")}</th>
-				<th title="${__("Seal serials ERPNext has in stock in this warehouse")}">${__("In Stock (ERP)")}</th>
 				<th>${__("Company")}</th>
 				<th>${__("Parent Warehouse")}</th>
 				<th>${__("City")}</th>
@@ -293,6 +292,85 @@ function _wh_staff_location_html(page, w) {
 		: "";
 	const gps = w.location ? `<div class="wh-muted">${__("GPS")}: ${esc(w.location)}</div>` : "";
 	return base + gps || "—";
+}
+
+// Same seals table as the Warehouse form's "Seals in this Warehouse" panel, for
+// a staff member or customer, with Transfer for System Managers. A customer's
+// seals only move back through the journey workflow, so theirs are read-only.
+function _wh_show_holder_seals(page, custody_type, custodian, label) {
+	const esc = frappe.utils.escape_html;
+	const can_transfer = custody_type === "User" && frappe.user.has_role("System Manager");
+	const d = new frappe.ui.Dialog({ title: __("Seals held by {0}", [label || custodian]), size: "extra-large" });
+	const $body = $(d.body).html(`<div class="text-muted">${__("Loading...")}</div>`);
+	const load = () =>
+		frappe.call({
+			method: "tnt_seal_management.tnt_seal_management.api.seal_warehouses.get_holder_seals",
+			args: { custody_type, custodian, system: page.wh_system },
+			callback(r) {
+				const rows = (r && r.message) || [];
+				if (!rows.length) {
+					$body.html(`<div class="text-muted">${__("No seals are currently held.")}</div>`);
+					return;
+				}
+				const tr = rows
+					.map(
+						(s) => `<tr class="wh-hs-row" data-search="${esc([s.seal_number, s.name, s.device_id, s.current_status, s.lock_status, s.condition].join(" ").toLowerCase())}">
+							${can_transfer ? `<td><input type="checkbox" class="wh-hs-pick" data-seal="${esc(s.name)}"></td>` : ""}
+							<td><a href="/app/seal-device/${encodeURIComponent(s.name)}">${esc(s.seal_number || s.name)}</a></td>
+							<td>${esc(s.device_id || "")}</td>
+							<td>${esc(s.current_status || "")}</td>
+							<td>${esc(s.lock_status || "")}</td>
+							<td>${esc(s.condition || "")}</td>
+							<td>${s.current_custody_since ? frappe.datetime.str_to_user(s.current_custody_since) : ""}</td>
+						</tr>`
+					)
+					.join("");
+				$body.html(`
+					<style>
+						/* Keeps the dialog within 3/4 of the screen: the rest is title, search and padding. */
+						.wh-hs-scroll { overflow: auto; max-height: calc(75vh - 170px); }
+						.wh-hs-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--card-bg, #fff); }
+						.wh-hs-scroll table { margin-bottom: 0; }
+					</style>
+					<div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
+						<input type="search" class="form-control wh-hs-search" style="max-width:320px"
+							placeholder="${__("Search seal number, device ID, status...")}">
+						<span class="text-muted wh-hs-count">${__("{0} seal(s)", [rows.length])}</span>
+						${can_transfer ? `<button class="btn btn-xs btn-default wh-hs-transfer">${__("Transfer selected")}</button>` : ""}
+					</div>
+					<div class="wh-hs-scroll">
+						<table class="table table-bordered table-sm">
+							<thead><tr>
+								${can_transfer ? "<th></th>" : ""}<th>${__("Seal Number")}</th><th>${__("Device ID")}</th><th>${__("Status")}</th>
+								<th>${__("Lock Status")}</th><th>${__("Condition")}</th><th>${__("In Custody Since")}</th>
+							</tr></thead>
+							<tbody>${tr}</tbody>
+						</table>
+					</div>`);
+				$body.find(".wh-hs-search").on("input", function () {
+					const q = String($(this).val() || "").trim().toLowerCase();
+					let shown = 0;
+					$body.find(".wh-hs-row").each((_i, el) => {
+						const hit = !q || el.dataset.search.includes(q);
+						el.style.display = hit ? "" : "none";
+						if (hit) shown++;
+					});
+					$body.find(".wh-hs-count").text(
+						q ? __("{0} of {1} seal(s)", [shown, rows.length]) : __("{0} seal(s)", [rows.length])
+					);
+				});
+				$body.find(".wh-hs-transfer").on("click", () => {
+					// dataset, not .data(): jQuery turns digit-only seal names into numbers.
+					const picked = $body.find(".wh-hs-row:visible .wh-hs-pick:checked").map((_i, el) => el.dataset.seal).get();
+					window.tnt_transfer_seals(picked, () => {
+						load();
+						_wh_load(page);
+					});
+				});
+			},
+		});
+	d.show();
+	load();
 }
 
 function _wh_edit_base_location(page, user, current) {
@@ -324,12 +402,9 @@ function _wh_row_html(page, w) {
 			<td><span class="wh-name">${esc(w.label || w.name)}</span></td>
 			<td>${type}</td>
 			<td>${w.role ? `<span class="wh-badge wh-badge--role">${esc(w.role)}</span>` : dash}</td>
-			<td class="wh-address" title="${esc(w.location || "")}">${isWarehouse ? esc(w.location || dash) : _wh_staff_location_html(page, w)}</td>
+			${page.wh_system === "RECTS" ? "" : `<td class="wh-address" title="${esc(w.location || "")}">${isWarehouse ? esc(w.location || dash) : _wh_staff_location_html(page, w)}</td>`}
 			<td>${status}</td>
 			<td><b>${w.seals_held || 0}</b></td>
-			<td>${isWarehouse
-				? `<span class="${w.in_stock === (w.seals_held || 0) ? "" : "wh-stock-diff"}" title="${w.in_stock === (w.seals_held || 0) ? "" : __("Differs from the seals held here")}">${w.in_stock || 0}</span>`
-				: dash}</td>
 			<td>${esc(w.company || dash)}</td>
 			<td>${esc(w.parent_warehouse || dash)}</td>
 			<td>${esc(w.region || dash)}</td>
@@ -664,8 +739,6 @@ function _wh_inject_styles() {
 		.wh-muted              { color: var(--text-muted); font-size: 0.85em; font-weight: 400; }
 		.wh-base-edit          { border: 0; background: none; padding: 0 4px; color: var(--text-muted); cursor: pointer; }
 		.wh-base-edit:hover    { color: var(--primary); }
-		.wh-stock-diff { color: #b45309; font-weight: 700; }
-		[data-theme="dark"] .wh-stock-diff { color: #fbbf24; }
 		.wh-badge--customer    { background: #dcfce7; color: #15803d; }
 		[data-theme="dark"] .wh-badge--user     { background: #2e1065; color: #ddd6fe; }
 		[data-theme="dark"] .wh-badge--role     { background: #082f49; color: #bae6fd; }

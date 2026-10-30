@@ -11,6 +11,7 @@ const TNT_WORKSPACE_TITLES = [
 	'TNT Sealmanagement', // name/label, in case the router keys off it
 	'TNT Operations', // legacy names, kept so old links/bookmarks still land
 	'TNT Operations Hub',
+	'PCB Seal Management', // current title after the TNT -> PCB rename
 ];
 
 frappe.router.on('change', () => {
@@ -44,12 +45,43 @@ window.tnt_get_module = function () {
 	}
 };
 
+// Every form/list of this app's doctypes gets the module workspace as its first
+// breadcrumb ("TNT Sealmanagement"). Rename it for whichever module the user is
+// in: RECTs (linking to the RECTs dashboard) or PCB. The module is the one the
+// landing pages remembered, falling back to the open form's own system /
+// belongs_to when opened by a direct link. Frappe rebuilds the breadcrumbs on
+// every route change, so watch the bar rather than patching each form.
+const TNT_MODULE_CRUMBS = ['TNT Sealmanagement', 'TNT Seal Management', 'Tnt Seal Management'];
+
+function tnt_crumb_module() {
+	const remembered = window.tnt_get_module();
+	if (remembered) return remembered;
+	const doc = window.cur_frm && cur_frm.doc;
+	return doc && (doc.system === 'RECTs' || doc.belongs_to === 'RECTs') ? 'RECTS' : 'TNT';
+}
+
+function tnt_relabel_module_crumb() {
+	const $link = $('#navbar-breadcrumbs li').first().find('a');
+	if (!$link.length || !TNT_MODULE_CRUMBS.includes($link.text().trim())) return;
+
+	if (tnt_crumb_module() === 'RECTS') {
+		$link.text(__('RECTs Sealmanagement')).attr('href', '/app/rects');
+	} else {
+		$link.text(__('PCB Seal Management'));
+	}
+}
+
+$(() => {
+	const bar = document.getElementById('navbar-breadcrumbs');
+	if (bar) new MutationObserver(tnt_relabel_module_crumb).observe(bar, { childList: true, subtree: true });
+});
+
 // Clicking the workspace in the desk sidebar asks which system to open (TNT or
 // RECTS) instead of navigating straight away. Captured on document so it runs
 // before Frappe's router link handler; modified clicks (new tab etc.) and direct
 // URLs still fall through to the bounce above.
 const TNT_SYSTEM_CHOICES = [
-	{ label: 'TNT', description: __('Seal management'), route: TNT_LANDING_PAGE },
+	{ label: 'PCB', description: __('Seal management'), route: TNT_LANDING_PAGE },
 	{ label: 'RECTs', description: __('RECTs module'), route: 'rects' },
 ];
 
@@ -235,6 +267,8 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 				$body.text(__("No seals are currently held in this warehouse."));
 				return;
 			}
+			// Moving seals between warehouses is limited to System Managers (Administrator has the role).
+			const can_transfer = frappe.user.has_role("System Manager");
 			const stateOf = (d) => (d.pending_transfer ? "pending" : d.in_stock ? "in_stock" : "no_stock");
 			const pill = (key) => {
 				const p = TNT_SEAL_STOCK[key];
@@ -275,7 +309,7 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 					.tnt-cs-row--pending > td:first-child { border-left-color: var(--yellow-500); }
 				</style>
 				<p class="text-muted">${__("{0} seal(s)", [rows.length])}
-					<button class="btn btn-xs btn-default tnt-cs-transfer" style="margin-left:10px">${__("Transfer selected")}</button></p>
+					${can_transfer ? `<button class="btn btn-xs btn-default tnt-cs-transfer" style="margin-left:10px">${__("Transfer selected")}</button>` : ""}</p>
 				<div class="tnt-cs-legend">${legend}</div>
 				<div class="table-responsive">
 					<table class="table table-bordered table-sm">
@@ -496,21 +530,25 @@ function _tnt_transfer_dialog(seals, options, onDone) {
 					const type = d.get_value("to_custody_type");
 					d.set_df_property("to_user", "hidden", type !== "User");
 					d.set_df_property("to_user", "reqd", type === "User");
-					// A warehouse transfer posts a Material Transfer, under an item code.
-					for (const field of ["to_point", "item_code"]) {
-						d.set_df_property(field, "hidden", type !== "Warehouse");
-						d.set_df_property(field, "reqd", type === "Warehouse");
-					}
+					d.set_df_property("to_point", "hidden", type !== "Warehouse");
+					d.set_df_property("to_point", "reqd", type === "Warehouse");
+					// Only a warehouse into a main store posts a Material Transfer, under an
+					// item code; every other transfer is a plain handover.
+					const stock = type === "Warehouse" && options.from_store
+						&& (options.main_stores || []).includes(d.get_value("to_point"));
+					d.set_df_property("item_code", "hidden", !stock);
+					d.set_df_property("item_code", "reqd", stock);
 					// Auto-fill the seals' own item code, but never over one the user
 					// has picked; it stays editable either way.
-					if (type === "Warehouse" && options.default_item && !d.get_value("item_code")) {
+					if (stock && options.default_item && !d.get_value("item_code")) {
 						d.set_value("item_code", options.default_item);
 					}
 				},
 			},
 			{ fieldname: "to_user", fieldtype: "Link", options: "User", label: __("Person"), reqd: 1,
 				get_query: () => ({ filters: { enabled: 1, user_type: "System User" } }) },
-			{ fieldname: "to_point", fieldtype: "Select", options: ["", ...warehouses].join("\n"), label: __("Warehouse"), hidden: 1 },
+			{ fieldname: "to_point", fieldtype: "Select", options: ["", ...warehouses].join("\n"), label: __("Warehouse"), hidden: 1,
+				onchange: () => d.fields_dict.to_custody_type.df.onchange() },
 			{
 				fieldname: "item_code",
 				fieldtype: "Autocomplete",
@@ -531,7 +569,7 @@ function _tnt_transfer_dialog(seals, options, onDone) {
 					to_custody_type: values.to_custody_type,
 					to_custodian: to,
 					remarks: values.remarks,
-					item_code: values.to_custody_type === "Warehouse" ? values.item_code : null,
+					item_code: values.item_code || null,
 				},
 				freeze: true,
 				callback(r) {
@@ -566,9 +604,17 @@ const TNT_WORK_TABS = [
 	['journey-request-list', 'Journey Requests'],
 ];
 
+// Roles that may open Assignments (PCB Assignment's read permission). The page
+// itself also admits Field Technician, who can only work from Journey Requests.
+const TNT_ASSIGNMENT_ROLES = [
+	'System Manager', 'PCB Team Leader', 'Finance PCB', 'Management', 'Managing Director', 'Account Manager',
+];
+
+window.tnt_can_open_assignments = () => TNT_ASSIGNMENT_ROLES.some((role) => frappe.user.has_role(role));
+
 window.tnt_render_work_tabs = function (wrapper, active) {
 	const allowed = frappe.boot.page_info || {};
-	if (!TNT_WORK_TABS.every(([name]) => allowed[name])) return;
+	if (!TNT_WORK_TABS.every(([name]) => allowed[name]) || !window.tnt_can_open_assignments()) return;
 
 	tnt_inject_work_tab_styles();
 	const $tabs = $(`
@@ -581,7 +627,9 @@ window.tnt_render_work_tabs = function (wrapper, active) {
 	`);
 	$tabs.on('click', '.tnt-work-tab', function () {
 		const target = $(this).data('page');
-		if (target !== active) frappe.set_route(target);
+		// Stay in the system the user is working in (PCB, or /rects for RECTs).
+		const rects = String(frappe.get_route()[1] || '').toLowerCase() === 'rects';
+		if (target !== active) frappe.set_route(...(rects ? [target, 'rects'] : [target]));
 	});
 	$(wrapper).find('.page-head .page-actions').before($tabs);
 };

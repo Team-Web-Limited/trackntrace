@@ -11,6 +11,7 @@
   "pcb_job_order",
   "seal_journey",
   "tagging_booking",
+  "system",
   "client_name",
   "details_column",
   "assignment_status",
@@ -69,6 +70,17 @@
    "read_only": 1
   },
   {
+   "default": "PCB",
+   "fieldname": "system",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "System",
+   "options": "PCB\nRECTs",
+   "read_only": 1,
+   "search_index": 1,
+   "in_standard_filter": 1
+  },
+  {
    "fieldname": "client_name",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -87,7 +99,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Actions",
-   "options": "Pending\nAssigned\nPending Untagging Assignment\nUntagging Assigned\nPending Seal Return Assignment\nSeal Return Assigned\nCancelled",
+   "options": "Pending\nAssigned\nTagging Completed\nPending Untagging Assignment\nUntagging Assigned\nPending Seal Return Assignment\nSeal Return Assigned\nCancelled",
    "read_only": 1,
    "reqd": 1
   },

@@ -1,4 +1,8 @@
 frappe.ui.form.on("Journey Request", {
+	seal_outcome(frm) {
+		// A retained seal goes to no warehouse; the field hides itself, so clear it.
+		if (frm.doc.seal_outcome === "Retain Seal") frm.set_value("return_warehouse", null);
+	},
 	refresh(frm) {
 		frm.add_fetch("seal_device", "lock_status", "lock_status");
 		frm.add_fetch("seal_device", "last_api_status", "api_device_status");
@@ -24,16 +28,22 @@ frappe.ui.form.on("Journey Request", {
 		frm.set_query("seal_device", "seals", () => ({
 			query:
 				"tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.available_seal_query",
-			filters: { journey_request: frm.doc.name || "" },
+			filters: { journey_request: frm.doc.name || "", system: frm.doc.system },
 		}));
 
 		// Origin/Destination are the journey's start/end points, picked from
 		// Uffizio Geofences (excluding routes); Checkpoints are the
 		// intermediate stops in the table below.
 		// Seals return to an active seal warehouse (Branch ECTS Division or Both).
-		frm.set_query("return_warehouse", () => ({ filters: { custom_division: ["in", ["ECTS Division", "Both"]], is_group: 0, disabled: 0 } }));
-		frm.set_query("origin", () => ({ filters: { shape: ["!=", "Route"] } }));
-		frm.set_query("destination", () => ({ filters: { shape: ["!=", "Route"] } }));
+		frm.set_query("return_warehouse", () => ({ filters: _jr_return_warehouse_filters(frm.doc.system) }));
+		// The journey can't start and end at the same place, so each picker leaves
+		// out whatever is already chosen in the other.
+		frm.set_query("origin", () => ({
+			filters: { shape: ["!=", "Route"], ...(frm.doc.destination ? { name: ["!=", frm.doc.destination] } : {}) },
+		}));
+		frm.set_query("destination", () => ({
+			filters: { shape: ["!=", "Route"], ...(frm.doc.origin ? { name: ["!=", frm.doc.origin] } : {}) },
+		}));
 		// Filled in while the request is a Draft and checked when it is submitted
 		// to the Control Room; later stages may carry older requests without one.
 		frm.toggle_reqd(["origin", "destination"], frm.doc.journey_request_status === "Draft");
@@ -239,6 +249,7 @@ const JR_PER_VEHICLE_FIELDS = [
 	"seal_return_confirmed_by_technician",
 	"seal_return_condition",
 	"retrieval_card_number",
+	"seal_outcome",
 	"return_warehouse",
 ];
 
@@ -412,6 +423,13 @@ function _journey_request_add_buttons(frm) {
 	}
 }
 
+// Seal warehouses a seal can be returned to: PCB's are the ECTS Division (or both
+// divisions), RECTs' are the RECTS Division.
+function _jr_return_warehouse_filters(system) {
+	const division = system === "RECTs" ? "RECTS Division" : ["in", ["ECTS Division", "Both"]];
+	return { custom_division: division, is_group: 0, disabled: 0 };
+}
+
 function _jr_is_multi_vehicle(frm) {
 	return (frm.doc.vehicles || []).filter((row) => row.status !== "Cancelled").length > 1;
 }
@@ -484,11 +502,18 @@ function _jr_prompt_return_seal_return_for_amendment(frm, vehicleRow = null) {
 }
 
 function _jr_call(frm, method, extraArgs = {}) {
+	// Ignore a repeat click while the first call is running: the second would hit
+	// a vehicle that has already moved on and fail with "No vehicles ... are <stage>".
+	if (frm._jr_call_busy) return;
+	frm._jr_call_busy = true;
 	frappe.call({
 		method: JR_METHOD(method),
 		args: { docname: frm.doc.name, ...extraArgs },
 		freeze: true,
 		callback: () => frm.reload_doc(),
+		always: () => {
+			frm._jr_call_busy = false;
+		},
 	});
 }
 
@@ -564,7 +589,24 @@ function _jr_prompt_confirm_seal_return(frm, vehicleRow = null) {
 					reqd: 1,
 				},
 				{ fieldname: "retrieval_card_number", fieldtype: "Data", label: __("Retrieval Card Number"), reqd: 1 },
-				{ fieldname: "return_warehouse", fieldtype: "Link", options: "Warehouse", label: __("Warehouse"), reqd: 1, get_query: () => ({ filters: { custom_division: ["in", ["ECTS Division", "Both"]], is_group: 0, disabled: 0 } }) },
+				{
+					fieldname: "seal_outcome",
+					fieldtype: "Select",
+					label: __("Seal Outcome"),
+					options: "Return Seal\nRetain Seal",
+					default: "Return Seal",
+					reqd: 1,
+					description: __("Retain Seal: you keep the seal. Return Seal: it goes back to a warehouse."),
+				},
+				{
+					fieldname: "return_warehouse",
+					fieldtype: "Link",
+					options: "Warehouse",
+					label: __("Warehouse"),
+					depends_on: 'eval:doc.seal_outcome!="Retain Seal"',
+					mandatory_depends_on: 'eval:doc.seal_outcome!="Retain Seal"',
+					get_query: () => ({ filters: _jr_return_warehouse_filters(frm.doc.system) }),
+				},
 				{ fieldname: "remarks", fieldtype: "Small Text", label: __("Remarks (Optional)") },
 			],
 			(values) => {
@@ -572,7 +614,8 @@ function _jr_prompt_confirm_seal_return(frm, vehicleRow = null) {
 					seal_return_confirmed: values.seal_return_confirmed ? 1 : 0,
 					seal_return_condition: values.seal_return_condition,
 					retrieval_card_number: values.retrieval_card_number,
-					return_warehouse: values.return_warehouse,
+					seal_outcome: values.seal_outcome,
+					return_warehouse: values.seal_outcome === "Retain Seal" ? "" : values.return_warehouse,
 				};
 				const proceed = () => _jr_confirm_seal_return(frm, null, values.remarks || "", vehicleRow, extra);
 				frm.is_dirty() ? frm.save().then(proceed) : proceed();
@@ -635,7 +678,10 @@ function _jr_confirm_seal_return(frm, manualLocation = null, remarks = "", vehic
 
 			frappe.show_alert(
 				{
-					message: __("Seal return confirmed — sent to the PCB Team Leader for approval"),
+					message:
+						result.seal_outcome === "Retain Seal"
+							? __("Seal retained — the journey request is closed")
+							: __("Seal returned — the journey request is closed"),
 					indicator: "green",
 				},
 				6
@@ -703,7 +749,12 @@ function _jr_swap_seal(frm) {
 				options: "Seal Device",
 				label: __("New Seal"),
 				reqd: 1,
-				get_query: () => ({ filters: { current_status: "Available" } }),
+				get_query: () => ({
+					filters: {
+						current_status: "Available",
+						belongs_to: frm.doc.system === "RECTs" ? "RECTs" : ["!=", "RECTs"],
+					},
+				}),
 			},
 		],
 		(values) => {
@@ -727,7 +778,7 @@ function _jr_swap_seal(frm) {
 
 function _journey_request_add_list_button(frm) {
 	frm.add_custom_button(__("Back"), () => {
-		frappe.set_route("journey-request-list");
+		frappe.set_route(...(frm.doc.system === "RECTs" ? ["journey-request-list", "rects"] : ["journey-request-list"]));
 	});
 }
 
@@ -775,6 +826,8 @@ const JR_CONTENT_FIELDS = [
 	"vehicle",
 	"entry_number",
 	"container_number",
+	"file_number",
+	"departure_card_number",
 	"number_of_seals",
 	"origin",
 	"destination",

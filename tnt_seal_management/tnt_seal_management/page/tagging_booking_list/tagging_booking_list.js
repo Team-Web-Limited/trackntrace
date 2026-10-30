@@ -1,9 +1,23 @@
+// The same page serves both systems: /app/tagging-booking-list for PCB and
+// /app/tagging-booking-list/rects for RECTs. Bookings never cross over.
+const TB_SYSTEMS = {
+	PCB: { title: "Tagging Bookings", dashboard: "tnt-seal-management" },
+	RECTs: { title: "RECTs Tagging Bookings", dashboard: "rects" },
+};
+
+function _tb_route_system() {
+	return String(frappe.get_route()[1] || "").toLowerCase() === "rects" ? "RECTs" : "PCB";
+}
+
 frappe.pages["tagging-booking-list"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: __("Tagging Bookings"),
 		single_column: true,
 	});
+	wrapper.page = page;
+	page.tb_system = _tb_route_system();
+	page.set_title(__(TB_SYSTEMS[page.tb_system].title));
 
 	page.tb_state = {
 		search: "",
@@ -17,9 +31,9 @@ frappe.pages["tagging-booking-list"].on_page_load = function (wrapper) {
 		request_id: 0,
 	};
 
-	page.add_inner_button(__("Dashboard"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Dashboard"), () => frappe.set_route(TB_SYSTEMS[page.tb_system].dashboard));
 	page.add_inner_button(__("Refresh"), () => _load_tagging_bookings(page));
-	page.set_primary_action(__("New Booking"), () => frappe.new_doc("Tagging Booking"));
+	page.set_primary_action(__("New Booking"), () => frappe.new_doc("Tagging Booking", { system: page.tb_system }));
 
 	const $statsBar = $('<div class="tb-header-stats"></div>');
 	$(wrapper).find('.page-head .page-actions').before($statsBar);
@@ -28,6 +42,30 @@ frappe.pages["tagging-booking-list"].on_page_load = function (wrapper) {
 	_inject_tagging_booking_styles();
 	_build_tagging_booking_page(page);
 	_load_tagging_bookings(page);
+};
+
+// Switching between /app/tagging-booking-list and /app/tagging-booking-list/rects
+// reuses the loaded page, so start over with the other system's bookings.
+frappe.pages["tagging-booking-list"].on_page_show = function (wrapper) {
+	const system = _tb_route_system();
+	window.tnt_set_module(system === "RECTs" ? "RECTS" : "TNT");
+	if (system === "RECTs") {
+		frappe.breadcrumbs.add({ type: "Custom", label: __("RECTs Sealmanagement"), route: "/app/rects" });
+	} else {
+		frappe.breadcrumbs.add("Tnt Seal Management");
+	}
+	const page = wrapper.page;
+	if (!page || !page.tb_state) return;
+	if (page.tb_system !== system) {
+		page.tb_system = system;
+		page.set_title(__(TB_SYSTEMS[system].title));
+		Object.assign(page.tb_state, { search: "", status: "All", customer: "", from_date: "", to_date: "", page: 1 });
+	}
+	// The page is reused when coming back from a booking form, so reload to
+	// pick up bookings created or changed meanwhile. (Skipped on the first show,
+	// which on_page_load has just loaded.)
+	if (page.tb_loaded) _load_tagging_bookings(page);
+	page.tb_loaded = true;
 };
 
 function _build_tagging_booking_page(page) {
@@ -182,6 +220,7 @@ function _load_tagging_bookings(page) {
 			to_date: page.tb_state.to_date,
 			page: page.tb_state.page,
 			page_length: page.tb_state.page_length,
+			system: page.tb_system,
 		},
 		callback(r) {
 			if (requestId !== page.tb_state.request_id) return;
@@ -220,6 +259,7 @@ function _export_tagging_bookings_pdf(page) {
 			customer: page.tb_state.customer,
 			from_date: page.tb_state.from_date,
 			to_date: page.tb_state.to_date,
+			system: page.tb_system,
 		},
 		freeze: true,
 		freeze_message: __("Preparing report…"),
@@ -264,7 +304,6 @@ function _export_tagging_bookings_pdf(page) {
 									<th>${__("Client")}</th>
 									<th>${__("Location")}</th>
 									<th>${__("Date and Time")}</th>
-									<th>${__("Contact Person")}</th>
 									<th>${__("Phone")}</th>
 								</tr>
 							</thead>
@@ -305,6 +344,7 @@ function _export_tagging_bookings_excel(page) {
 		customer: page.tb_state.customer,
 		from_date: page.tb_state.from_date,
 		to_date: page.tb_state.to_date,
+		system: page.tb_system,
 		filename: `Tagging Booking Report - ${frappe.datetime.get_today()}`,
 	});
 }
@@ -323,7 +363,6 @@ function _tagging_booking_pdf_row_html(booking) {
 			<td>${esc(booking.client_name || dash)}</td>
 			<td>${esc(booking.location || dash)}</td>
 			<td>${esc(bookingDate)}</td>
-			<td>${esc(booking.contact_person_name || dash)}</td>
 			<td>${esc(booking.contact_person_phone || dash)}</td>
 		</tr>
 	`;
@@ -397,7 +436,6 @@ function _render_tagging_booking_table(page, bookings) {
 					<th>${__("Client")}</th>
 					<th>${__("Location")}</th>
 					<th>${__("Date and Time")}</th>
-					<th>${__("Contact Person")}</th>
 					<th>${__("Phone")}</th>
 				</tr>
 			</thead>
@@ -422,7 +460,6 @@ function _tagging_booking_row_html(booking) {
 			<td>${frappe.utils.escape_html(booking.client_name || "—")}</td>
 			<td>${frappe.utils.escape_html(booking.location || "—")}</td>
 			<td>${frappe.utils.escape_html(bookingDate)}</td>
-			<td>${frappe.utils.escape_html(booking.contact_person_name || "—")}</td>
 			<td>${frappe.utils.escape_html(booking.contact_person_phone || "—")}</td>
 		</tr>
 	`;

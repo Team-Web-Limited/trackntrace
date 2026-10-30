@@ -16,8 +16,13 @@ _DOCTYPE = "Seal Journey"
 _TERMINAL_STATUSES = ("Completed", "Cancelled")
 
 
-def _build_seal_journey_filters(status="All", search=None):
-	filters = []
+def _system_filter(system):
+	"""Journeys of one system: the PCB list leaves out RECTs, and RECTs only its own."""
+	return ["system", "=", "RECTs"] if system == "RECTS" else ["system", "!=", "RECTs"]
+
+
+def _build_seal_journey_filters(status="All", search=None, system="TNT"):
+	filters = [_system_filter(system)]
 	if status == "Active":
 		filters.append(["journey_status", "not in", _TERMINAL_STATUSES + ("Draft",)])
 	elif status == "Pending Billing":
@@ -42,11 +47,11 @@ def _build_seal_journey_filters(status="All", search=None):
 
 
 @frappe.whitelist()
-def get_seal_journey_list_data(status="All", search=None, page=1, page_length=30):
+def get_seal_journey_list_data(status="All", search=None, page=1, page_length=30, system="TNT"):
 	page = max(1, int(page or 1))
 	page_length = max(1, min(int(page_length or 30), 100))
 
-	filters, or_filters = _build_seal_journey_filters(status, search)
+	filters, or_filters = _build_seal_journey_filters(status, search, system)
 
 	total = frappe.db.count(_DOCTYPE, filters=filters)
 
@@ -66,13 +71,13 @@ def get_seal_journey_list_data(status="All", search=None, page=1, page_length=30
 		"total": total,
 		"page": page,
 		"page_length": page_length,
-		"summary": _summary(),
+		"summary": _summary(system),
 	}
 
 @frappe.whitelist()
-def get_all_seal_journeys_for_export(status="All", search=None):
+def get_all_seal_journeys_for_export(status="All", search=None, system="TNT"):
 	"""Same filters as get_seal_journey_list_data but unpaginated, for the PDF export."""
-	filters, or_filters = _build_seal_journey_filters(status, search)
+	filters, or_filters = _build_seal_journey_filters(status, search, system)
 
 	journeys = frappe.db.get_all(
 		_DOCTYPE,
@@ -133,14 +138,14 @@ _EXPORT_COLUMNS = (
 
 
 @frappe.whitelist()
-def export_excel(status="All", search=None, filename=None):
+def export_excel(status="All", search=None, filename=None, system="TNT"):
 	"""Render the Seal Journey list's currently filtered rows to an .xlsx
 	workbook — the spreadsheet counterpart of export_pdf."""
 	from frappe.utils.xlsxutils import make_xlsx
 
 	_check_export_permission()
 
-	journeys = get_all_seal_journeys_for_export(status, search)
+	journeys = get_all_seal_journeys_for_export(status, search, system)
 	if not journeys:
 		frappe.throw(_("No journeys match the current filters."))
 
@@ -191,9 +196,9 @@ def _get_tnt_logo_img_tag():
 	return f'<img src="data:image/png;base64,{encoded}" class="tnt-pdf-logo" alt="Track and Trace">'
 
 
-def _summary():
+def _summary(system="TNT"):
 	def count(extra=None):
-		return frappe.db.count(_DOCTYPE, filters=extra or {})
+		return frappe.db.count(_DOCTYPE, filters=[_system_filter(system), *(extra or [])])
 
 	all_count = count()
 	completed = count([["journey_status", "=", "Completed"]])

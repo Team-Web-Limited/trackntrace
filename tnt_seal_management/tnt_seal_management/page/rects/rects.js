@@ -36,35 +36,36 @@ frappe.pages["rects"].on_page_show = function (wrapper) {
 // title. A card with an empty `route` does nothing on click until its RECTS
 // page exists.
 const RECTS_DASHBOARD_CARDS = [
-	{ title: "Tagging Bookings", icon: "📅", route: "", primary: true, count: 0 },
+	{ title: "Tagging Bookings", icon: "📅", route: "tagging-booking-list/rects", primary: true, count: 0 },
 	{
 		title: "Assignments",
 		icon: "👷",
-		route: "",
+		route: "assignment-list/rects",
+		// Same as the PCB card: users who can't open assignments (Control Room,
+		// Field Technician) land on the Journey Requests list instead.
+		fallback_route: "journey-request-list/rects",
 		primary: true,
 		badges: [
-			{ label: "Tagging", count: 0 },
-			{ label: "Untagging", count: 0, variant: "arrival" },
-			{ label: "Retrieval", count: 0, variant: "arrival" },
-			{ label: "Seal Return", count: 0, variant: "arrival" },
+			{ label: "Tagging", count: 0, route: "assignment-list/rects" },
+			{ label: "Untagging", count: 0, variant: "arrival", route: "assignment-untagging/rects" },
+			{ label: "Retrieval", count: 0, variant: "arrival", route: "assignment-seal-return/rects" },
+			{ label: "Seal Return", count: 0, variant: "arrival", route: "journey-request-seal-return/rects" },
 		],
 	},
 	{
 		title: "Control Room",
 		icon: "🛂",
-		route: "",
+		route: "control-room/rects",
 		primary: true,
-		badges: [
-			{ label: "Approvals", count: 0 },
-			{ label: "Alerts", count: 0, variant: "alert" },
-			{ label: "Arrivals", count: 0, variant: "arrival" },
-		],
+		// No Alerts or Arrivals badges: RECTs seals have no seal API to raise
+		// alerts or detect arrivals, so arrival is confirmed by hand.
+		badges: [{ label: "Approvals", count: 0, route: "control-room/rects" }],
 	},
 	{ title: "Seal Device", icon: "🔒", route: "seal-device-dashboard/rects", count: 0 },
 	{ title: "Warehouses", icon: "🏬", route: "warehouse-list/rects", count: 0, label: "Active warehouses" },
-	{ title: "Seal Journeys", icon: "🚚", route: "", primary: true, count: 0 },
-	{ title: "Customer Billing", icon: "🧾", route: "", count: 0, label: "Customers" },
-	{ title: "Vehicles", icon: "🚘", route: "", count: 0 },
+	{ title: "Seal Journeys", icon: "🚚", route: "seal-journey-list/rects", primary: true, count: 0 },
+	{ title: "Customer Billing", icon: "🧾", route: "customer-billing/rects", count: 0, label: "Customers" },
+	{ title: "Vehicles", icon: "🚘", route: "vehicle-list/rects", count: 0 },
 ];
 
 function get_rects_count_html(count, variant, route) {
@@ -94,6 +95,19 @@ function load_rects_card_counts(page) {
 }
 
 function get_rects_card_html(card) {
+	if (card.fallback_route && !window.tnt_can_open_assignments()) {
+		// Users who can't open assignments get the Journey Requests card, with
+		// that list's own counts (same as the PCB card).
+		card = {
+			...card,
+			route: card.fallback_route,
+			badges: [
+				{ label: "Tagging", count: 0, route: "journey-request-list/rects" },
+				{ label: "Untagging", count: 0, variant: "arrival", route: "journey-request-untagging/rects" },
+				{ label: "Seal Return", count: 0, variant: "arrival", route: "journey-request-seal-return/rects" },
+			],
+		};
+	}
 	const primaryClass = card.primary ? " rects-card--primary" : "";
 	let badges = "";
 	if (card.badges) {
@@ -102,7 +116,7 @@ function get_rects_card_html(card) {
 				${card.badges
 					.map(
 						(b) => `<div class="rects-badge-stat">
-							${get_rects_count_html(b.count, b.variant)}
+							${get_rects_count_html(b.count, b.variant, b.route)}
 							<span class="rects-badge-label">${__(b.label)}</span>
 						</div>`
 					)

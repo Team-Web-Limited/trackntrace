@@ -27,7 +27,7 @@ def download_pdf():
 			"margin-left": "16mm",
 			"margin-right": "16mm",
 			# footer options only take effect on patched-qt wkhtmltopdf builds
-			"footer-left": "TNT Seal Management — User Guide",
+			"footer-left": "PCB Seal Management — User Guide",
 			"footer-right": "Page [page] of [topage]",
 			"footer-font-size": "8",
 			"footer-spacing": "6",
@@ -38,7 +38,7 @@ def download_pdf():
 
 	pdf_content = _link_anchors(pdf_content, outline)
 
-	frappe.local.response.filename = "TNT_Seal_Management_Docs.pdf"
+	frappe.local.response.filename = "PCB_Seal_Management_Docs.pdf"
 	frappe.local.response.filecontent = pdf_content
 	frappe.local.response.type = "download"
 
@@ -153,10 +153,10 @@ def _build_pdf_html():
 	<div class="cover">
 		<div class="cover-rule"></div>
 		<p class="cover-kicker">User Documentation</p>
-		<h1 class="cover-title">TNT Seal<br>Management</h1>
+		<h1 class="cover-title">PCB Seal<br>Management</h1>
 		<p class="cover-sub">
 			Cargo security &amp; transit tracking — feature guides and
-			role-based manuals for the TNT Seal Management platform.
+			role-based manuals for the PCB Seal Management platform.
 		</p>
 		<p class="cover-meta">
 			Generated on {generated_on} &nbsp;·&nbsp;

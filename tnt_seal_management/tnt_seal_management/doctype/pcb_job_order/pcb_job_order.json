@@ -8,6 +8,7 @@
  "field_order": [
   "job_details_section",
   "tagging_booking",
+  "system",
   "client_name",
   "details_column",
   "job_order_status",
@@ -39,6 +40,18 @@
    "read_only": 1,
    "reqd": 1,
    "unique": 1
+  },
+  {
+   "default": "PCB",
+   "fetch_from": "tagging_booking.system",
+   "fieldname": "system",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "System",
+   "options": "PCB\nRECTs",
+   "read_only": 1,
+   "search_index": 1,
+   "in_standard_filter": 1
   },
   {
    "fieldname": "client_name",

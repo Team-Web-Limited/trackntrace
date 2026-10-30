@@ -1,9 +1,39 @@
+// The same page serves both systems: /app/seal-journey-list for PCB and
+// /app/seal-journey-list/rects for RECTs.
+const SJL_SYSTEMS = {
+	TNT: { title: "Seal Journey List", dashboard: "tnt-seal-management" },
+	RECTS: { title: "RECTs Seal Journeys", dashboard: "rects" },
+};
+
+function _sjl_route_system() {
+	return String(frappe.get_route()[1] || "").toLowerCase() === "rects" ? "RECTS" : "TNT";
+}
+
+frappe.pages["seal-journey-list"].on_page_show = function (wrapper) {
+	window.tnt_set_module(_sjl_route_system());
+	if (_sjl_route_system() === "RECTS") {
+		frappe.breadcrumbs.add({ type: "Custom", label: __("RECTs Sealmanagement"), route: "/app/rects" });
+	} else {
+		frappe.breadcrumbs.add("Tnt Seal Management");
+	}
+	const page = wrapper.page;
+	if (!page) return;
+	// The page is reused across /rects and plain routes: start over for the system shown.
+	page.sjl_system = _sjl_route_system();
+	page.set_title(__(SJL_SYSTEMS[page.sjl_system].title));
+	_sjl_clear(page);
+};
+
 frappe.pages["seal-journey-list"].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: __("Seal Journey List"),
 		single_column: true,
 	});
+
+	wrapper.page = page;
+	page.sjl_system = _sjl_route_system();
+	page.set_title(__(SJL_SYSTEMS[page.sjl_system].title));
 
 	page.sjl_state = {
 		search: "",
@@ -14,7 +44,7 @@ frappe.pages["seal-journey-list"].on_page_load = function (wrapper) {
 		request_id: 0,
 	};
 
-	page.add_inner_button(__("Back"), () => frappe.set_route("tnt-seal-management"));
+	page.add_inner_button(__("Back"), () => frappe.set_route(SJL_SYSTEMS[page.sjl_system].dashboard));
 	page.add_inner_button(__("Excel"), () => _sjl_export_excel(page), __("Download Report"));
 	page.add_inner_button(__("PDF"), () => _sjl_export_pdf(page), __("Download Report"));
 	page.add_inner_button(__("Refresh"), () => _sjl_load(page));
@@ -25,7 +55,6 @@ frappe.pages["seal-journey-list"].on_page_load = function (wrapper) {
 
 	_sjl_inject_styles();
 	_sjl_build_page(page);
-	_sjl_load(page);
 };
 
 function _sjl_build_page(page) {
@@ -127,6 +156,7 @@ function _sjl_load(page) {
 			status: page.sjl_state.status,
 			page: page.sjl_state.page,
 			page_length: page.sjl_state.page_length,
+			system: page.sjl_system,
 		},
 		callback(r) {
 			if (requestId !== page.sjl_state.request_id) return;
@@ -158,6 +188,7 @@ function _sjl_export_pdf(page) {
 		args: {
 			search: page.sjl_state.search,
 			status: page.sjl_state.status,
+			system: page.sjl_system,
 		},
 		freeze: true,
 		freeze_message: __("Preparing report…"),
@@ -237,6 +268,7 @@ function _sjl_export_excel(page) {
 	open_url_post("/api/method/tnt_seal_management.tnt_seal_management.api.seal_journey_list.export_excel", {
 		search: page.sjl_state.search,
 		status: page.sjl_state.status,
+		system: page.sjl_system,
 		filename: `Seal Journey Report - ${frappe.datetime.get_today()}`,
 	});
 }

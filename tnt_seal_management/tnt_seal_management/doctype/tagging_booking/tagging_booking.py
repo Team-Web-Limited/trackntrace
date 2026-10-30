@@ -36,6 +36,7 @@ class TaggingBooking(Document):
 				self.account_manager = frappe.session.user
 
 	def validate(self):
+		self._validate_client_in_system()
 		self._validate_booking_date_time_not_past()
 		self._validate_branch()
 		self._validate_vehicles_belong_to_client()
@@ -52,6 +53,18 @@ class TaggingBooking(Document):
 					self.return_trip_from
 				),
 				title=_("Not Allowed"),
+			)
+
+	def _validate_client_in_system(self):
+		"""A booking only deals with customers ticked for its system's branch."""
+		branch_field = SYSTEM_CUSTOMER_FIELDS.get(self.system or "PCB")
+		if not branch_field or not self.client_name:
+			return
+		if not cint(frappe.db.get_value("Customer", self.client_name, branch_field)):
+			frappe.throw(
+				_("{0} is not a {1} customer. Tick the {2} Branch on the customer first.").format(
+					self.client_name, self.system or "PCB", self.system or "PCB"
+				)
 			)
 
 	def _validate_booking_date_time_not_past(self):
@@ -240,11 +253,17 @@ def get_branch_options():
 	return [(row.api_branch or "").strip() for row in rows if (row.api_branch or "").strip()]
 
 
-def _build_booking_filters(search=None, status=None, customer=None, from_date=None, to_date=None):
+# Which Customer Branch checkbox a booking's system requires.
+SYSTEM_CUSTOMER_FIELDS = {"PCB": "custom_division_ects", "RECTs": "custom_division_rects"}
+
+
+def _build_booking_filters(
+	search=None, status=None, customer=None, from_date=None, to_date=None, system="PCB"
+):
 	if from_date and to_date and getdate(from_date) > getdate(to_date):
 		frappe.throw(_("From Date cannot be after To Date."))
 
-	base_filters = []
+	base_filters = [["system", "=", system if system in SYSTEM_CUSTOMER_FIELDS else "PCB"]]
 	if customer:
 		base_filters.append(["client_name", "=", customer])
 	if from_date:
@@ -279,12 +298,13 @@ def get_booking_list(
 	to_date=None,
 	page=1,
 	page_length=25,
+	system="PCB",
 ):
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length), 1), 100)
 
 	base_filters, or_filters, filters = _build_booking_filters(
-		search, status, customer, from_date, to_date
+		search, status, customer, from_date, to_date, system
 	)
 
 	bookings = frappe.get_list(
@@ -350,9 +370,11 @@ def get_booking_list(
 
 
 @frappe.whitelist()
-def get_all_bookings_for_export(search=None, status=None, customer=None, from_date=None, to_date=None):
+def get_all_bookings_for_export(
+	search=None, status=None, customer=None, from_date=None, to_date=None, system="PCB"
+):
 	"""Same filters as get_booking_list but unpaginated, for the PDF export."""
-	_, or_filters, filters = _build_booking_filters(search, status, customer, from_date, to_date)
+	_, or_filters, filters = _build_booking_filters(search, status, customer, from_date, to_date, system)
 
 	return frappe.get_list(
 		"Tagging Booking",
@@ -412,20 +434,21 @@ _EXPORT_COLUMNS = (
 	("Client", "client_name", 28),
 	("Location", "location", 24),
 	("Date and Time", "booking_date_time", 20),
-	("Contact Person", "contact_person_name", 24),
 	("Phone", "contact_person_phone", 18),
 )
 
 
 @frappe.whitelist()
-def export_excel(search=None, status=None, customer=None, from_date=None, to_date=None, filename=None):
+def export_excel(
+	search=None, status=None, customer=None, from_date=None, to_date=None, filename=None, system="PCB"
+):
 	"""Render the Tagging Bookings list's currently filtered rows to an .xlsx
 	workbook — the spreadsheet counterpart of export_pdf."""
 	from frappe.utils.xlsxutils import make_xlsx
 
 	_check_export_permission()
 
-	bookings = get_all_bookings_for_export(search, status, customer, from_date, to_date)
+	bookings = get_all_bookings_for_export(search, status, customer, from_date, to_date, system)
 	if not bookings:
 		frappe.throw(_("No bookings match the current filters."))
 
@@ -552,6 +575,7 @@ def create_return_trip_booking(journey_name):
 		booking = frappe.get_doc(
 			{
 				"doctype": "Tagging Booking",
+				"system": original.system,
 				"client_name": original.client_name,
 				"branch": original.branch,  # mandatory on the first trip
 				"booking_source": "Account Manager",

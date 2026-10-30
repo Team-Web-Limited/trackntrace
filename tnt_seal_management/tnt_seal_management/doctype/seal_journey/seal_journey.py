@@ -483,7 +483,8 @@ def _pull_arrival_location(doc):
 	device's own GPS via sync_seal_device rather than typed in, so arrival
 	location can't be skipped or fudged at the one moment it matters most
 	for audit."""
-	if not doc.assigned_seal:
+	# RECTs seals have no seal API, so there is no live GPS to read.
+	if not doc.assigned_seal or doc.system == "RECTs":
 		return None
 
 	from tnt_seal_management.tnt_seal_management.api.seal_sync import sync_seal_device
@@ -746,7 +747,7 @@ def _confirm_end_journey_no_collection(doc):
 
 
 @frappe.whitelist()
-def get_arrival_queue(search=None, page=1, page_length=30, from_date=None, to_date=None):
+def get_arrival_queue(search=None, page=1, page_length=30, from_date=None, to_date=None, system="PCB"):
 	"""Seal Journeys awaiting the Control Room's arrival / seal-unlock
 	confirmation (In Transit, or auto-arrived with no unlock method yet) — for the Approve tab's Arrivals section. Search and
 	paging are applied here; `total` is the filtered count, `overall` the
@@ -755,11 +756,19 @@ def get_arrival_queue(search=None, page=1, page_length=30, from_date=None, to_da
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length) or 30, 1), 100)
 	search = (search or "").strip()
+	# RECTs seals have no automatic arrival (no seal API to detect it): the Control
+	# Room confirms those by hand from Active Journeys, so there is no queue.
+	if system == "RECTs":
+		return {"journeys": [], "total": 0, "overall": 0}
 
 	# Only journeys whose seal has entered the destination geofence (or whose
 	# destination has no geofence to detect) are awaiting arrival.
 	queue_names = arrival_queue_journey_names()
-	filters = {"journey_status": ["in", ("In Transit", "Arrived")], "name": ["in", queue_names or [""]]}
+	filters = {
+		"journey_status": ["in", ("In Transit", "Arrived")],
+		"name": ["in", queue_names or [""]],
+		"system": "PCB",
+	}
 	# Created-between filter, same as the other Control Room lists.
 	if from_date and to_date:
 		filters["creation"] = ["between", [f"{from_date} 00:00:00", f"{to_date} 23:59:59"]]
@@ -781,7 +790,11 @@ def get_arrival_queue(search=None, page=1, page_length=30, from_date=None, to_da
 	overall = len(
 		frappe.get_list(
 			"Seal Journey",
-			filters={"journey_status": ["in", ("In Transit", "Arrived")], "name": ["in", queue_names or [""]]},
+			filters={
+				"journey_status": ["in", ("In Transit", "Arrived")],
+				"name": ["in", queue_names or [""]],
+				"system": "PCB",
+			},
 			pluck="name",
 			limit_page_length=0,
 		)
@@ -815,7 +828,7 @@ def get_arrival_queue(search=None, page=1, page_length=30, from_date=None, to_da
 @frappe.whitelist()
 def get_control_room_journey_list(
 	search=None, page=1, page_length=30, alert_status="open", alert_level="all", alert_type="all",
-	view="in_transit", from_date=None, to_date=None,
+	view="in_transit", from_date=None, to_date=None, system="PCB",
 ):
 	"""Seal Journeys In Transit for the Control Room's Journey List tab: client,
 	vehicle, every seal on it, entry and
@@ -843,6 +856,8 @@ def get_control_room_journey_list(
 		filters = {"journey_status": "Completed"}
 	elif view == "longer":
 		filters = {"journey_status": ["not in", ("Completed", "Cancelled")]}
+	system = "RECTs" if system == "RECTs" else "PCB"
+	filters["system"] = system
 	# Created-between filter, as on Journey Monitoring.
 	if from_date and to_date:
 		filters["creation"] = ["between", [f"{from_date} 00:00:00", f"{to_date} 23:59:59"]]
@@ -854,7 +869,7 @@ def get_control_room_journey_list(
 	# Journeys running past their billing allowance. That is derived per customer
 	# and rate set, so it is worked out here for every unfinished journey rather
 	# than in the query.
-	longer_names = _longer_in_journey_names(from_date, to_date)
+	longer_names = _longer_in_journey_names(from_date, to_date, system)
 	if view == "longer":
 		filters["name"] = ["in", longer_names or [""]]
 	or_filters = None
@@ -880,7 +895,9 @@ def get_control_room_journey_list(
 			or_filters.append(["name", "in", seal_journeys])
 
 	overall = len(
-		frappe.get_list("Seal Journey", filters={"journey_status": "In Transit"}, pluck="name", limit_page_length=0)
+		frappe.get_list(
+			"Seal Journey", filters={"journey_status": "In Transit", "system": system}, pluck="name", limit_page_length=0
+		)
 	)
 
 	alert_status = alert_status if alert_status in ("open", "resolved", "all") else "open"
@@ -965,8 +982,12 @@ def get_control_room_journey_list(
 	by_status = dict(
 		frappe.db.sql(
 			"""select journey_status, count(*) from `tabSeal Journey`
-			where creation >= %(start)s and creation <= %(end)s group by journey_status""",
-			{"start": f"{from_date} 00:00:00" if from_date else "0001-01-01", "end": f"{to_date} 23:59:59" if to_date else "9999-12-31"},
+			where creation >= %(start)s and creation <= %(end)s and system = %(system)s group by journey_status""",
+			{
+				"start": f"{from_date} 00:00:00" if from_date else "0001-01-01",
+				"end": f"{to_date} 23:59:59" if to_date else "9999-12-31",
+				"system": system,
+			},
 			as_list=True,
 		)
 	)
@@ -981,12 +1002,12 @@ def get_control_room_journey_list(
 		"journeys": journeys,
 		"total": total,
 		"overall": overall,
-		"completed_overall": frappe.db.count("Seal Journey", {"journey_status": "Completed"}),
+		"completed_overall": frappe.db.count("Seal Journey", {"journey_status": "Completed", "system": system}),
 		"summary": summary,
 	}
 
 
-def _longer_in_journey_names(from_date=None, to_date=None):
+def _longer_in_journey_names(from_date=None, to_date=None, system=None):
 	"""Names of unfinished Seal Journeys that have run past the grace period of
 	their billing rate set (the Longer in Journey column > 0)."""
 	from tnt_seal_management.tnt_seal_management.api.journey_monitoring import (
@@ -994,6 +1015,8 @@ def _longer_in_journey_names(from_date=None, to_date=None):
 	)
 
 	filters = {"journey_status": ["not in", ("Completed", "Cancelled")]}
+	if system:
+		filters["system"] = system
 	if from_date and to_date:
 		filters["creation"] = ["between", [f"{from_date} 00:00:00", f"{to_date} 23:59:59"]]
 	elif from_date:

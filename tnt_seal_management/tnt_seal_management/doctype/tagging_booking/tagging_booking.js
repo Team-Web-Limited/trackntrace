@@ -5,13 +5,14 @@ frappe.ui.form.on("Tagging Booking", {
 	after_save(frm) {
 		if (frm._was_new && frm.doc.booking_status === "Draft") {
 			frm._was_new = false;
-			frappe.set_route("tagging-booking-list");
+			frappe.set_route(...booking_list_route(frm));
 		}
 	},
 	setup(frm) {
-		// Bookings are for the customers listed on Customer Billing: ECTS Division or Both.
+		// A booking only takes customers ticked for its system's Branch
+		// (PCB = ECTS Division, RECTs = RECTS Division).
 		frm.set_query("client_name", () => ({
-			filters: { custom_division: ["in", ["ECTS Division", "Both"]] },
+			filters: { [frm.doc.system === "RECTs" ? "custom_division_rects" : "custom_division_ects"]: 1 },
 		}));
 		setup_vehicle_query(frm);
 		inject_return_trip_styles();
@@ -37,6 +38,7 @@ frappe.ui.form.on("Tagging Booking", {
 		}
 	},
 	refresh(frm) {
+		set_system_breadcrumb(frm);
 		set_default_phone_country(frm);
 		frm.doc.__booking_dt_at_load = frm.doc.booking_date_time;
 		set_booking_date_min(frm);
@@ -48,7 +50,7 @@ frappe.ui.form.on("Tagging Booking", {
 			frm.is_new() || ["Draft", "Pending Account Manager Review"].includes(frm.doc.booking_status)
 		);
 		frm.add_custom_button(__("Back"), () => {
-			frappe.set_route("tagging-booking-list");
+			frappe.set_route(...booking_list_route(frm));
 		});
 
 		if (frm.is_new()) {
@@ -255,8 +257,9 @@ function sync_selected_vehicles(frm) {
 	frm.refresh_field("selected_vehicles");
 }
 
-// Approving hands the booking straight to a PCB Team Leader, so Finance picks
-// one here — pre-filled when there is only one, blocked when none is set up.
+// Approving hands the booking straight to a PCB Team Leader. With one Team Leader
+// (the server picks them) it approves straight away; with several, Finance picks
+// one here. Blocked when none is set up.
 function approve_booking_with_team_leader(frm) {
 	frappe.call({
 		method: "tnt_seal_management.tnt_seal_management.doctype.pcb_job_order.pcb_job_order.get_team_leader_options",
@@ -272,6 +275,10 @@ function approve_booking_with_team_leader(frm) {
 				});
 				return;
 			}
+			if (leaders.length === 1) {
+				approve_booking(frm, leaders[0].value);
+				return;
+			}
 			frappe.prompt(
 				[
 					{
@@ -279,36 +286,36 @@ function approve_booking_with_team_leader(frm) {
 						fieldtype: "Autocomplete",
 						label: __("PCB Team Leader"),
 						options: leaders,
-						default: leaders.length === 1 ? leaders[0].value : "",
 						reqd: 1,
 						description: __("Who will assign a Tag Operator for this booking. They are notified."),
 					},
 				],
-				(values) => {
-					frappe.call({
-						method:
-							"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.approve_booking",
-						args: { docname: frm.doc.name, pcb_team_leader: values.pcb_team_leader },
-						freeze: true,
-						freeze_message: __("Approving booking…"),
-						callback: (res) => {
-							const jobOrder = res.message && res.message.pcb_job_order;
-							frm.reload_doc();
-							if (jobOrder) {
-								frappe.show_alert(
-									{
-										message: __("Approved — PCB Job Order {0} sent to the Team Leader", [jobOrder]),
-										indicator: "green",
-									},
-									5
-								);
-							}
-						},
-					});
-				},
+				(values) => approve_booking(frm, values.pcb_team_leader),
 				__("Approve Tagging Booking"),
 				__("Approve")
 			);
+		},
+	});
+}
+
+function approve_booking(frm, pcb_team_leader) {
+	frappe.call({
+		method: "tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.approve_booking",
+		args: { docname: frm.doc.name, pcb_team_leader },
+		freeze: true,
+		freeze_message: __("Approving booking…"),
+		callback: (res) => {
+			const jobOrder = res.message && res.message.pcb_job_order;
+			frm.reload_doc();
+			if (jobOrder) {
+				frappe.show_alert(
+					{
+						message: __("Approved — PCB Job Order {0} sent to the Team Leader", [jobOrder]),
+						indicator: "green",
+					},
+					5
+				);
+			}
 		},
 	});
 }
@@ -394,4 +401,19 @@ function inject_return_trip_styles() {
 		[data-fieldname="return_trip"] input[type="checkbox"] { width: 22px; height: 22px; margin-top: 0; }
 	`;
 	document.head.appendChild(style);
+}
+
+function booking_list_route(frm) {
+	return frm.doc.system === "RECTs" ? ["tagging-booking-list", "rects"] : ["tagging-booking-list"];
+}
+
+// A RECTs booking's list crumb links to the RECTs list. (The first crumb is
+// renamed for every form by the shared rule in public/js/tnt_seal_management.js.)
+function set_system_breadcrumb(frm) {
+	const rects = frm.doc.system === "RECTs";
+	window.tnt_set_module(rects ? "RECTS" : "TNT");
+	if (rects) {
+		const $list = $("#navbar-breadcrumbs li").eq(1).find("a");
+		if ($list.length) $list.attr("href", "/app/tagging-booking-list/rects");
+	}
 }

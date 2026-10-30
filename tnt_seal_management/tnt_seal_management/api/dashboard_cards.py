@@ -171,17 +171,44 @@ CARD_COUNT_RULES = {
 			{
 				"roles": ["Finance PCB"],
 				"label": "Pending your approval",
-				"filters": {"booking_status": "Pending Finance PCB Approval"},
+				"filters": {"system": "PCB", "booking_status": "Pending Finance PCB Approval"},
 			},
 			{
 				"roles": ["Account Manager"],
 				"label": "Pending your review",
-				"filters": {"booking_status": "Pending Account Manager Review"},
+				"filters": {"system": "PCB", "booking_status": "Pending Account Manager Review"},
 			},
 			{
 				"roles": ["System Manager", "Management", "Managing Director"],
 				"label": "Pending approval",
 				"filters": {
+					"system": "PCB",
+					"booking_status": [
+						"in",
+						["Pending Account Manager Review", "Pending Finance PCB Approval"],
+					]
+				},
+			},
+		],
+	},
+	"tagging-booking-list/rects": {
+		"doctype": "Tagging Booking",
+		"rules": [
+			{
+				"roles": ["Finance PCB"],
+				"label": "Pending your approval",
+				"filters": {"system": "RECTs", "booking_status": "Pending Finance PCB Approval"},
+			},
+			{
+				"roles": ["Account Manager"],
+				"label": "Pending your review",
+				"filters": {"system": "RECTs", "booking_status": "Pending Account Manager Review"},
+			},
+			{
+				"roles": ["System Manager", "Management", "Managing Director"],
+				"label": "Pending approval",
+				"filters": {
+					"system": "RECTs",
 					"booking_status": [
 						"in",
 						["Pending Account Manager Review", "Pending Finance PCB Approval"],
@@ -258,7 +285,6 @@ CARD_COUNT_RULES = {
 					"Finance PCB",
 					"Management",
 					"Managing Director",
-					"Operations Control Room",
 				],
 				"label": "Customers",
 				"filters": lambda: {"name": ["in", _billing_customers() or [""]]},
@@ -291,6 +317,7 @@ CARD_COUNT_RULES = {
 					"current_custody_type": "User",
 					"current_custodian": frappe.session.user,
 					"in_uffizio": 1,
+					"belongs_to": ["!=", "RECTs"],
 				},
 			},
 		],
@@ -319,6 +346,7 @@ CARD_COUNT_RULES = {
 					"current_custody_type": "User",
 					"current_custodian": frappe.session.user,
 					"in_uffizio": 1,
+					"belongs_to": "RECTs",
 				},
 			},
 		],
@@ -359,6 +387,57 @@ CARD_COUNT_RULES = {
 }
 
 
+def _scoped_to_system(config, system):
+	"""Copy of a count config whose every rule only counts ``system`` records."""
+	scoped = {**config, "rules": []}
+	for rule in config["rules"]:
+		filters = rule["filters"]
+		if callable(filters):
+			scoped["rules"].append({**rule, "filters": lambda f=filters: {**f(), "system": system}})
+		else:
+			scoped["rules"].append({**rule, "filters": {**filters, "system": system}})
+	return scoped
+
+
+# The Assignments and Journey Request counts are per system: the plain route
+# counts PCB, "<route>/rects" counts RECTs (their System is copied from the
+# Tagging Booking they came from).
+for _route in (
+	"assignment-list",
+	"assignment-untagging",
+	"assignment-seal-return",
+	"journey-request-list",
+	"journey-request-untagging",
+	"journey-request-seal-return",
+	"control-room",
+	"seal-journey-list",
+):
+	CARD_COUNT_RULES[f"{_route}/rects"] = _scoped_to_system(CARD_COUNT_RULES[_route], "RECTs")
+	CARD_COUNT_RULES[_route] = _scoped_to_system(CARD_COUNT_RULES[_route], "PCB")
+
+# Vehicles are those of the customers on the system's Branch.
+CARD_COUNT_RULES["vehicle-list/rects"] = {
+	**CARD_COUNT_RULES["vehicle-list"],
+	"rules": [
+		{**rule, "filters": lambda: {"vehicle_status": "Active", "customer": ["in", _billing_customers("RECTS") or [""]]}}
+		for rule in CARD_COUNT_RULES["vehicle-list"]["rules"]
+	],
+}
+
+# Customer Billing lists the customers ticked for the system's branch.
+CARD_COUNT_RULES["customer-billing/rects"] = {
+	**CARD_COUNT_RULES["customer-billing"],
+	"rules": [
+		{**rule, "filters": lambda: {"name": ["in", _billing_customers("RECTS") or [""]]}}
+		for rule in CARD_COUNT_RULES["customer-billing"]["rules"]
+	],
+}
+
+# Arrivals are detected from the seal API's geofence entries, so only PCB has them
+# (RECTs confirms arrival by hand from Active Journeys).
+CARD_COUNT_RULES["control-room-arrivals"] = _scoped_to_system(CARD_COUNT_RULES["control-room-arrivals"], "PCB")
+
+
 @frappe.whitelist()
 def get_card_counts():
 	"""Return {route: {"count": int, "label": str}} for the current user.
@@ -389,10 +468,10 @@ def get_card_counts():
 	return result
 
 
-def _billing_customers():
+def _billing_customers(system="TNT"):
 	from tnt_seal_management.tnt_seal_management.api.current_customers import get_billing_customer_names
 
-	return get_billing_customer_names()
+	return get_billing_customer_names(system)
 
 
 def _in_transit_journeys():

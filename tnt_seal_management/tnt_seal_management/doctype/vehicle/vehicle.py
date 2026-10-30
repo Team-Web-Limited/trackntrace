@@ -75,14 +75,14 @@ def format_kenyan_plate(value):
 
 
 @frappe.whitelist()
-def get_vehicle_list(search=None, status=None, page=1, page_length=25):
+def get_vehicle_list(search=None, status=None, page=1, page_length=25, system="TNT"):
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length), 1), 100)
 
-	# Only vehicles owned by the customers listed on Customer Billing.
+	# Only vehicles owned by the customers listed on this system's Customer Billing.
 	from tnt_seal_management.tnt_seal_management.api.current_customers import get_billing_customer_names
 
-	customer_filter = ["customer", "in", get_billing_customer_names() or [""]]
+	customer_filter = ["customer", "in", get_billing_customer_names(system) or [""]]
 	filters = [customer_filter]
 	if status and status != "All":
 		filters.append(["vehicle_status", "=", status])

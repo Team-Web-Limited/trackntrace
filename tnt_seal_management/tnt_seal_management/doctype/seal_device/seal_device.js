@@ -2,9 +2,15 @@
 // For license information, please see license.txt
 
 frappe.ui.form.on("Seal Device", {
+	seal_category(frm) {
+		_set_leased_to(frm);
+		// A leased seal is owned by the company; the server sets it on save too.
+		frm.set_value(
+			"seal_owner",
+			frm.doc.seal_category === "Outright Purchase" ? null : frappe.defaults.get_global_default("company")
+		);
+	},
 	refresh(frm) {
-		_set_rects_breadcrumb(frm);
-
 		// Back returns to the dashboard of the module the user is in (TNT or RECTs).
 		frm.add_custom_button(__("Back"), () => {
 			const route = _seal_module(frm) === "RECTS" ? "seal-device-dashboard/rects" : "seal-device-dashboard";
@@ -78,14 +84,13 @@ function _seal_module(frm) {
 	return window.tnt_get_module() || (frm.doc.belongs_to === "RECTs" ? "RECTS" : "TNT");
 }
 
-// In the RECTs module the form's first breadcrumb (the TNT workspace, set by the
-// doctype's module) reads "RECTs Sealmanagement" and links to the RECTs
-// dashboard. Frappe rebuilds the breadcrumbs on every refresh, so the TNT module
-// keeps the default.
-function _set_rects_breadcrumb(frm) {
-	if (_seal_module(frm) !== "RECTS") return;
-	const $first = $("#navbar-breadcrumbs li").first().find("a");
-	if ($first.length) {
-		$first.text(__("RECTs Sealmanagement")).attr("href", "/app/rects");
-	}
+// "Leased To" is computed on the server from the seal's custody (see
+// SealDevice.leased_to); mirror it here so switching the category on the form
+// shows the customer straight away. Blank unless a leased seal is with a customer.
+function _set_leased_to(frm) {
+	const withCustomer = frm.doc.seal_category !== "Outright Purchase" && frm.doc.current_custody_type === "Customer";
+	frm.doc.leased_to = withCustomer
+		? (frm.doc.current_custody_label || frm.doc.current_custodian || "").replace(/^Customer: /, "")
+		: null;
+	frm.refresh_field("leased_to");
 }
