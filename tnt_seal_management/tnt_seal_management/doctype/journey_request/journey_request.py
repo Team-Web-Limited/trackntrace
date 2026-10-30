@@ -76,6 +76,7 @@ SEAL_RETURN_FIELDS = ("seal_return_entry_document",)
 # (The technician's confirmation now ends the return: there is no approval step.)
 SEAL_RETURN_CONFIRMATION_FIELDS = (
 	"seal_return_confirmed_by_technician",
+	"seal_collected_from_customer",
 	"seal_return_condition",
 	"retrieval_card_number",
 )
@@ -110,6 +111,7 @@ _FIELD_LABELS = {
 	"untagging_confirmed_by_technician": "Confirmed by Technician",
 	"seal_return_entry_document": "Entry Pictures (Seal Return)",
 	"seal_return_confirmed_by_technician": "Confirmed by Technician",
+	"seal_collected_from_customer": "Picked up the seal from the customer",
 	"seal_return_condition": "Seal Condition",
 	"retrieval_card_number": "Retrieval Card Number",
 }
@@ -126,6 +128,11 @@ _ACTIVE_JOURNEY_STATUSES = (
 class JourneyRequest(Document):
 	def before_insert(self):
 		self.ensure_pre_tagging_checklist()
+
+	def onload(self):
+		# The seal return form asks for the pick-up tick only while a seal is still
+		# with the customer.
+		self.set_onload("seals_with_customer", bool(_seals_with_customer(self)))
 
 	def on_update(self):
 		# The checklist is shared, so every vehicle's Seal Journey mirrors it.
@@ -724,6 +731,16 @@ def _ensure_role(role, message):
 		frappe.throw(message, title=_("Insufficient Permission"))
 
 
+def _seals_with_customer(doc, seals=None):
+	"""Seal Devices on the request whose last holder is a customer."""
+	names = [s.seal_device for s in (seals if seals is not None else doc.seals or []) if s.seal_device]
+	if not names:
+		return []
+	return frappe.get_all(
+		"Seal Device", filters={"name": ["in", names], "current_custody_type": "Customer"}, pluck="name"
+	)
+
+
 def _row_label(row):
 	return row.registration_number or row.vehicle or row.name
 
@@ -857,8 +874,6 @@ def submit_to_control_room(docname, vehicle_rows=None):
 			_("Select the {0} before submitting to the Control Room.").format(_(" and ").join(missing_route)),
 			title=_("Route Required"),
 		)
-	if not doc.file_number:
-		frappe.throw(_("Enter the File Number before submitting to the Control Room."), title=_("File Number Required"))
 	if not doc.departure_card_number:
 		frappe.throw(
 			_("Enter the Departure Card Number before submitting to the Control Room."),
@@ -891,20 +906,23 @@ def submit_to_control_room(docname, vehicle_rows=None):
 					title=_("Seals Required"),
 				)
 
+	# RECTs has no Control Room approval: submitting goes straight to Tagging.
+	needs_approval = doc.system != "RECTs"
+	next_status = "Pending Control Room Approval" if needs_approval else "Tagging"
 	# Only the chosen Draft vehicles go up for review — ones already approved stay
 	# approved, and ones left out stay Draft.
 	for row in submitted_rows:
-		row.status = "Pending Control Room Approval"
-		_append_approval_log(doc, "Submitted to Control Room", vehicle=_row_label(row))
+		row.status = next_status
+		_append_approval_log(doc, "Submitted to Control Room" if needs_approval else "Submitted", vehicle=_row_label(row))
 	if submitted_rows:
 		_roll_up_status(doc)
 	else:
-		doc.journey_request_status = "Pending Control Room Approval"
-		_append_approval_log(doc, "Submitted to Control Room")
+		doc.journey_request_status = next_status
+		_append_approval_log(doc, "Submitted to Control Room" if needs_approval else "Submitted")
 	doc.flags.ignore_field_locks = True
 	doc.save()
 	for journey in _journey_names(submitted_rows) or [doc.journey_reference]:
-		set_journey_status(journey, "Pre-Tagging")
+		set_journey_status(journey, "Pre-Tagging" if needs_approval else "Tagging In Progress")
 		sync_seal_journey_mirror(journey)
 
 	# First recorded custody hop of the journey: seals leave whoever holds them
@@ -935,7 +953,8 @@ def submit_to_control_room(docname, vehicle_rows=None):
 					column="tagging_to",
 				)
 
-	_notify_control_room_approval_pending(doc)
+	if needs_approval:
+		_notify_control_room_approval_pending(doc)
 	frappe.db.commit()
 
 
@@ -1404,6 +1423,7 @@ def confirm_seal_return(
 	retrieval_card_number=None,
 	return_warehouse=None,
 	seal_outcome=None,
+	collected_from_customer=None,
 ):
 	"""Complete the seal return directly from the assigned Field Technician — for
 	one vehicle (`vehicle_row`) or every vehicle awaiting seal return. On a
@@ -1466,11 +1486,20 @@ def confirm_seal_return(
 	retained = doc.seal_outcome == "Retain Seal"
 	if retained:
 		doc.return_warehouse = None
-	if not cint(doc.seal_return_confirmed_by_technician):
-		frappe.throw(
-			_("Tick Confirmed by Technician to confirm the seal has been physically returned."),
-			title=_("Confirmation Required"),
-		)
+	# A seal whose last holder is the customer must be acknowledged as picked up.
+	from_customer = _seals_with_customer(doc, [s for group in target_seals for s in group])
+	if from_customer:
+		if collected_from_customer is not None:
+			doc.seal_collected_from_customer = cint(collected_from_customer)
+		if not cint(doc.seal_collected_from_customer):
+			frappe.throw(
+				_("Tick that you picked up the seal from the customer ({0}) before confirming the seal return.").format(
+					", ".join(from_customer)
+				),
+				title=_("Pick-up Confirmation Required"),
+			)
+	# Confirming the return is itself the technician's confirmation.
+	doc.seal_return_confirmed_by_technician = 1
 	if doc.seal_return_condition not in ("Good", "Damaged", "Lost"):
 		frappe.throw(
 			_("Select the seal condition before confirming."),
@@ -1532,6 +1561,16 @@ def confirm_seal_return(
 	doc.seal_returned = 1 if doc.journey_request_status == "Seal Returned" else 0
 	doc.flags.ignore_field_locks = True
 	doc.save()
+
+	# The seal leaves the customer's hands for the technician's here, before it goes
+	# to a warehouse or stays with them (see _finalise_seal_return).
+	for seal_name in from_customer:
+		set_seal_custody(
+			seal_name,
+			"User",
+			doc.assigned_technician or frappe.session.user,
+			remarks=f"Picked up from the customer via Journey Request {doc.name}",
+		)
 
 	# No approval step: the return takes effect now.
 	for row in targets:

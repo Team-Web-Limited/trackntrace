@@ -19,6 +19,12 @@ class SealDevice(Document):
 		return None
 
 	def validate(self):
+		# A new seal belongs to the system of the warehouse it is received into
+		# (Branch RECTS Division = RECTs). Read-only after that: a seal never
+		# moves between PCB and RECTs.
+		if self.is_new() and self.current_custody_type == "Warehouse" and self.current_custodian:
+			if frappe.db.get_value("Warehouse", self.current_custodian, "custom_division") == "RECTS Division":
+				self.belongs_to = "RECTs"
 		# Seals are leased unless sold; a sold seal always names its owner, and a
 		# leased seal has none (its customer is the live custody, see leased_to).
 		self.seal_category = self.seal_category or "Lease"
@@ -312,11 +318,18 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 		info = frappe.db.get_value(
 			_DOCTYPE,
 			seal,
-			["current_custody_type", "current_custodian", "current_custody_label", "current_journey"],
+			["current_custody_type", "current_custodian", "current_custody_label", "current_journey", "current_status"],
 			as_dict=True,
 		)
 		if not info:
 			frappe.throw(_("Seal {0} not found.").format(seal))
+		if info.current_status != "Available":
+			frappe.throw(
+				_("Seal {0} is {1}. A seal can only be handed over once it is Available.").format(
+					seal, info.current_status or _("not set")
+				),
+				title=_("Seal Not Available"),
+			)
 		if not supervisor and not (info.current_custody_type == "User" and info.current_custodian == user):
 			frappe.throw(
 				_("You can only hand over seals you are currently holding ({0} is not with you).").format(seal),
@@ -324,6 +337,10 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 			)
 		if info.current_custody_type == "Customer":
 			frappe.throw(_("Seal {0} is with a customer; it moves back through the journey workflow.").format(seal))
+		if to_custody_type == "Warehouse":
+			from tnt_seal_management.tnt_seal_management.api.seal_warehouses import check_seal_system
+
+			check_seal_system(seal, to_custodian)
 		if info.current_custody_type == to_custody_type and info.current_custodian == to_custodian:
 			frappe.throw(_("Seal {0} is already with {1}.").format(seal, to_custodian))
 		if info.current_journey and frappe.db.get_value("Seal Journey", info.current_journey, "journey_status") == "In Transit":
@@ -502,7 +519,17 @@ def get_warehouse_seals(warehouse):
 		seal_stock_serials,
 	)
 
+	# A RECTs warehouse can hold PCB seals and vice versa; only the seals of the
+	# warehouse's own system are shown here.
+	from tnt_seal_management.tnt_seal_management.api.seal_warehouses import warehouse_system
+
+	owner = warehouse_system(warehouse)
 	seals = get_custody_seals("Warehouse", warehouse)
+	if owner:
+		belongs = dict(
+			frappe.get_all(_DOCTYPE, filters={"name": ["in", [s.name for s in seals] or [""]]}, fields=["name", "belongs_to"], as_list=True)
+		)
+		seals = [s for s in seals if (belongs.get(s.name) or "TNT") == owner]
 	serials = seal_stock_serials([s.name for s in seals])
 	waiting = pending_seal_transfers(serial_nos=[s.serial_no for s in serials.values()])
 	for seal in seals:

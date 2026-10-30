@@ -780,5 +780,21 @@
   "translatable": 0,
   "unique": 0,
   "width": null
+ },
+ {
+  "doctype": "Custom Field",
+  "dt": "Purchase Receipt Item",
+  "fieldname": "custom_belongs_to",
+  "fieldtype": "Data",
+  "label": "Belongs To",
+  "insert_after": "warehouse",
+  "read_only": 1,
+  "no_copy": 1,
+  "in_list_view": 1,
+  "columns": 1,
+  "description": "Set from the Accepted Warehouse's Branch: PCB or RECTs.",
+  "modified": "2026-10-30 18:00:00",
+  "module": null,
+  "name": "Purchase Receipt Item-custom_belongs_to"
  }
 ]

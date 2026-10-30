@@ -75,6 +75,7 @@
   "jr_seal_return_section",
   "seal_return_entry_document",
   "seal_return_confirmed_by_technician",
+  "seal_collected_from_customer",
   "seal_return_condition",
   "retrieval_card_number",
   "jr_seal_return_row2_section",
@@ -192,8 +193,7 @@
    "fieldname": "entry_number",
    "fieldtype": "Data",
    "label": "Entry Number",
-   "reqd": 0,
-   "mandatory_depends_on": "eval:doc.system!=\"RECTs\""
+   "reqd": 0
   },
   {
    "fieldname": "jr_row_3_column",
@@ -502,12 +502,18 @@
    "options": "Seal Trip Photo"
   },
   {
-   "default": "0",
+   "default": "1",
    "fieldname": "seal_return_confirmed_by_technician",
    "fieldtype": "Check",
    "label": "Confirmed by Technician",
-   "mandatory_depends_on": "eval:[\"Awaiting Seal Return\",\"Pending Seal Return Approval\",\"Seal Returned\"].includes(doc.journey_request_status)",
-   "description": "Tick to confirm the seal has been physically returned in good condition. Required before confirming the seal return."
+   "hidden": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "seal_collected_from_customer",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Picked up the seal from the customer"
   },
   {
    "default": "Good",

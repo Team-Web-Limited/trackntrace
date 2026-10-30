@@ -4,6 +4,14 @@ frappe.ui.form.on("Journey Request", {
 		if (frm.doc.seal_outcome === "Retain Seal") frm.set_value("return_warehouse", null);
 	},
 	refresh(frm) {
+		// Pick-up tick, only while a seal is still with the customer (the server says so).
+		const withCustomer = !!(frm.doc.__onload && frm.doc.__onload.seals_with_customer);
+		frm.set_df_property("seal_collected_from_customer", "hidden", withCustomer ? 0 : 1);
+		frm.set_df_property(
+			"seal_collected_from_customer",
+			"reqd",
+			withCustomer && ["Awaiting Seal Return", "Pending Seal Return Approval"].includes(frm.doc.journey_request_status) ? 1 : 0
+		);
 		frm.add_fetch("seal_device", "lock_status", "lock_status");
 		frm.add_fetch("seal_device", "last_api_status", "api_device_status");
 		frm.add_fetch("seal_device", "battery_level", "battery_level");
@@ -232,7 +240,7 @@ function _jr_choose_vehicles_to_submit(frm, callback) {
 			}
 			callback(chosen);
 		},
-		__("Submit to Control Room"),
+		frm.doc.system === "RECTs" ? __("Submit") : __("Submit to Control Room"),
 		__("Submit")
 	);
 }
@@ -247,6 +255,7 @@ const JR_PER_VEHICLE_FIELDS = [
 	"tagging_location",
 	"untagging_confirmed_by_technician",
 	"seal_return_confirmed_by_technician",
+	"seal_collected_from_customer",
 	"seal_return_condition",
 	"retrieval_card_number",
 	"seal_outcome",
@@ -573,14 +582,6 @@ function _jr_prompt_confirm_seal_return(frm, vehicleRow = null) {
 		frappe.prompt(
 			[
 				{
-					fieldname: "seal_return_confirmed",
-					fieldtype: "Check",
-					label: __("Confirmed: seal(s) for {0} physically returned", [
-						_jr_target_label(frm, "Awaiting Seal Return", vehicleRow),
-					]),
-					reqd: 1,
-				},
-				{
 					fieldname: "seal_return_condition",
 					fieldtype: "Select",
 					label: __("Seal Condition"),
@@ -588,6 +589,14 @@ function _jr_prompt_confirm_seal_return(frm, vehicleRow = null) {
 					default: "Good",
 					reqd: 1,
 				},
+				...(frm.doc.__onload && frm.doc.__onload.seals_with_customer
+					? [{
+						fieldname: "collected_from_customer",
+						fieldtype: "Check",
+						label: __("I picked up the seal from the customer"),
+						reqd: 1,
+					}]
+					: []),
 				{ fieldname: "retrieval_card_number", fieldtype: "Data", label: __("Retrieval Card Number"), reqd: 1 },
 				{
 					fieldname: "seal_outcome",
@@ -611,7 +620,8 @@ function _jr_prompt_confirm_seal_return(frm, vehicleRow = null) {
 			],
 			(values) => {
 				const extra = {
-					seal_return_confirmed: values.seal_return_confirmed ? 1 : 0,
+					seal_return_confirmed: 1,
+					collected_from_customer: values.collected_from_customer ? 1 : 0,
 					seal_return_condition: values.seal_return_condition,
 					retrieval_card_number: values.retrieval_card_number,
 					seal_outcome: values.seal_outcome,
@@ -625,10 +635,10 @@ function _jr_prompt_confirm_seal_return(frm, vehicleRow = null) {
 		);
 		return;
 	}
-	if (!frm.doc.seal_return_confirmed_by_technician) {
+	if (frm.doc.__onload && frm.doc.__onload.seals_with_customer && !frm.doc.seal_collected_from_customer) {
 		frappe.msgprint({
-			message: __("Tick Confirmed by Technician to confirm the seal has been physically returned."),
-			title: __("Confirmation Required"),
+			message: __("Tick that you picked up the seal from the customer before confirming the seal return."),
+			title: __("Pick-up Confirmation Required"),
 			indicator: "orange",
 		});
 		return;
@@ -798,7 +808,7 @@ function _journey_request_add_seals_grid_button(frm) {
 	const isTech = frappe.user.has_role("Field Technician") || isAdmin;
 	if (!isTech) return;
 
-	frm.add_custom_button(__("Submit to Control Room"), () => {
+	frm.add_custom_button(frm.doc.system === "RECTs" ? __("Submit") : __("Submit to Control Room"), () => {
 		const incomplete = (frm.doc.pre_tagging_checklist || []).some((row) => !row.completed);
 		if (incomplete) {
 			frappe.msgprint({
@@ -851,6 +861,7 @@ const JR_UNTAGGING_FIELDS = [
 const JR_SEAL_RETURN_FIELDS = [
 	"seal_return_entry_document",
 	"seal_return_confirmed_by_technician",
+	"seal_collected_from_customer",
 	"seal_return_condition",
 ];
 

@@ -9,7 +9,16 @@ function _asg_route_system() {
 	return String(frappe.get_route()[1] || "").toLowerCase() === "rects" ? "RECTs" : "PCB";
 }
 
+// Users who can't read PCB Assignments (Field Technician, Operations Control Room)
+// work from Journey Requests instead, so send them there rather than failing.
+function _asg_redirect_if_not_allowed() {
+	if (window.tnt_can_open_assignments?.() !== false) return false;
+	frappe.set_route(...(_asg_route_system() === "RECTs" ? ["journey-request-list", "rects"] : ["journey-request-list"]));
+	return true;
+}
+
 frappe.pages["assignment-list"].on_page_load = function (wrapper) {
+	if (_asg_redirect_if_not_allowed()) return;
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: __("Assignments"),
@@ -54,6 +63,7 @@ function _asg_toggle_rects_only(page) {
 // Switching between /app/assignment-list and /app/assignment-list/rects reuses the loaded
 // page, and coming back from a record leaves it stale, so reload on every show.
 frappe.pages["assignment-list"].on_page_show = function (wrapper) {
+	if (_asg_redirect_if_not_allowed()) return;
 	const system = _asg_route_system();
 	window.tnt_set_module(system === "RECTs" ? "RECTS" : "TNT");
 	if (system === "RECTs") {

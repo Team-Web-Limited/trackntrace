@@ -31,6 +31,7 @@ fixtures = [
 					"Customer-custom_division_fms",
 					"Customer-custom_division_ects",
 					"Customer-custom_division_rects",
+					"Purchase Receipt Item-custom_belongs_to",
 					"Warehouse-custom_division",
 					"Item-custom_is_seal",
 					"Warehouse-custom_seal_management_section",
@@ -125,6 +126,7 @@ doctype_js = {
 	"Sales Order": "public/js/sales_order.js",
 	"Warehouse": "public/js/warehouse.js",
 	"Customer": "public/js/customer.js",
+	"Purchase Receipt": "public/js/purchase_receipt.js",
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -234,8 +236,14 @@ doc_events = {
 	# Seal serials on a Material Receipt / Issue / Transfer become "Seal Transfer"
 	# history rows, and move custody when the target is a seal warehouse (Branch ECTS Division or Both).
 	"Stock Entry": {
+		"before_submit": "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.check_stock_entry_systems",
 		"on_submit": "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.on_stock_entry_submit",
 		"on_cancel": "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.on_stock_entry_cancel",
+	},
+	# Serials received on a seal item become Seal Devices in the receiving warehouse.
+	"Purchase Receipt": {
+		"validate": "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.set_receipt_systems",
+		"on_submit": "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.create_seals_from_purchase_receipt",
 	},
 	# Customer emails when a journey starts (In Transit) and arrives.
 	"Seal Journey": {

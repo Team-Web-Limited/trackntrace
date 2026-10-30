@@ -1,3 +1,5 @@
+import re
+
 import frappe
 from frappe import _
 from frappe.utils import cstr
@@ -16,7 +18,8 @@ def _row_serials(row):
 			filters={"parent": row.serial_and_batch_bundle, "serial_no": ["is", "set"]},
 			pluck="serial_no",
 		)
-	return [s.strip() for s in cstr(row.get("serial_no")).split("\n") if s.strip()]
+	# Pasted lists come separated by new lines, commas or spaces.
+	return list(dict.fromkeys(re.split(r"[\s,;]+", cstr(row.get("serial_no")).strip()))) if cstr(row.get("serial_no")).strip() else []
 
 
 def seal_stock_serials(seals):
@@ -225,6 +228,83 @@ def _seal_for_serial(serial):
 		if name:
 			return name
 	return None
+
+
+def check_stock_entry_systems(doc, method=None):
+	"""Before submit: a Material Transfer / Receipt can't put a seal into a
+	warehouse of the other system (PCB seals stay in PCB warehouses, RECTs in RECTs)."""
+	from tnt_seal_management.tnt_seal_management.api.seal_warehouses import check_seal_system
+
+	if doc.purpose not in _PURPOSES:
+		return
+	for row in doc.items:
+		if not row.t_warehouse:
+			continue
+		for serial in _row_serials(row):
+			seal = _seal_for_serial(serial)
+			if seal:
+				check_seal_system(seal, row.t_warehouse)
+
+
+@frappe.whitelist()
+def get_receipt_system(warehouse):
+	"""PCB / RECTs for a seal warehouse, for the Purchase Receipt items table."""
+	from tnt_seal_management.tnt_seal_management.api.seal_warehouses import warehouse_system
+
+	system = warehouse_system(warehouse)
+	return {"TNT": "PCB", "RECTs": "RECTs"}.get(system)
+
+
+def set_receipt_systems(doc, method=None):
+	"""Fill each Purchase Receipt row's Belongs To from its Accepted Warehouse, and
+	say so when a seal item is received into a warehouse that isn't a seal
+	warehouse (no Seal Devices are created for that row)."""
+	for row in doc.items:
+		row.custom_belongs_to = get_receipt_system(row.warehouse)
+		if frappe.db.get_value("Item", row.item_code, "custom_is_seal") and row.warehouse and not row.custom_belongs_to:
+			frappe.msgprint(
+				_("Row {0}: {1} is not a seal warehouse (Branch ECTS Division, Both or RECTS Division), so no Seal Devices will be created for this row.").format(
+					row.idx, row.warehouse
+				),
+				indicator="orange",
+				alert=True,
+			)
+
+
+def create_seals_from_purchase_receipt(doc, method=None):
+	"""Purchase Receipt → Seal Devices. Every serial on a seal item (Item "Is
+	Seal") received into a seal warehouse becomes a Seal Device held by that
+	warehouse, unless one exists already. The warehouse's Branch decides the
+	system (RECTS Division = RECTs; ECTS Division or Both = PCB), set once on
+	creation. Serials come from the Serial and Batch Bundle or from the Serial
+	No box, however they were pasted. Never raises — a goods receipt must not
+	fail because of seal bookkeeping."""
+	from tnt_seal_management.tnt_seal_management.api.seal_warehouses import warehouse_system
+	from tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device import set_seal_custody
+
+	try:
+		for row in doc.items:
+			if not frappe.db.get_value("Item", row.item_code, "custom_is_seal"):
+				continue
+			system = warehouse_system(row.warehouse)
+			if not system:
+				continue
+			for serial in _row_serials(row):
+				if _seal_for_serial(serial):
+					continue
+				seal = frappe.get_doc(
+					{
+						"doctype": "Seal Device",
+						"seal_number": serial,
+						"device_id": serial,
+						"imei_number": serial,
+						"belongs_to": system,
+						"current_status": "Available",
+					}
+				).insert(ignore_permissions=True)
+				set_seal_custody(seal.name, "Warehouse", row.warehouse, remarks=_("Received on {0}").format(doc.name))
+	except Exception:
+		frappe.log_error(title="Purchase Receipt seal creation", message=frappe.get_traceback())
 
 
 def on_stock_entry_submit(doc, method=None):

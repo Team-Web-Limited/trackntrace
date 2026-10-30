@@ -33,6 +33,29 @@ def is_seal_warehouse(warehouse):
 	)
 
 
+def warehouse_system(warehouse):
+	"""The system a seal warehouse serves, from its Branch: "RECTs" for RECTS
+	Division, "TNT" (PCB) for ECTS Division or Both, None for any other warehouse."""
+	division = frappe.db.get_value("Warehouse", warehouse, "custom_division") if warehouse else None
+	if division == RECTS_DIVISION:
+		return "RECTs"
+	return "TNT" if division in (ECTS_DIVISION, BOTH_DIVISIONS) else None
+
+
+def check_seal_system(seal, warehouse):
+	"""Refuse moving a seal into a warehouse of the other system: a PCB seal only
+	rests in PCB warehouses and a RECTs seal only in RECTs ones."""
+	target = warehouse_system(warehouse)
+	owner = frappe.db.get_value("Seal Device", seal, "belongs_to") or "TNT"
+	if target and target != owner:
+		frappe.throw(
+			_("Seal {0} belongs to {1} and can't be moved into {2}, a {3} warehouse.").format(
+				seal, "RECTs" if owner == "RECTs" else "PCB", warehouse, "RECTs" if target == "RECTs" else "PCB"
+			),
+			title=_("Different System"),
+		)
+
+
 def main_seal_store():
 	"""Name of the warehouse flagged Main Seal Store, if any."""
 	return frappe.db.get_value("Warehouse", {**SEAL_WAREHOUSE_FILTERS, "custom_is_main_seal_store": 1}, "name")
@@ -121,7 +144,7 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25, system
 		mine = ("User", frappe.session.user)
 		rows = _holder_rows({k: v for k, v in _seals_held_by_custodian(system).items() if k == mine})
 	else:
-		rows = _division_warehouse_rows(divisions) + _holder_rows(_seals_held_by_custodian(system))
+		rows = _division_warehouse_rows(divisions, system) + _holder_rows(_seals_held_by_custodian(system))
 
 	def in_status(row, key):
 		if key == "All":
@@ -170,8 +193,11 @@ def _parse_statuses(status, known):
 	return [s for s in (status or []) if s in known and s != "All"]
 
 
-def _division_warehouse_rows(divisions):
-	"""Seal warehouses in ``divisions``, active first, each with its seal count."""
+def _division_warehouse_rows(divisions, system="TNT"):
+	"""Seal warehouses in ``divisions``, active first, each with its seal count.
+	Only seals that belong to ``system`` are counted: a RECTs warehouse can hold
+	PCB seals, which don't show in RECTs seal management (and the other way round)."""
+	owner = "RECTs" if system == "RECTS" else "TNT"
 	warehouses = frappe.get_all(
 		"Warehouse",
 		filters={"custom_division": ["in", divisions], "is_group": 0},
@@ -182,7 +208,7 @@ def _division_warehouse_rows(divisions):
 		order_by="custom_is_main_seal_store desc, disabled asc, warehouse_name asc",
 	)
 	names = [w.name for w in warehouses]
-	stock = _seals_by_warehouse(names)
+	stock = _seals_by_warehouse(names, owner)
 	held = dict(
 		frappe.get_all(
 			"Seal Device",
@@ -190,6 +216,7 @@ def _division_warehouse_rows(divisions):
 				"current_custody_type": "Warehouse",
 				"current_custodian": ["in", names or [""]],
 				"in_uffizio": 1,
+				"belongs_to": "RECTs" if owner == "RECTs" else ["!=", "RECTs"],
 			},
 			fields=["current_custodian", "count(name)"],
 			group_by="current_custodian",
@@ -225,7 +252,8 @@ def _division_warehouse_rows(divisions):
 def get_warehouse_stock_count(warehouse):
 	"""Seal serials ERPNext has in stock in one warehouse, for the Warehouse form."""
 	frappe.has_permission("Warehouse", "read", warehouse, throw=True)
-	return _seals_by_warehouse([warehouse]).get(warehouse, 0)
+	owner = warehouse_system(warehouse) or "TNT"
+	return _seals_by_warehouse([warehouse], owner).get(warehouse, 0)
 
 
 @frappe.whitelist()
@@ -247,9 +275,9 @@ def get_holder_seals(custody_type, custodian, system="TNT"):
 	)
 
 
-def _seals_by_warehouse(warehouses):
-	"""{warehouse: seal count} from the stock ledger: Serial Nos that are seals,
-	matched on the Seal Device's name, serial number or IMEI."""
+def _seals_by_warehouse(warehouses, owner="TNT"):
+	"""{warehouse: seal count} from the stock ledger: Serial Nos that are seals of
+	``owner`` (TNT / RECTs), matched on the Seal Device's name, serial number or IMEI."""
 	if not warehouses:
 		return {}
 	rows = frappe.db.sql(
@@ -261,10 +289,11 @@ def _seals_by_warehouse(warehouses):
 				select 1 from `tabSeal Device` sd
 				where sn.name in (sd.name, sd.serial_number, sd.imei_number)
 					and ifnull(sd.in_uffizio, 1) = 1
+					and (ifnull(sd.belongs_to, 'TNT') = 'RECTs') = %(rects)s
 			)
 		group by sn.warehouse
 		""",
-		{"warehouses": tuple(warehouses)},
+		{"warehouses": tuple(warehouses), "rects": 1 if owner == "RECTs" else 0},
 	)
 	return {warehouse: cint(count) for warehouse, count in rows}
 

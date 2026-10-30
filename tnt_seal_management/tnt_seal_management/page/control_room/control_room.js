@@ -27,7 +27,7 @@ frappe.pages["control-room"].on_page_load = function (wrapper) {
 
 	page.control_room_state = {
 		system: _cr_route_system(),
-		tab: "requests",
+		tab: _cr_route_system() === "RECTs" ? "journeys" : "requests",
 		loading: false,
 		requests: [],
 		requestTotal: 0,
@@ -127,7 +127,7 @@ function _control_room_switch_system(page, system) {
 	_control_room_stop_alert_polling(page);
 	Object.assign(state, {
 		system,
-		tab: "requests",
+		tab: system === "RECTs" ? "journeys" : "requests",
 		requests: [], requestTotal: 0, requestOverall: 0, requestPage: 1,
 		arrivals: [], arrivalTotal: 0, arrivalOverall: 0, arrivalPage: 1, arrivalsLoaded: false,
 		journeys: [], journeysLoaded: false, journeyPage: 1, journeyTotal: 0, journeyOverall: 0,
@@ -341,10 +341,10 @@ function _control_room_render(page) {
 		<div class="cr-page">
 			<section class="cr-panel">
 				<div class="cr-tabs">
-					<button class="cr-tab ${state.tab === "requests" ? "active" : ""}" data-tab="requests">
+					${state.system === "RECTs" ? "" : `<button class="cr-tab ${state.tab === "requests" ? "active" : ""}" data-tab="requests">
 						${__("Journey requests")}
 						<span class="cr-tab-count" data-cr-request-count>${state.requestOverall || 0}</span>
-					</button>
+					</button>`}
 					<button class="cr-tab ${state.tab === "journeys" ? "active" : ""}" data-tab="journeys">
 						${__("Active journeys")}
 						<span class="cr-tab-count" data-cr-journey-count>${state.journeyOverall || 0}</span>
@@ -805,7 +805,7 @@ function _control_room_open_arrival_dialog(page, journey, { early = false } = {}
 		title: __("Arrival — {0}", [journey.name]),
 		size: "large",
 	});
-	dialog.$body.html(_control_room_arrival_card(journey, early));
+	dialog.$body.html(_control_room_arrival_card(journey, early, state.system === "RECTs"));
 	dialog.$wrapper.addClass("cr-arrival-dialog");
 	dialog.$wrapper.on("hidden.bs.modal", () => {
 		if (state.arrivalDialog === dialog) state.arrivalDialog = null;
@@ -825,7 +825,7 @@ function _cr_entered_destination(journey) {
 
 // ``early``: opened from Active journeys for a vehicle that hasn't reached its
 // destination, so there is no geofence entry to show.
-function _control_room_arrival_card(journey, early = false) {
+function _control_room_arrival_card(journey, early = false, rects = false) {
 	const route = `${frappe.utils.escape_html(journey.origin || "—")} → ${frappe.utils.escape_html(journey.destination || "—")}`;
 	const started = journey.journey_start_date_time
 		? frappe.datetime.str_to_user(journey.journey_start_date_time)
@@ -848,6 +848,13 @@ function _control_room_arrival_card(journey, early = false) {
 				${_cr_meta(__("Last API Update"), lastSeen)}
 			</div>
 			<footer class="cr-arrival-actions">
+				${rects ? `
+				<div class="cr-arrival-unlock-prompt">${__("Confirm arrival — the journey moves on to the seal return assignment.")}</div>
+				<div class="cr-arrival-unlock-buttons">
+					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--physical" data-name="${frappe.utils.escape_html(journey.name)}" data-method="arrival">
+						${__("Confirm Arrival")}
+					</button>
+				</div>` : `
 				<div class="cr-arrival-unlock-prompt">${early
 					? __("Confirm arrival before the destination (e.g. vehicle broke down) — how is the seal unlocked?")
 					: journey.journey_status === "Arrived"
@@ -860,7 +867,7 @@ function _control_room_arrival_card(journey, early = false) {
 					<button class="cr-arrival-unlock-btn cr-arrival-unlock-btn--remote" data-name="${frappe.utils.escape_html(journey.name)}" data-method="remote">
 						${__("Remote Unlock")}
 					</button>
-				</div>
+				</div>`}
 			</footer>
 		</article>
 	`;
@@ -879,10 +886,12 @@ function _control_room_confirm_arrival(page, docname, method, $btn) {
 			"Confirm arrival for {0} with a REMOTE unlock? Untagging will be skipped.",
 			[docname]
 		),
+		arrival: __("Confirm arrival for {0}? A seal return will be assigned next.", [docname]),
 	};
 	const notes = {
 		physical: __("{0}: arrival confirmed (physical unlock) — sent for untagging", [docname]),
 		remote: __("{0}: arrival confirmed (remote unlock)", [docname]),
+		arrival: __("{0}: arrival confirmed — sent for seal return", [docname]),
 	};
 	const message = messages[method] || messages.physical;
 

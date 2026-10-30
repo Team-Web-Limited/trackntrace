@@ -57,9 +57,8 @@ const RECTS_DASHBOARD_CARDS = [
 		icon: "🛂",
 		route: "control-room/rects",
 		primary: true,
-		// No Alerts or Arrivals badges: RECTs seals have no seal API to raise
-		// alerts or detect arrivals, so arrival is confirmed by hand.
-		badges: [{ label: "Approvals", count: 0, route: "control-room/rects" }],
+		// No badges: RECTs has no approvals, and its seals have no seal API to raise
+		// alerts or detect arrivals, so arrival is confirmed by hand from Active journeys.
 	},
 	{ title: "Seal Device", icon: "🔒", route: "seal-device-dashboard/rects", count: 0 },
 	{ title: "Warehouses", icon: "🏬", route: "warehouse-list/rects", count: 0, label: "Active warehouses" },

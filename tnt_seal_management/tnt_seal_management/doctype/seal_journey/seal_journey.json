@@ -758,7 +758,7 @@
    "fieldname": "seal_unlock_method",
    "fieldtype": "Select",
    "label": "Seal Unlock Method",
-   "options": "\nPhysical\nRemote\nRemote - Seal Retained\nEnded - No Collection",
+   "options": "\nPhysical\nRemote\nRemote - Seal Retained\nEnded - No Collection\nArrival Confirmed",
    "read_only": 1
   },
   {

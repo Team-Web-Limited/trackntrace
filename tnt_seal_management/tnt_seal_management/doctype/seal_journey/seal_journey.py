@@ -538,10 +538,16 @@ def confirm_arrival(docname, unlock_method="physical"):
 	Captures location live from the seal's GPS and timestamps arrival, which also
 	makes Days Taken non-zero immediately (see SealJourney.set_days_taken)."""
 	_ensure_control_room_role()
-	if unlock_method not in ("physical", "remote", "remote_retained", "end_journey"):
+	if unlock_method not in ("physical", "remote", "remote_retained", "end_journey", "arrival"):
 		frappe.throw(_("Invalid unlock method {0}.").format(unlock_method), title=_("Invalid Request"))
 
 	doc = _get_seal_journey(docname)
+	# RECTs seals have no unlock to choose: arrival just moves the journey on to
+	# the seal return assignment (no untagging), and PCB journeys can't use it.
+	if doc.system == "RECTs":
+		unlock_method = "arrival"
+	elif unlock_method == "arrival":
+		frappe.throw(_("Choose how the seal was unlocked."), title=_("Invalid Request"))
 	if not _awaiting_arrival_confirmation(doc):
 		frappe.throw(
 			_("Arrival can only be confirmed while the journey is In Transit, or Arrived with no unlock method yet."),
@@ -563,7 +569,9 @@ def confirm_arrival(docname, unlock_method="physical"):
 	doc.seal_unlocked_confirmation = 1
 	doc.flags.ignore_field_locks = True
 
-	if unlock_method == "remote":
+	if unlock_method == "arrival":
+		_confirm_remote_unlock(doc, "Arrival Confirmed")
+	elif unlock_method == "remote":
 		_confirm_remote_unlock(doc)
 	elif unlock_method == "remote_retained":
 		_confirm_remote_unlock_seal_retained(doc)
@@ -604,7 +612,7 @@ def _confirm_physical_unlock(doc):
 		)
 
 
-def _confirm_remote_unlock(doc):
+def _confirm_remote_unlock(doc, method_label="Remote"):
 	"""Remote unlock: the seal was opened remotely at the client's request, so
 	there is no physical untagging. What happens next depends on which leg of a
 	return trip this journey is (see _return_trip_leg):
@@ -623,7 +631,7 @@ def _confirm_remote_unlock(doc):
 
 	Raising the follow-up requests is tolerated if it fails, so a hiccup there
 	never blocks the arrival confirmation itself."""
-	doc.seal_unlock_method = "Remote"
+	doc.seal_unlock_method = method_label
 	doc.untagging_status = "Not Required"
 	leg = _return_trip_leg(doc)
 
