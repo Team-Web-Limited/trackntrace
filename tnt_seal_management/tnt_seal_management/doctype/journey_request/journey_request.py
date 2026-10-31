@@ -868,7 +868,10 @@ def submit_to_control_room(docname, vehicle_rows=None):
 	else:
 		submitted_rows = []
 
-	missing_route = [label for field, label in (("origin", _("Origin")), ("destination", _("Destination"))) if not doc.get(field)]
+	# RECTs seals aren't in Uffizio, so there are no geofences to pick a route from.
+	missing_route = [] if doc.system == "RECTs" else [
+		label for field, label in (("origin", _("Origin")), ("destination", _("Destination"))) if not doc.get(field)
+	]
 	if missing_route:
 		frappe.throw(
 			_("Select the {0} before submitting to the Control Room.").format(_(" and ").join(missing_route)),

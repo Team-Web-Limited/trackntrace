@@ -54,7 +54,11 @@ frappe.ui.form.on("Journey Request", {
 		}));
 		// Filled in while the request is a Draft and checked when it is submitted
 		// to the Control Room; later stages may carry older requests without one.
-		frm.toggle_reqd(["origin", "destination"], frm.doc.journey_request_status === "Draft");
+		// RECTs seals aren't in Uffizio, so a RECTs request needs no route.
+		frm.toggle_reqd(
+			["origin", "destination"],
+			frm.doc.system !== "RECTs" && frm.doc.journey_request_status === "Draft"
+		);
 		// Checkpoints are intermediate stops selected directly from Uffizio Geofences (excluding routes).
 		frm.set_query("checkpoint", "checkpoints", () => ({
 			filters: { shape: ["!=", "Route"] },
