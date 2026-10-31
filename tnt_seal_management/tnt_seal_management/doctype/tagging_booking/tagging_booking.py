@@ -86,12 +86,13 @@ class TaggingBooking(Document):
 			)
 
 	def _validate_branch(self):
-		"""Branch is mandatory for every booking that reaches Finance. Checked when
+		"""Branch is mandatory for RECTs bookings only (PCB bookings may leave it
+		blank). Checked when
 		an Account Manager raises a booking and when any booking is submitted to
 		Finance — a customer portal booking is created without one and the
 		Account Manager sets it during review. Older bookings saved before this
 		rule are not blocked from being approved, amended or reopened."""
-		if cstr(self.branch).strip():
+		if self.system != "RECTs" or cstr(self.branch).strip():
 			return
 		raising = self.is_new() and self.booking_source != "Customer Portal"
 		submitting = self.booking_status == "Pending Finance PCB Approval" and self.has_value_changed(
@@ -664,7 +665,7 @@ def submit_to_finance(docname):
 				title=_("Not Assigned to You"),
 			)
 
-	if not cstr(doc.branch).strip():
+	if doc.system == "RECTs" and not cstr(doc.branch).strip():
 		frappe.throw(
 			_("Select the Branch before submitting this booking to Finance."),
 			title=_("Missing Branch"),

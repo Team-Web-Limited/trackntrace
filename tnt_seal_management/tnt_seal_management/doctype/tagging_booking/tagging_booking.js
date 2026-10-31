@@ -43,11 +43,13 @@ frappe.ui.form.on("Tagging Booking", {
 		frm.doc.__booking_dt_at_load = frm.doc.booking_date_time;
 		set_booking_date_min(frm);
 		load_branch_options(frm);
-		// Branch must be set before a booking goes to Finance (enforced server-side
-		// too); older bookings past that point aren't forced to have one.
+		// Branch is mandatory for RECTs bookings only, and must be set before one
+		// goes to Finance (enforced server-side too); older bookings past that
+		// point aren't forced to have one.
 		frm.toggle_reqd(
 			"branch",
-			frm.is_new() || ["Draft", "Pending Account Manager Review"].includes(frm.doc.booking_status)
+			frm.doc.system === "RECTs" &&
+				(frm.is_new() || ["Draft", "Pending Account Manager Review"].includes(frm.doc.booking_status))
 		);
 		frm.add_custom_button(__("Back"), () => {
 			frappe.set_route(...booking_list_route(frm));
