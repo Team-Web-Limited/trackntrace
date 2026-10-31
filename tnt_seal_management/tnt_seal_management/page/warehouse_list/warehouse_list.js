@@ -404,7 +404,7 @@ function _wh_row_html(page, w) {
 			<td>${w.role ? `<span class="wh-badge wh-badge--role">${esc(w.role)}</span>` : dash}</td>
 			${page.wh_system === "RECTS" ? "" : `<td class="wh-address" title="${esc(w.location || "")}">${isWarehouse ? esc(w.location || dash) : _wh_staff_location_html(page, w)}</td>`}
 			<td>${status}</td>
-			<td><b>${w.seals_held || 0}</b></td>
+			<td><b>${w.seals_held || 0}</b>${isWarehouse && w.is_main_seal_store ? ` <span class="wh-badge wh-badge--erp" title="${esc(__("Seal serials ERPNext has in stock in this warehouse"))}">${__("ERP Stock")}: ${w.in_stock || 0}</span>` : ""}</td>
 			<td>${esc(w.company || dash)}</td>
 			<td>${esc(w.parent_warehouse || dash)}</td>
 			<td>${esc(w.region || dash)}</td>
@@ -732,6 +732,7 @@ function _wh_inject_styles() {
 			white-space: nowrap;
 		}
 		.wh-badge--active      { background: #dbeafe; color: #1d4ed8; }
+		.wh-badge--erp         { background: #dcfce7; color: #15803d; margin-left: 6px; }
 		.wh-badge--main        { background: #fef3c7; color: #b45309; }
 		.wh-badge--user        { background: #ede9fe; color: #6d28d9; }
 		.wh-badge--role        { background: #e0f2fe; color: #0369a1; }

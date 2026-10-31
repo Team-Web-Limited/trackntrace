@@ -632,12 +632,16 @@ def _mark_removed_from_uffizio(imeis):
 	(transferred or removed there), so they drop out of every list, count and
 	seal picker. _apply_to_device clears the flag again if Uffizio ever returns
 	the IMEI. Returns the IMEIs that were newly flagged by this call.
+
+	RECTs seals are never flagged: they aren't in the Uffizio account, so its
+	rejecting them says nothing about whether the seal is still ours.
 	"""
 	if not imeis:
 		return []
 	newly = frappe.db.sql_list(
 		"""select imei_number from `tabSeal Device`
-		where imei_number in %(imeis)s and ifnull(in_uffizio, 1) = 1""",
+		where imei_number in %(imeis)s and ifnull(in_uffizio, 1) = 1
+			and ifnull(belongs_to, 'TNT') != 'RECTs'""",
 		{"imeis": tuple(imeis)},
 	)
 	if newly:
