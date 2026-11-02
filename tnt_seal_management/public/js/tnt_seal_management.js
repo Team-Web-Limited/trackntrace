@@ -281,7 +281,7 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 				.join("");
 			const tr = rows
 				.map(
-					(d) => `<tr class="tnt-cs-row tnt-cs-row--${stateOf(d)}">
+					(d) => `<tr class="tnt-cs-row tnt-cs-row--${stateOf(d)}" data-free="${d.current_status === "Available" && !d.current_journey && d.in_stock && !d.pending_transfer ? 1 : 0}" data-search="${e([d.seal_number, d.name, d.device_id, d.current_status, d.lock_status, d.condition, d.stock_warehouse].join(" ").toLowerCase())}">
 						<td><input type="checkbox" class="tnt-cs-pick" data-seal="${e(d.name)}"></td>
 						<td><a href="/app/seal-device/${encodeURIComponent(d.name)}">${e(d.seal_number || d.name)}</a></td>
 						<td>${e(d.device_id || "")}</td>
@@ -308,18 +308,70 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 					.tnt-cs-row--no_stock > td:first-child { border-left-color: var(--red-500); }
 					.tnt-cs-row--pending > td:first-child { border-left-color: var(--yellow-500); }
 				</style>
-				<p class="text-muted">${__("{0} seal(s)", [rows.length])}
-					${can_transfer ? `<button class="btn btn-xs btn-default tnt-cs-transfer" style="margin-left:10px">${__("Transfer selected")}</button>` : ""}</p>
+				<div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
+					<input type="search" class="form-control tnt-cs-search" style="max-width:320px"
+						placeholder="${__("Search seal number, device ID, status...")}">
+					<span class="text-muted tnt-cs-count">${__("{0} seal(s)", [rows.length])}</span>
+					${can_transfer ? `
+						<span class="tnt-cs-selected badge" style="font-size:12px">${__("{0} selected", [0])}</span>
+						<input type="number" min="1" class="form-control input-sm tnt-cs-n" style="width:90px"
+							placeholder="${__("How many")}" title="${__("Ticks this many seals from the top: in stock, Available and not on a journey")}">
+						<button class="btn btn-xs btn-default tnt-cs-clear">${__("Clear")}</button>
+						<button class="btn btn-xs btn-default tnt-cs-transfer">${__("Transfer selected")}</button>` : ""}
+				</div>
 				<div class="tnt-cs-legend">${legend}</div>
 				<div class="table-responsive">
 					<table class="table table-bordered table-sm">
 						<thead><tr>
-							<th></th><th>${__("Seal Number")}</th><th>${__("Device ID")}</th><th>${__("Stock")}</th><th>${__("Status")}</th>
+							<th><input type="checkbox" class="tnt-cs-all" title="${__("Select all shown")}"></th><th>${__("Seal Number")}</th><th>${__("Device ID")}</th><th>${__("Stock")}</th><th>${__("Status")}</th>
 							<th>${__("Lock Status")}</th><th>${__("Condition")}</th><th>${__("In Custody Since")}</th>
 						</tr></thead>
 						<tbody>${tr}</tbody>
 					</table>
 				</div>`);
+			// Picks stay ticked while the search changes, so several searches can be combined.
+			const $picks = () => $body.find(".tnt-cs-pick");
+			const shownPicks = () => $body.find(".tnt-cs-row:visible .tnt-cs-pick");
+			const refreshSelected = () => {
+				$body.find(".tnt-cs-selected").text(__("{0} selected", [$picks().filter(":checked").length]));
+				const shown = shownPicks();
+				$body.find(".tnt-cs-all").prop("checked", !!shown.length && shown.filter(":checked").length === shown.length);
+			};
+			$body.on("change", ".tnt-cs-pick", refreshSelected);
+			$body.find(".tnt-cs-all").on("change", function () {
+				shownPicks().prop("checked", this.checked);
+				refreshSelected();
+			});
+			$body.find(".tnt-cs-clear").on("click", () => {
+				$picks().prop("checked", false);
+				$body.find(".tnt-cs-n").val("");
+				refreshSelected();
+			});
+			// Typing a number ticks that many seals from the top of those shown: only
+			// ones in stock, Available, not on a journey and not awaiting approval.
+			$body.find(".tnt-cs-n").on("input", function () {
+				const n = cint($(this).val());
+				$picks().prop("checked", false);
+				if (n > 0) {
+					const free = $body.find(".tnt-cs-row:visible").filter((_i, el) => el.dataset.free === "1");
+					if (n > free.length) {
+						frappe.show_alert({ message: __("Only {0} seal(s) are available to select.", [free.length]), indicator: "orange" });
+					}
+					free.slice(0, n).find(".tnt-cs-pick").prop("checked", true);
+				}
+				refreshSelected();
+			});
+			$body.find(".tnt-cs-search").on("input", function () {
+				const q = String($(this).val() || "").trim().toLowerCase();
+				let shown = 0;
+				$body.find(".tnt-cs-row").each((_i, el) => {
+					const hit = !q || el.dataset.search.includes(q);
+					el.style.display = hit ? "" : "none";
+					if (hit) shown++;
+				});
+				$body.find(".tnt-cs-count").text(q ? __("{0} of {1} seal(s)", [shown, rows.length]) : __("{0} seal(s)", [rows.length]));
+				refreshSelected();
+			});
 			$body.find(".tnt-cs-transfer").on("click", () => {
 				// dataset, not .data(): jQuery turns digit-only seal names into numbers.
 				const picked = $body.find(".tnt-cs-pick:checked").map((_i, el) => el.dataset.seal).get();

@@ -767,6 +767,10 @@ function _jr_swap_seal(frm) {
 					filters: {
 						current_status: "Available",
 						belongs_to: frm.doc.system === "RECTs" ? "RECTs" : ["!=", "RECTs"],
+						// A RECTs technician only swaps in seals they hold.
+						...(frm.doc.system === "RECTs" && !frappe.user.has_role("System Manager")
+							? { current_custody_type: "User", current_custodian: frappe.session.user }
+							: {}),
 					},
 				}),
 			},

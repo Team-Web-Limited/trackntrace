@@ -353,6 +353,26 @@ class JourneyRequest(Document):
 		if self.journey_request_status == "Draft":
 			for seal_device in seal_devices:
 				_ensure_seal_available(seal_device, self.name, self.system)
+			self._ensure_rects_seals_held_by_user(seal_devices)
+
+	def _ensure_rects_seals_held_by_user(self, seal_devices):
+		"""On a RECTs request, seals newly added by a technician must be ones they hold.
+		Seals already on the request are left alone so other users can still edit it."""
+		if self.system != "RECTs" or not _rects_holds_own_seals_only():
+			return
+		before = self.get_doc_before_save()
+		existing = {r.seal_device for r in (before.seals if before else [])}
+		for seal_device in seal_devices:
+			if seal_device in existing:
+				continue
+			custody_type, custodian = frappe.db.get_value(
+				"Seal Device", seal_device, ["current_custody_type", "current_custodian"]
+			) or (None, None)
+			if not (custody_type == "User" and custodian == frappe.session.user):
+				frappe.throw(
+					_("Seal {0} is not held by you. You can only tag with seals in your own custody.").format(seal_device),
+					title=_("Seal Not In Your Custody"),
+				)
 
 
 def _seal_system(belongs_to):
@@ -2048,6 +2068,11 @@ def get_available_journey_types(customer=None):
 # ----------------------------------------------------------------------
 # Queries
 # ----------------------------------------------------------------------
+def _rects_holds_own_seals_only(user=None):
+	"""RECTs seals are tagged from the technician's own stock; System Managers can pick any."""
+	return "System Manager" not in frappe.get_roles(user or frappe.session.user)
+
+
 @frappe.whitelist()
 @validate_and_sanitize_search_inputs
 def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
@@ -2061,6 +2086,7 @@ def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
 		where (current_status = 'Available' or current_journey_request = %(journey_request)s)
 			and ifnull(in_uffizio, 1) = 1
 			and (ifnull(belongs_to, 'TNT') = 'RECTs') = %(rects)s
+			and (%(mine_only)s = 0 or (current_custody_type = 'User' and current_custodian = %(user)s))
 			and (name like %(txt)s or seal_number like %(txt)s)
 		order by
 			case when name like %(txt)s then 0 else 1 end,
@@ -2070,6 +2096,9 @@ def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
 		{
 			"journey_request": journey_request,
 			"rects": 1 if rects else 0,
+			# A RECTs technician only picks seals they hold themselves.
+			"mine_only": 1 if rects and _rects_holds_own_seals_only() else 0,
+			"user": frappe.session.user,
 			"txt": f"%{cstr(txt)}%",
 			"start": cint(start),
 			"page_len": cint(page_len),

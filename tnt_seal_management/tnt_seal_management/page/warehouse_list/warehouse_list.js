@@ -314,7 +314,7 @@ function _wh_show_holder_seals(page, custody_type, custodian, label) {
 				}
 				const tr = rows
 					.map(
-						(s) => `<tr class="wh-hs-row" data-search="${esc([s.seal_number, s.name, s.device_id, s.current_status, s.lock_status, s.condition].join(" ").toLowerCase())}">
+						(s) => `<tr class="wh-hs-row" data-free="${s.current_status === "Available" && !s.current_journey ? 1 : 0}" data-search="${esc([s.seal_number, s.name, s.device_id, s.current_status, s.lock_status, s.condition].join(" ").toLowerCase())}">
 							${can_transfer ? `<td><input type="checkbox" class="wh-hs-pick" data-seal="${esc(s.name)}"></td>` : ""}
 							<td><a href="/app/seal-device/${encodeURIComponent(s.name)}">${esc(s.seal_number || s.name)}</a></td>
 							<td>${esc(s.device_id || "")}</td>
@@ -336,17 +336,54 @@ function _wh_show_holder_seals(page, custody_type, custodian, label) {
 						<input type="search" class="form-control wh-hs-search" style="max-width:320px"
 							placeholder="${__("Search seal number, device ID, status...")}">
 						<span class="text-muted wh-hs-count">${__("{0} seal(s)", [rows.length])}</span>
-						${can_transfer ? `<button class="btn btn-xs btn-default wh-hs-transfer">${__("Transfer selected")}</button>` : ""}
+						${can_transfer ? `
+							<span class="wh-hs-selected badge" style="font-size:12px">${__("{0} selected", [0])}</span>
+							<input type="number" min="1" class="form-control input-sm wh-hs-random-n" style="width:90px"
+								placeholder="${__("How many")}" title="${__("Ticks this many available seals, in the order shown (not on a journey)")}">
+							<button class="btn btn-xs btn-default wh-hs-clear">${__("Clear")}</button>
+							<button class="btn btn-xs btn-default wh-hs-transfer">${__("Transfer selected")}</button>` : ""}
 					</div>
 					<div class="wh-hs-scroll">
 						<table class="table table-bordered table-sm">
 							<thead><tr>
-								${can_transfer ? "<th></th>" : ""}<th>${__("Seal Number")}</th><th>${__("Device ID")}</th><th>${__("Status")}</th>
+								${can_transfer ? `<th><input type="checkbox" class="wh-hs-all" title="${__("Select all shown")}"></th>` : ""}<th>${__("Seal Number")}</th><th>${__("Device ID")}</th><th>${__("Status")}</th>
 								<th>${__("Lock Status")}</th><th>${__("Condition")}</th><th>${__("In Custody Since")}</th>
 							</tr></thead>
 							<tbody>${tr}</tbody>
 						</table>
 					</div>`);
+				// Picks stay ticked while the search changes, so several searches can be combined.
+				const $picks = () => $body.find(".wh-hs-pick");
+				const shownPicks = () => $body.find(".wh-hs-row:visible .wh-hs-pick");
+				const refreshSelected = () => {
+					const n = $picks().filter(":checked").length;
+					$body.find(".wh-hs-selected").text(__("{0} selected", [n]));
+					const shown = shownPicks();
+					$body.find(".wh-hs-all").prop("checked", !!shown.length && shown.filter(":checked").length === shown.length);
+				};
+				$body.on("change", ".wh-hs-pick", refreshSelected);
+				$body.find(".wh-hs-all").on("change", function () {
+					shownPicks().prop("checked", this.checked);
+					refreshSelected();
+				});
+				$body.find(".wh-hs-clear").on("click", () => {
+					$picks().prop("checked", false);
+					refreshSelected();
+				});
+				// Typing a number ticks that many seals from the top of those shown: only
+				// Available ones that aren't on a journey (in transit or otherwise).
+				$body.find(".wh-hs-random-n").on("input", function () {
+					const n = cint($(this).val());
+					$picks().prop("checked", false);
+					if (n > 0) {
+						const free = $body.find(".wh-hs-row:visible").filter((_i, el) => el.dataset.free === "1");
+						if (n > free.length) {
+							frappe.show_alert({ message: __("Only {0} seal(s) are available to select.", [free.length]), indicator: "orange" });
+						}
+						free.slice(0, n).find(".wh-hs-pick").prop("checked", true);
+					}
+					refreshSelected();
+				});
 				$body.find(".wh-hs-search").on("input", function () {
 					const q = String($(this).val() || "").trim().toLowerCase();
 					let shown = 0;
@@ -358,10 +395,11 @@ function _wh_show_holder_seals(page, custody_type, custodian, label) {
 					$body.find(".wh-hs-count").text(
 						q ? __("{0} of {1} seal(s)", [shown, rows.length]) : __("{0} seal(s)", [rows.length])
 					);
+					refreshSelected();
 				});
 				$body.find(".wh-hs-transfer").on("click", () => {
 					// dataset, not .data(): jQuery turns digit-only seal names into numbers.
-					const picked = $body.find(".wh-hs-row:visible .wh-hs-pick:checked").map((_i, el) => el.dataset.seal).get();
+					const picked = $body.find(".wh-hs-pick:checked").map((_i, el) => el.dataset.seal).get();
 					window.tnt_transfer_seals(picked, () => {
 						load();
 						_wh_load(page);

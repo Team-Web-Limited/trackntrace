@@ -269,7 +269,10 @@ def get_holder_seals(custody_type, custodian, system="TNT"):
 			"current_custodian": custodian,
 			"belongs_to": "RECTs" if system == "RECTS" else ["!=", "RECTs"],
 		},
-		fields=["name", "seal_number", "device_id", "current_status", "lock_status", "condition", "current_custody_since"],
+		fields=[
+			"name", "seal_number", "device_id", "current_status", "lock_status", "condition", "current_custody_since",
+			"current_journey",
+		],
 		order_by="current_custody_since desc, seal_number asc",
 		limit_page_length=0,
 	)

@@ -501,6 +501,7 @@ def get_custody_seals(custody_type, custodian):
 			"lock_status",
 			"condition",
 			"current_custody_since",
+			"current_journey",
 		],
 		order_by="current_custody_since desc, seal_number asc",
 		limit_page_length=0,
