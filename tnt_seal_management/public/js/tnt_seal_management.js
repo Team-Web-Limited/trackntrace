@@ -60,9 +60,40 @@ function tnt_crumb_module() {
 	return doc && (doc.system === 'RECTs' || doc.belongs_to === 'RECTs') ? 'RECTS' : 'TNT';
 }
 
+// Vehicle is shared across modules (ERPNext fleet users, PCB, RECTs). Reaching
+// it through the standard /app/vehicle list or a direct link must not drop the
+// user into Seal Management breadcrumbs; only arrivals from a TNT / RECTs page
+// (landing, vehicle-list page, or a TNT doctype) keep the module crumb.
+let tnt_prev_route = [];
+let tnt_vehicle_neutral = false;
+
+function tnt_is_vehicle_route(route) {
+	return (route[0] === 'List' || route[0] === 'Form') && route[1] === 'Vehicle';
+}
+
+frappe.router.on('change', () => {
+	const route = frappe.router.current_route || [];
+	if (tnt_is_vehicle_route(route)) {
+		const prev = tnt_prev_route;
+		const fromModule =
+			tnt_is_vehicle_route(prev) ? !tnt_vehicle_neutral : // list -> form keeps its context
+			['tnt-seal-management', 'rects', 'vehicle-list'].includes((prev[0] || '').toLowerCase()) ||
+			(prev[0] === 'Form' || prev[0] === 'List') && prev[1] !== 'Vehicle' && !!window.tnt_get_module();
+		tnt_vehicle_neutral = !fromModule;
+	} else {
+		tnt_vehicle_neutral = false;
+	}
+	tnt_prev_route = route.slice();
+});
+
 function tnt_relabel_module_crumb() {
 	const $link = $('#navbar-breadcrumbs li').first().find('a');
 	if (!$link.length || !TNT_MODULE_CRUMBS.includes($link.text().trim())) return;
+
+	if (tnt_vehicle_neutral) {
+		$link.closest('li').remove();
+		return;
+	}
 
 	if (tnt_crumb_module() === 'RECTS') {
 		$link.text(__('RECTs Sealmanagement')).attr('href', '/app/rects');
