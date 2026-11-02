@@ -19,7 +19,12 @@ frappe.ui.form.on("Seal Device", {
 
 		if (!frm.is_new()) {
 			_add_sync_button(frm);
-			frm.add_custom_button(
+			// RECTs seals are handed over by the Seal Manager role alone.
+			const can_transfer =
+				frm.doc.belongs_to !== "RECTs" ||
+				frappe.user.has_role("Seal Manager") ||
+				frappe.session.user === "Administrator";
+			if (can_transfer) frm.add_custom_button(
 				__("Transfer Custody"),
 				() => window.tnt_transfer_seals([frm.doc.name], () => frm.reload_doc()),
 				__("Actions")

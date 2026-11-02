@@ -270,6 +270,9 @@ _TRANSFER_TARGET_TYPES = ("Warehouse", "User")
 # Roles that may hand over ANY seal (a Field Technician may only hand over
 # seals they are currently holding).
 _TRANSFER_SUPERVISOR_ROLES = ("System Manager", "Operations Control Room", "PCB Team Leader")
+# RECTs seals are handed over by the Seal Manager role alone (PCB seals keep the
+# rules above).
+_RECTS_TRANSFER_ROLE = "Seal Manager"
 
 
 @frappe.whitelist()
@@ -323,6 +326,15 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 		)
 		if not info:
 			frappe.throw(_("Seal {0} not found.").format(seal))
+		if (
+			frappe.db.get_value(_DOCTYPE, seal, "belongs_to") == "RECTs"
+			and user != "Administrator"
+			and _RECTS_TRANSFER_ROLE not in frappe.get_roles(user)
+		):
+			frappe.throw(
+				_("Only a {0} can transfer RECTs seals ({1}).").format(_RECTS_TRANSFER_ROLE, seal),
+				frappe.PermissionError,
+			)
 		if info.current_status != "Available":
 			frappe.throw(
 				_("Seal {0} is {1}. A seal can only be handed over once it is Available.").format(
