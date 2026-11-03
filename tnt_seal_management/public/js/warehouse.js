@@ -1,6 +1,24 @@
+// Branch checkboxes on Warehouse (same as Customer): "All" ticks / unticks every
+// branch, and the box follows the three branches (all ticked = All).
+const WAREHOUSE_BRANCH_FIELDS = ["custom_division_fms", "custom_division_ects", "custom_division_rects"];
+
+function wh_sync_all_branches(frm) {
+	const all = WAREHOUSE_BRANCH_FIELDS.every((f) => frm.doc[f]);
+	if (!!frm.doc.custom_division_all !== all) frm.set_value("custom_division_all", all ? 1 : 0);
+}
+
 // Seals currently held by this ERPNext Warehouse (renderer lives in
 // tnt_seal_management.js).
 frappe.ui.form.on("Warehouse", {
+	custom_division_all(frm) {
+		const all = frm.doc.custom_division_all ? 1 : 0;
+		if (all || WAREHOUSE_BRANCH_FIELDS.every((f) => frm.doc[f])) {
+			WAREHOUSE_BRANCH_FIELDS.forEach((f) => frm.set_value(f, all));
+		}
+	},
+	custom_division_fms: wh_sync_all_branches,
+	custom_division_ects: wh_sync_all_branches,
+	custom_division_rects: wh_sync_all_branches,
 	refresh(frm) {
 		window.tnt_render_custody_seals(frm, "Warehouse", __("Seals in this Warehouse"));
 		if (frm.is_new()) return;

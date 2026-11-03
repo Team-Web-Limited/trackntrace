@@ -33,6 +33,11 @@ fixtures = [
 					"Customer-custom_division_rects",
 					"Purchase Receipt Item-custom_belongs_to",
 					"Warehouse-custom_division",
+					"Warehouse-custom_branches_section",
+					"Warehouse-custom_division_all",
+					"Warehouse-custom_division_fms",
+					"Warehouse-custom_division_ects",
+					"Warehouse-custom_division_rects",
 					"Item-custom_is_seal",
 					"Warehouse-custom_seal_management_section",
 					"Warehouse-custom_is_main_seal_store",
@@ -232,6 +237,10 @@ has_permission = {
 doc_events = {
 	# Keeps the Customer Branch checkboxes consistent (All <-> FMS + ECTS + RECTS).
 	"Customer": {
+		"validate": "tnt_seal_management.tnt_seal_management.api.customer_branches.normalize_branches",
+	},
+	# Same for the Warehouse Branch checkboxes.
+	"Warehouse": {
 		"validate": "tnt_seal_management.tnt_seal_management.api.customer_branches.normalize_branches",
 	},
 	# Seal serials on a Material Receipt / Issue / Transfer become "Seal Transfer"

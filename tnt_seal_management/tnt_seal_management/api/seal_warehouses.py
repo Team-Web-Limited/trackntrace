@@ -1,8 +1,7 @@
-# Seal warehouses are ERPNext Warehouses whose Branch (custom_division) is ECTS
-# Division, Both (a store shared with the FMS Division) or RECTS Division. The
+# Seal warehouses are ERPNext Warehouses whose Branch checkbox ECTS or RECTS is ticked. The
 # seals are the same across TNT and RECTS, so custody, pickers and GPS matching
 # use every seal warehouse; only the Warehouses page splits them per system
-# (see SYSTEM_DIVISIONS). Material Transfer / Issue / Receipt keep stock on them as usual;
+# (see SYSTEM_BRANCH). Material Transfer / Issue / Receipt keep stock on them as usual;
 # seal management adds a few custom fields (Main Seal Store, GPS position and
 # radius) and treats them as the places a seal can rest.
 
@@ -11,35 +10,47 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
-ECTS_DIVISION = "ECTS Division"
-BOTH_DIVISIONS = "Both"
-RECTS_DIVISION = "RECTS Division"
-SEAL_DIVISIONS = (ECTS_DIVISION, BOTH_DIVISIONS, RECTS_DIVISION)
+# Branch checkboxes on the Warehouse (same as on Customer): ECTS = PCB (TNT),
+# RECTS = RECTs. A seal warehouse ticks ECTS and/or RECTS; FMS-only warehouses
+# aren't seal warehouses.
+SEAL_BRANCHES = ("custom_division_ects", "custom_division_rects")
 
-# Which warehouses each system's Warehouses page lists.
-SYSTEM_DIVISIONS = {
-	"TNT": (ECTS_DIVISION, BOTH_DIVISIONS),
-	"RECTS": (RECTS_DIVISION,),
+# Which warehouses each system's Warehouses page lists (a Branch checkbox).
+SYSTEM_BRANCH = {
+	"TNT": "custom_division_ects",
+	"RECTS": "custom_division_rects",
 }
 
 # Link filters for picking a seal warehouse (Return Warehouse, custody handover).
-SEAL_WAREHOUSE_FILTERS = {"custom_division": ["in", SEAL_DIVISIONS], "is_group": 0, "disabled": 0}
+SEAL_WAREHOUSE_FILTERS = {"is_group": 0, "disabled": 0}
+SEAL_WAREHOUSE_OR_FILTERS = [[b, "=", 1] for b in SEAL_BRANCHES]
 
 
-def is_seal_warehouse(warehouse):
-	"""True when ``warehouse`` is an active seal warehouse (see SEAL_DIVISIONS)."""
-	return bool(warehouse) and bool(
-		frappe.db.exists("Warehouse", {"name": warehouse, **SEAL_WAREHOUSE_FILTERS})
+def seal_warehouses(extra_filters=None, **kwargs):
+	"""Active seal warehouses (ECTS or RECTS ticked), as frappe.get_all rows."""
+	return frappe.get_all(
+		"Warehouse",
+		filters={**SEAL_WAREHOUSE_FILTERS, **(extra_filters or {})},
+		or_filters=SEAL_WAREHOUSE_OR_FILTERS,
+		**kwargs,
 	)
 
 
+def is_seal_warehouse(warehouse):
+	"""True when ``warehouse`` is an active seal warehouse (ECTS or RECTS ticked)."""
+	return bool(warehouse) and bool(seal_warehouses({"name": warehouse}, limit=1))
+
+
 def warehouse_system(warehouse):
-	"""The system a seal warehouse serves, from its Branch: "RECTs" for RECTS
-	Division, "TNT" (PCB) for ECTS Division or Both, None for any other warehouse."""
-	division = frappe.db.get_value("Warehouse", warehouse, "custom_division") if warehouse else None
-	if division == RECTS_DIVISION:
+	"""The system a seal warehouse serves, from its Branch: "RECTs" when only RECTS
+	is ticked, "TNT" (PCB) when ECTS is ticked and RECTS isn't, None for any other
+	warehouse and for one shared by both (no system restriction)."""
+	if not warehouse:
+		return None
+	ects, rects = frappe.db.get_value("Warehouse", warehouse, ["custom_division_ects", "custom_division_rects"]) or (0, 0)
+	if cint(rects) and not cint(ects):
 		return "RECTs"
-	return "TNT" if division in (ECTS_DIVISION, BOTH_DIVISIONS) else None
+	return "TNT" if cint(ects) and not cint(rects) else None
 
 
 def check_seal_system(seal, warehouse):
@@ -58,7 +69,8 @@ def check_seal_system(seal, warehouse):
 
 def main_seal_store():
 	"""Name of the warehouse flagged Main Seal Store, if any."""
-	return frappe.db.get_value("Warehouse", {**SEAL_WAREHOUSE_FILTERS, "custom_is_main_seal_store": 1}, "name")
+	rows = seal_warehouses({"custom_is_main_seal_store": 1}, pluck="name", limit=1)
+	return rows[0] if rows else None
 
 
 @frappe.whitelist()
@@ -66,9 +78,7 @@ def get_seal_warehouse_options():
 	"""Active seal warehouses for pickers, main store first. A plain list, so the
 	handover dialog works for roles (e.g. Operations Control Room) that have no
 	permission on the ERPNext Warehouse doctype."""
-	return frappe.get_all(
-		"Warehouse",
-		filters=SEAL_WAREHOUSE_FILTERS,
+	return seal_warehouses(
 		fields=["name", "warehouse_name"],
 		order_by="custom_is_main_seal_store desc, warehouse_name asc",
 	)
@@ -124,8 +134,8 @@ def is_technician_only(user=None):
 @frappe.whitelist()
 def get_warehouse_list(search=None, status="All", page=1, page_length=25, system="TNT"):
 	"""Rows for the Warehouses page: every ERPNext Warehouse whose Branch
-	(custom_division) belongs to ``system`` (TNT: ECTS Division or Both;
-	RECTS: RECTS Division — see SYSTEM_DIVISIONS), with the number of seals its stock
+	Branch checkbox is ticked for ``system`` (TNT: ECTS;
+	RECTS: RECTS — see SYSTEM_BRANCH), with the number of seals its stock
 	ledger holds (Serial No.warehouse), plus the Users and Customers that seals
 	are in the custody of right now — straight from each Seal Device, so they
 	appear and drop off as seals move. ``status`` is All, or one or more of
@@ -138,13 +148,13 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25, system
 	page = max(cint(page), 1)
 	page_length = min(max(cint(page_length) or 25, 1), 100)
 	search = (search or "").strip().lower()
-	divisions = SYSTEM_DIVISIONS.get(system) or SYSTEM_DIVISIONS["TNT"]
+	branch = SYSTEM_BRANCH.get(system) or SYSTEM_BRANCH["TNT"]
 
 	if is_technician_only():
 		mine = ("User", frappe.session.user)
 		rows = _holder_rows({k: v for k, v in _seals_held_by_custodian(system).items() if k == mine})
 	else:
-		rows = _division_warehouse_rows(divisions, system) + _holder_rows(_seals_held_by_custodian(system))
+		rows = _division_warehouse_rows(branch, system) + _holder_rows(_seals_held_by_custodian(system))
 
 	def in_status(row, key):
 		if key == "All":
@@ -193,14 +203,14 @@ def _parse_statuses(status, known):
 	return [s for s in (status or []) if s in known and s != "All"]
 
 
-def _division_warehouse_rows(divisions, system="TNT"):
-	"""Seal warehouses in ``divisions``, active first, each with its seal count.
+def _division_warehouse_rows(branch, system="TNT"):
+	"""Seal warehouses with the ``branch`` checkbox ticked, active first, each with its seal count.
 	Only seals that belong to ``system`` are counted: a RECTs warehouse can hold
 	PCB seals, which don't show in RECTs seal management (and the other way round)."""
 	owner = "RECTs" if system == "RECTS" else "TNT"
 	warehouses = frappe.get_all(
 		"Warehouse",
-		filters={"custom_division": ["in", divisions], "is_group": 0},
+		filters={branch: 1, "is_group": 0},
 		fields=[
 			"name", "warehouse_name", "company", "parent_warehouse", "disabled", "city", "address_line_1",
 			"custom_is_main_seal_store", "custom_show_erp_stock", "custom_location",

@@ -11,6 +11,11 @@ frappe.ui.form.on("Seal Device", {
 		);
 	},
 	refresh(frm) {
+		// RECTs only for now: a saved Outright Purchase belongs to its customer for good (enforced
+		// server-side too): the category and the owner can't be changed.
+		const locked = !frm.is_new() && frm.doc.belongs_to === "RECTs" && frm.doc.seal_category === "Outright Purchase" && !!frm.doc.category_customer;
+		frm.set_df_property("seal_category", "read_only", locked ? 1 : 0);
+		frm.set_df_property("category_customer", "read_only", locked ? 1 : 0);
 		// Back returns to the dashboard of the module the user is in (TNT or RECTs).
 		frm.add_custom_button(__("Back"), () => {
 			const route = _seal_module(frm) === "RECTS" ? "seal-device-dashboard/rects" : "seal-device-dashboard";

@@ -352,7 +352,7 @@ class JourneyRequest(Document):
 
 		if self.journey_request_status == "Draft":
 			for seal_device in seal_devices:
-				_ensure_seal_available(seal_device, self.name, self.system)
+				_ensure_seal_available(seal_device, self.name, self.system, self.client_name)
 			self._ensure_rects_seals_held_by_user(seal_devices)
 
 	def _ensure_rects_seals_held_by_user(self, seal_devices):
@@ -380,7 +380,7 @@ def _seal_system(belongs_to):
 	return "RECTs" if belongs_to == "RECTs" else "PCB"
 
 
-def _ensure_seal_available(seal_device, journey_request_name, system="PCB"):
+def _ensure_seal_available(seal_device, journey_request_name, system="PCB", customer=None):
 	status, current_journey_request, in_uffizio, belongs_to = frappe.db.get_value(
 		"Seal Device",
 		seal_device,
@@ -393,6 +393,12 @@ def _ensure_seal_available(seal_device, journey_request_name, system="PCB"):
 			),
 			title=_("Seal Unavailable"),
 		)
+	# An outright-purchase seal only goes on its owner's journeys.
+	from tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device import (
+		ensure_seal_usable_by_customer,
+	)
+
+	ensure_seal_usable_by_customer(seal_device, customer)
 	if not in_uffizio:
 		frappe.throw(
 			_("Seal Device {0} is no longer in the Uffizio account and cannot be used.").format(seal_device),
@@ -1101,7 +1107,7 @@ def swap_seal(docname, old_seal_device, new_seal_device):
 			title=_("Duplicate Seal"),
 		)
 
-	_ensure_seal_available(new_seal_device, doc.name, doc.system)
+	_ensure_seal_available(new_seal_device, doc.name, doc.system, doc.client_name)
 
 	row.seal_device = new_seal_device
 	row.seal_number = frappe.db.get_value("Seal Device", new_seal_device, "seal_number")
@@ -2078,6 +2084,7 @@ def _rects_holds_own_seals_only(user=None):
 def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
 	journey_request = (filters or {}).get("journey_request") or ""
 	rects = (filters or {}).get("system") == "RECTs"
+	customer = (filters or {}).get("customer") or ""
 	return frappe.db.sql(
 		"""
 		select
@@ -2086,6 +2093,7 @@ def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
 		where (current_status = 'Available' or current_journey_request = %(journey_request)s)
 			and ifnull(in_uffizio, 1) = 1
 			and (ifnull(belongs_to, 'TNT') = 'RECTs') = %(rects)s
+			and (ifnull(belongs_to, 'TNT') != 'RECTs' or ifnull(seal_category, 'Lease') != 'Outright Purchase' or category_customer = %(customer)s)
 			and (%(mine_only)s = 0 or (current_custody_type = 'User' and current_custodian = %(user)s))
 			and (name like %(txt)s or seal_number like %(txt)s)
 		order by
@@ -2095,6 +2103,7 @@ def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
 		""",
 		{
 			"journey_request": journey_request,
+			"customer": customer,
 			"rects": 1 if rects else 0,
 			# A RECTs technician only picks seals they hold themselves.
 			"mine_only": 1 if rects and _rects_holds_own_seals_only() else 0,

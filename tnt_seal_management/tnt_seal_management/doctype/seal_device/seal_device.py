@@ -20,11 +20,14 @@ class SealDevice(Document):
 
 	def validate(self):
 		# A new seal belongs to the system of the warehouse it is received into
-		# (Branch RECTS Division = RECTs). Read-only after that: a seal never
+		# (Branch RECTS ticked, ECTS not = RECTs). Read-only after that: a seal never
 		# moves between PCB and RECTs.
 		if self.is_new() and self.current_custody_type == "Warehouse" and self.current_custodian:
-			if frappe.db.get_value("Warehouse", self.current_custodian, "custom_division") == "RECTS Division":
+			from tnt_seal_management.tnt_seal_management.api.seal_warehouses import warehouse_system
+
+			if warehouse_system(self.current_custodian) == "RECTs":
 				self.belongs_to = "RECTs"
+		self.enforce_outright_purchase_locked()
 		# Seals are leased unless sold; a sold seal always names its owner, and a
 		# leased seal has none (its customer is the live custody, see leased_to).
 		self.seal_category = self.seal_category or "Lease"
@@ -38,6 +41,51 @@ class SealDevice(Document):
 			self.seal_owner = get_company_name()
 		if not self.category_customer:
 			self.category_customer_name = None
+
+	def enforce_outright_purchase_locked(self):
+		"""(RECTs seals only.) Once a seal is saved as an Outright Purchase it belongs to that customer
+		for good: it can't go back to Lease and can't be given to another customer."""
+		# RECTs only for now.
+		if self.belongs_to != "RECTs":
+			return
+		previous = self.get_doc_before_save()
+		if not previous or previous.seal_category != "Outright Purchase" or not previous.category_customer:
+			return
+		if self.seal_category != "Outright Purchase":
+			frappe.throw(
+				_("Seal {0} was bought outright by {1} and can't be changed back to Lease.").format(
+					self.name, previous.category_customer_name or previous.category_customer
+				),
+				title=_("Seal Category Locked"),
+			)
+		if self.category_customer != previous.category_customer:
+			frappe.throw(
+				_("Seal {0} belongs to {1} and can't be moved to another customer.").format(
+					self.name, previous.category_customer_name or previous.category_customer
+				),
+				title=_("Seal Owner Locked"),
+			)
+
+
+def ensure_seal_usable_by_customer(seal_device, customer):
+	"""An outright-purchase seal is only ever used on its owner's journeys: never
+	leased out, never used by another customer (leased or outright). Leased seals
+	have no such restriction. Called wherever a seal is put on a journey."""
+	category, owner, belongs_to = frappe.db.get_value(
+		"Seal Device", seal_device, ["seal_category", "category_customer", "belongs_to"]
+	) or (None, None, None)
+	# RECTs only for now.
+	if belongs_to != "RECTs" or category != "Outright Purchase" or not owner:
+		return
+	if customer != owner:
+		frappe.throw(
+			_("Seal {0} was bought outright by {1} and can only be used on their journeys{2}.").format(
+				seal_device,
+				frappe.db.get_value("Customer", owner, "customer_name") or owner,
+				"" if customer else _(" (select the customer first)"),
+			),
+			title=_("Seal Reserved For Its Owner"),
+		)
 
 
 def get_company_name():
@@ -278,7 +326,7 @@ _RECTS_TRANSFER_ROLE = "Seal Manager"
 @frappe.whitelist()
 def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_code=None):
 	"""Hand seals over to a live person (User) or a seal warehouse (an ERPNext Warehouse
-	whose Branch is ECTS Division or Both, such as the main store). One step: custody moves as soon as this is submitted, and a
+	whose Branch is ECTS or RECTS, such as the main store). One step: custody moves as soon as this is submitted, and a
 	Seal Custody Transfer record keeps who moved what from whom to whom.
 
 	Only a warehouse into a Main Seal Store moves stock with custody (the main
@@ -311,7 +359,7 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 			frappe.throw(_("Only a System Manager can transfer seals to a warehouse."), frappe.PermissionError)
 
 		if not is_seal_warehouse(to_custodian):
-			frappe.throw(_("{0} is not an active seal warehouse (Branch ECTS Division or Both).").format(to_custodian))
+			frappe.throw(_("{0} is not an active seal warehouse (Branch ECTS or RECTS ticked).").format(to_custodian))
 
 	user = frappe.session.user
 	supervisor = user == "Administrator" or bool(set(frappe.get_roles(user)) & set(_TRANSFER_SUPERVISOR_ROLES))

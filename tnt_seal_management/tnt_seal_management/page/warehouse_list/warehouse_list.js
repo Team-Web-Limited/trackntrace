@@ -1,18 +1,18 @@
 // The same page serves both systems: /app/warehouse-list for TNT and
 // /app/warehouse-list/rects for RECTS. Seals are shared; each system lists the
-// warehouses of its own Branch (see SYSTEM_DIVISIONS in seal_warehouses.py).
+// warehouses of its own Branch (see SYSTEM_BRANCH in seal_warehouses.py).
 const WH_SYSTEMS = {
 	TNT: {
 		title: "Warehouses",
 		dashboard: "tnt-seal-management",
-		division: "ECTS Division",
-		empty_hint: "Warehouses appear here when their Branch is ECTS Division or Both. Clear the filters to see more.",
+		branch: "custom_division_ects",
+		empty_hint: "Warehouses appear here when their Branch is ECTS. Clear the filters to see more.",
 	},
 	RECTS: {
 		title: "RECTs Warehouses",
 		dashboard: "rects",
-		division: "RECTS Division",
-		empty_hint: "Warehouses appear here when their Branch is RECTS Division. Clear the filters to see more.",
+		branch: "custom_division_rects",
+		empty_hint: "Warehouses appear here when their Branch is RECTS. Clear the filters to see more.",
 	},
 };
 
@@ -246,7 +246,7 @@ function _wh_render_stats(page, summary) {
 function _wh_set_create_action(page, canCreate) {
 	if (!canCreate || page.wh_create_added) return;
 	page.wh_create_added = true;
-	page.set_primary_action(__("New Warehouse"), () => frappe.new_doc("Warehouse", { custom_division: WH_SYSTEMS[page.wh_system].division }));
+	page.set_primary_action(__("New Warehouse"), () => frappe.new_doc("Warehouse", { [WH_SYSTEMS[page.wh_system].branch]: 1, custom_division_fms: 0 }));
 }
 
 function _wh_render_table(page, warehouses) {

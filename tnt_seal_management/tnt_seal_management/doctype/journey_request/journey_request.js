@@ -36,13 +36,13 @@ frappe.ui.form.on("Journey Request", {
 		frm.set_query("seal_device", "seals", () => ({
 			query:
 				"tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.available_seal_query",
-			filters: { journey_request: frm.doc.name || "", system: frm.doc.system },
+			filters: { journey_request: frm.doc.name || "", system: frm.doc.system, customer: frm.doc.client_name || "" },
 		}));
 
 		// Origin/Destination are the journey's start/end points, picked from
 		// Uffizio Geofences (excluding routes); Checkpoints are the
 		// intermediate stops in the table below.
-		// Seals return to an active seal warehouse (Branch ECTS Division or Both).
+		// Seals return to an active seal warehouse (Branch ECTS ticked).
 		frm.set_query("return_warehouse", () => ({ filters: _jr_return_warehouse_filters(frm.doc.system) }));
 		// The journey can't start and end at the same place, so each picker leaves
 		// out whatever is already chosen in the other.
@@ -436,11 +436,11 @@ function _journey_request_add_buttons(frm) {
 	}
 }
 
-// Seal warehouses a seal can be returned to: PCB's are the ECTS Division (or both
-// divisions), RECTs' are the RECTS Division.
+// Seal warehouses a seal can be returned to: PCB's have the ECTS Branch ticked,
+// RECTs' have the RECTS Branch ticked.
 function _jr_return_warehouse_filters(system) {
-	const division = system === "RECTs" ? "RECTS Division" : ["in", ["ECTS Division", "Both"]];
-	return { custom_division: division, is_group: 0, disabled: 0 };
+	const branch = system === "RECTs" ? "custom_division_rects" : "custom_division_ects";
+	return { [branch]: 1, is_group: 0, disabled: 0 };
 }
 
 function _jr_is_multi_vehicle(frm) {

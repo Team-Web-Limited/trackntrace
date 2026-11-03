@@ -291,7 +291,7 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
-	# The Warehouses page lists the seal warehouses (Branch ECTS Division or Both)
+	# The Warehouses page lists the seal warehouses (Branch ECTS ticked)
 	# plus live seal holders, so the card counts the active warehouses.
 	"warehouse-list": {
 		"doctype": "Warehouse",
@@ -306,7 +306,7 @@ CARD_COUNT_RULES = {
 					"Account Manager",
 				],
 				"label": "Active warehouses",
-				"filters": {"custom_division": ["in", ["ECTS Division", "Both"]], "is_group": 0, "disabled": 0},
+				"filters": {"custom_division_ects": 1, "is_group": 0, "disabled": 0},
 			},
 			# A tag operator only sees the seals in their own custody.
 			{
@@ -322,7 +322,7 @@ CARD_COUNT_RULES = {
 			},
 		],
 	},
-	# The RECTS dashboard's Warehouses card: same as above for RECTS Division.
+	# The RECTS dashboard's Warehouses card: same as above for the RECTS branch.
 	"warehouse-list/rects": {
 		"doctype": "Warehouse",
 		"rules": [
@@ -336,7 +336,7 @@ CARD_COUNT_RULES = {
 					"Account Manager",
 				],
 				"label": "Active warehouses",
-				"filters": {"custom_division": "RECTS Division", "is_group": 0, "disabled": 0},
+				"filters": {"custom_division_rects": 1, "is_group": 0, "disabled": 0},
 			},
 			{
 				"roles": ["Field Technician"],
