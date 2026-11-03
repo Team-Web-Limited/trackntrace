@@ -442,7 +442,7 @@ function _wh_row_html(page, w) {
 			<td>${w.role ? `<span class="wh-badge wh-badge--role">${esc(w.role)}</span>` : dash}</td>
 			${page.wh_system === "RECTS" ? "" : `<td class="wh-address" title="${esc(w.location || "")}">${isWarehouse ? esc(w.location || dash) : _wh_staff_location_html(page, w)}</td>`}
 			<td>${status}</td>
-			<td><b>${w.seals_held || 0}</b>${isWarehouse && w.is_main_seal_store ? ` <span class="wh-badge wh-badge--erp" title="${esc(__("Seal serials ERPNext has in stock in this warehouse"))}">${__("ERP Stock")}: ${w.in_stock || 0}</span>` : ""}</td>
+			<td><b>${w.seals_held || 0}</b>${isWarehouse && w.show_erp_stock ? ` <span class="wh-badge wh-badge--erp" title="${esc(__("Seal serials ERPNext has in stock in this warehouse"))}">${__("ERP Stock")}: ${w.in_stock || 0}</span>` : ""}</td>
 			<td>${esc(w.company || dash)}</td>
 			<td>${esc(w.parent_warehouse || dash)}</td>
 			<td>${esc(w.region || dash)}</td>

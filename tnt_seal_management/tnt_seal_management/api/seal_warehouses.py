@@ -203,7 +203,7 @@ def _division_warehouse_rows(divisions, system="TNT"):
 		filters={"custom_division": ["in", divisions], "is_group": 0},
 		fields=[
 			"name", "warehouse_name", "company", "parent_warehouse", "disabled", "city", "address_line_1",
-			"custom_is_main_seal_store", "custom_location",
+			"custom_is_main_seal_store", "custom_show_erp_stock", "custom_location",
 		],
 		order_by="custom_is_main_seal_store desc, disabled asc, warehouse_name asc",
 	)
@@ -232,6 +232,7 @@ def _division_warehouse_rows(divisions, system="TNT"):
 			"parent_warehouse": w.parent_warehouse,
 			"disabled": cint(w.disabled),
 			"is_main_seal_store": cint(w.custom_is_main_seal_store),
+			"show_erp_stock": cint(w.custom_is_main_seal_store or w.custom_show_erp_stock),
 			"region": w.city,
 			"location": w.custom_location,
 			"address_line": w.address_line_1,

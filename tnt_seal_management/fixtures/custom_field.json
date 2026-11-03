@@ -424,6 +424,19 @@
   "name": "Warehouse-custom_is_main_seal_store"
  },
  {
+  "default": "0",
+  "description": "Show the ERP Stock pill on the Warehouses page without making this a Main Seal Store (no main-store behaviour).",
+  "doctype": "Custom Field",
+  "dt": "Warehouse",
+  "fieldname": "custom_show_erp_stock",
+  "fieldtype": "Check",
+  "insert_after": "custom_is_main_seal_store",
+  "label": "Show ERP Stock",
+  "modified": "2026-11-03 12:00:00",
+  "module": null,
+  "name": "Warehouse-custom_show_erp_stock"
+ },
+ {
   "default": null,
   "description": "Seal serials ERPNext has in stock in this warehouse.",
   "doctype": "Custom Field",
