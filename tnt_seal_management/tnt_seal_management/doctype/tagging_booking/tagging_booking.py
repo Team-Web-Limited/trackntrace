@@ -38,7 +38,6 @@ class TaggingBooking(Document):
 	def validate(self):
 		self._validate_client_in_system()
 		self._validate_booking_date_time_not_past()
-		self._validate_branch()
 		self._validate_vehicles_belong_to_client()
 		self._validate_return_trip()
 		self._enforce_finance_only_approval_controls()
@@ -84,22 +83,6 @@ class TaggingBooking(Document):
 				_("Date and Time cannot be in the past."),
 				title=_("Invalid Date and Time"),
 			)
-
-	def _validate_branch(self):
-		"""Branch is mandatory for RECTs bookings only (PCB bookings may leave it
-		blank). Checked when
-		an Account Manager raises a booking and when any booking is submitted to
-		Finance — a customer portal booking is created without one and the
-		Account Manager sets it during review. Older bookings saved before this
-		rule are not blocked from being approved, amended or reopened."""
-		if self.system != "RECTs" or cstr(self.branch).strip():
-			return
-		raising = self.is_new() and self.booking_source != "Customer Portal"
-		submitting = self.booking_status == "Pending Finance PCB Approval" and self.has_value_changed(
-			"booking_status"
-		)
-		if raising or submitting:
-			frappe.throw(_("Branch is required."), title=_("Missing Branch"))
 
 	def _validate_vehicles_belong_to_client(self):
 		"""Every booked vehicle must be owned by the booking's client. Only
@@ -664,12 +647,6 @@ def submit_to_finance(docname):
 				_("This booking is assigned to {0}.").format(doc.account_manager),
 				title=_("Not Assigned to You"),
 			)
-
-	if doc.system == "RECTs" and not cstr(doc.branch).strip():
-		frappe.throw(
-			_("Select the Branch before submitting this booking to Finance."),
-			title=_("Missing Branch"),
-		)
 
 	doc._ensure_seal_journey(force=True)
 	doc.booking_status = "Pending Finance PCB Approval"
