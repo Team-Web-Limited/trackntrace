@@ -272,6 +272,18 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25, 
 			fields=["name", "billing_rule_name", "journey_type", "first_period_amount", "extra_day_rate", "currency"],
 		)
 	}
+	# Outright-purchase flag and seal count from each customer's primary assignment.
+	ownership = {}
+	for a in frappe.get_all(
+		"Customer Billing Assignment",
+		filters={
+			"assignment_type": "Customer", "customer": ["in", [c.name for c in customers] or [""]],
+			"active": 1, "is_extra_billing": 0,
+		},
+		fields=["customer", "outright_purchase", "owned_seal_count"],
+		order_by="priority desc, modified desc",
+	):
+		ownership.setdefault(a.customer, a)
 	journey_types_by_rule_name = {}
 	rule_names = {r.billing_rule_name for r in rule_info.values() if r.billing_rule_name}
 	if rule_names:
@@ -288,6 +300,9 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25, 
 		customer.billing_label = info[0] if info else None
 		customer.billing_kind = info[1] if info else None
 		customer.billing_rule = rule_name
+		owned = ownership.get(customer.name)
+		customer.outright_purchase = cint(owned.outright_purchase) if owned else 0
+		customer.owned_seal_count = cint(owned.owned_seal_count) if owned and owned.outright_purchase else 0
 		rule = rule_info.get(rule_name)
 		customer.first_period_amount = rule.first_period_amount if rule else None
 		customer.extra_day_rate = rule.extra_day_rate if rule else None
@@ -831,6 +846,14 @@ def set_customer_billing(
 	# category, disabled flag). The Import/Export save is rates-only.
 	is_primary_journey_type = journey_type == JOURNEY_TYPE_LOCAL
 
+	# RECTs customers pay upfront: Frequency drives the billing period, and a Sales
+	# Order is raised for it once the billing is saved (see rects_billing).
+	from tnt_seal_management.tnt_seal_management.api import rects_billing
+
+	rects_upfront = is_primary_journey_type and rects_billing.is_rects_customer(customer)
+	if rects_upfront:
+		period_from_date, period_to_date = rects_billing.resolve_period(customer, billing_period_type, first_period_days)
+
 	if tax_category and is_primary_journey_type:
 		if tax_category not in TAX_CATEGORY_OPTIONS:
 			frappe.throw(_("Invalid tax category."))
@@ -916,6 +939,7 @@ def set_customer_billing(
 		# customer newly pending, or clear a pending state that's now resolved.
 		_gate_customer_on_rule_approval(customer)
 
+		sales_order = rects_billing.on_billing_saved(customer, period_from_date, period_to_date) if rects_upfront else None
 		frappe.db.commit()
 		rule = frappe.db.get_value(
 			"Seal Billing Rate", rule_name, ["name", "billing_rule_name", "billing_type"], as_dict=True
@@ -925,6 +949,7 @@ def set_customer_billing(
 			"billing_rule": rule.name,
 			"billing_rule_name": rule.billing_rule_name,
 			"billing_type": rule.billing_type,
+			"sales_order": sales_order,
 		}
 
 	if rate_type not in ("Flat Rate", "Non-Flat Rate"):
@@ -978,6 +1003,7 @@ def set_customer_billing(
 	# branch above.
 	_gate_customer_on_rule_approval(customer)
 
+	sales_order = rects_billing.on_billing_saved(customer, period_from_date, period_to_date) if rects_upfront else None
 	frappe.db.commit()
 	rule = frappe.db.get_value(
 		"Seal Billing Rate", rule_name, ["name", "billing_rule_name", "billing_type"], as_dict=True
@@ -987,6 +1013,7 @@ def set_customer_billing(
 		"billing_rule": rule.name,
 		"billing_rule_name": rule.billing_rule_name,
 		"billing_type": rule.billing_type,
+		"sales_order": sales_order,
 	}
 
 

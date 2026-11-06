@@ -243,6 +243,11 @@ def customer_has_seat_subscription(customer):
 	seat count is billed on a recurring cycle, not per journey. Used by
 	Seal Journey.set_billing to zero the per-journey base charge for such
 	customers (see doctype/seal_journey/seal_journey.py)."""
+	from tnt_seal_management.tnt_seal_management.api.rects_billing import is_upfront_billed
+
+	# RECTs customers are billed upfront by period, so no per-journey charge either.
+	if is_upfront_billed(customer):
+		return True
 	sub = _find_customer_subscription(customer)
 	if not sub:
 		return False
@@ -313,6 +318,10 @@ def set_customer_lease_subscription(
 		frappe.throw(_("Not permitted to update customers."), frappe.PermissionError)
 	if not customer or not frappe.db.exists("Customer", customer):
 		frappe.throw(_("Customer not found."))
+	from tnt_seal_management.tnt_seal_management.api.rects_billing import is_rects_customer
+
+	if is_rects_customer(customer):
+		return {"customer": customer, "subscription": None, "status": "Upfront Sales Order"}
 	if not seal_count or cint(seal_count) <= 0:
 		frappe.throw(_("Enter the Number of Seals Leased."))
 	if rate_per_seal in (None, "") or flt(rate_per_seal) < 0:
@@ -374,6 +383,12 @@ def set_customer_ownership_subscription(
 		frappe.throw(_("Not permitted to update customers."), frappe.PermissionError)
 	if not customer or not frappe.db.exists("Customer", customer):
 		frappe.throw(_("Customer not found."))
+	from tnt_seal_management.tnt_seal_management.api.rects_billing import is_rects_customer
+
+	if is_rects_customer(customer):
+		# Billed upfront by Sales Order each period (rects_billing); a Subscription
+		# would invoice the same cycle again.
+		return {"customer": customer, "subscription": None, "status": "Upfront Sales Order"}
 	if not seal_count or cint(seal_count) <= 0:
 		frappe.throw(_("Enter the Number of Seals Owned."))
 	if rate_per_seal in (None, "") or flt(rate_per_seal) < 0:

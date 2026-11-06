@@ -43,6 +43,9 @@ fixtures = [
 					"Warehouse-custom_is_main_seal_store",
 					"Warehouse-custom_show_erp_stock",
 					"Warehouse-custom_seals_in_stock",
+					"Warehouse-custom_customer",
+					"Sales Order-custom_rects_order_type",
+					"Sales Order-custom_rects_reference",
 					"Warehouse-custom_location",
 					"User-custom_seal_base_location",
 					"Warehouse-custom_seal_column",
@@ -134,7 +137,7 @@ doctype_js = {
 	"Customer": "public/js/customer.js",
 	"Purchase Receipt": "public/js/purchase_receipt.js",
 }
-# doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
+doctype_list_js = {"Sales Order": "public/js/sales_order_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 
@@ -285,6 +288,9 @@ doc_events = {
 # is checked in Seal API Settings, gated by its own
 # "Full Fleet Sync Frequency Minutes" interval (default 10).
 scheduler_events = {
+	"daily": [
+		"tnt_seal_management.tnt_seal_management.api.rects_billing.raise_due_cycle_sales_orders",
+	],
 	"cron": {
 		"* * * * *": [
 			"tnt_seal_management.tnt_seal_management.api.seal_sync.scheduled_sync_active_journeys",

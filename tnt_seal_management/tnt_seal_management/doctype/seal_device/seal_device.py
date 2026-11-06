@@ -67,6 +67,22 @@ class SealDevice(Document):
 			)
 
 
+def sell_seal_to_customer(seal_device, customer, remarks=None):
+	"""The sale: custody moves to the customer and the seal becomes their Outright
+	Purchase (locked from then on, see enforce_outright_purchase_locked)."""
+	set_seal_custody(seal_device, "Customer", customer, remarks=remarks)
+	frappe.db.set_value(
+		_DOCTYPE,
+		seal_device,
+		{
+			"seal_category": "Outright Purchase",
+			"category_customer": customer,
+			"category_customer_name": frappe.db.get_value("Customer", customer, "customer_name"),
+			"seal_owner": None,
+		},
+	)
+
+
 def ensure_seal_usable_by_customer(seal_device, customer):
 	"""An outright-purchase seal is only ever used on its owner's journeys: never
 	leased out, never used by another customer (leased or outright). Leased seals
@@ -314,7 +330,7 @@ def set_seal_custody(seal_device, custody_type, custodian, remarks=None, journey
 		)
 
 
-_TRANSFER_TARGET_TYPES = ("Warehouse", "User")
+_TRANSFER_TARGET_TYPES = ("Warehouse", "User", "Customer")
 # Roles that may hand over ANY seal (a Field Technician may only hand over
 # seals they are currently holding).
 _TRANSFER_SUPERVISOR_ROLES = ("System Manager", "Operations Control Room", "PCB Team Leader")
@@ -347,7 +363,7 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 	if not seals:
 		frappe.throw(_("Select at least one seal to transfer."))
 	if to_custody_type not in _TRANSFER_TARGET_TYPES:
-		frappe.throw(_("Seals can only be handed to a person or a seal warehouse."))
+		frappe.throw(_("Seals can only be handed to staff, a customer or a seal warehouse."))
 	if not to_custodian or not frappe.db.exists(to_custody_type, to_custodian):
 		frappe.throw(_("Select who is receiving the seals."))
 	if to_custody_type == "User" and not frappe.db.get_value("User", to_custodian, "enabled"):
@@ -397,6 +413,28 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 			)
 		if info.current_custody_type == "Customer":
 			frappe.throw(_("Seal {0} is with a customer; it moves back through the journey workflow.").format(seal))
+		if to_custody_type == "Customer":
+			# Handing a seal to a customer from here is a sale (Outright Purchase),
+			# RECTs only for now; TNT seals are leased and move on journeys.
+			belongs_to, category, owner = frappe.db.get_value(
+				_DOCTYPE, seal, ["belongs_to", "seal_category", "category_customer"]
+			)
+			if belongs_to != "RECTs":
+				frappe.throw(
+					_("Seal {0} is a TNT seal. Only RECTs seals can be sold to a customer from the warehouse.").format(seal),
+					title=_("Not a RECTs Seal"),
+				)
+			# A sale comes out of warehouse stock: the seal must be Available (checked
+			# above) and sitting in the warehouse, not with staff.
+			if info.current_custody_type != "Warehouse":
+				frappe.throw(
+					_("Seal {0} is not in a warehouse ({1}). Return it to the warehouse before selling it.").format(
+						seal, info.current_custody_label or _("no custodian")
+					),
+					title=_("Seal Not In Warehouse"),
+				)
+			if category == "Outright Purchase" and owner and owner != to_custodian:
+				frappe.throw(_("Seal {0} already belongs to another customer and can't be sold again.").format(seal))
 		if to_custody_type == "Warehouse":
 			from tnt_seal_management.tnt_seal_management.api.seal_warehouses import check_seal_system
 
@@ -416,8 +454,17 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 
 	stock_entry, pending = None, False
 	stocked = set()  # seals whose custody and history the Material Transfer handles
-	into_main = to_custody_type == "Warehouse" and frappe.db.get_value("Warehouse", to_custodian, "custom_is_main_seal_store")
-	if into_main and any(r["from_custody_type"] == "Warehouse" for r in rows):
+	# Stock moves (a Material Transfer, approved before anything changes) for seals
+	# leaving a warehouse into a Main Seal Store, or sold to a customer: the sale
+	# goes into that customer's own warehouse so the store's ERP stock goes down.
+	stock_target = None
+	if to_custody_type == "Warehouse" and frappe.db.get_value("Warehouse", to_custodian, "custom_is_main_seal_store"):
+		stock_target = to_custodian
+	elif to_custody_type == "Customer" and any(r["from_custody_type"] == "Warehouse" for r in rows):
+		from tnt_seal_management.tnt_seal_management.api.seal_warehouses import get_customer_warehouse
+
+		stock_target = get_customer_warehouse(to_custodian)
+	if stock_target and any(r["from_custody_type"] == "Warehouse" for r in rows):
 		from tnt_seal_management.tnt_seal_management.api.stock_seal_transfers import (
 			pending_seal_transfers,
 			request_seal_material_transfer,
@@ -426,18 +473,20 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 
 		# Seals coming from a person are a plain handover; only stock from a warehouse moves.
 		from_store = [r["seal_device"] for r in rows if r["from_custody_type"] == "Warehouse"]
-		if from_store and not item_code:
+		# A sale uses each seal's own item code from its stock; a store transfer asks for one.
+		check_item = to_custody_type != "Customer"
+		if from_store and check_item and not item_code:
 			frappe.throw(_("Select the Item Code the seals are stocked under."), title=_("Item Code Required"))
 		serials = seal_stock_serials(from_store)
 		missing = [seal for seal in from_store if seal not in serials]
 		if missing:
 			frappe.throw(
 				_("These seals have no serial in stock, so they can't be moved to {0}: {1}. Receive them into stock first.").format(
-					to_custodian, ", ".join(missing)
+					stock_target, ", ".join(missing)
 				),
 				title=_("Not in Stock"),
 			)
-		other_item = [f"{seal} ({s.item_code})" for seal, s in serials.items() if s.item_code != item_code]
+		other_item = [f"{seal} ({s.item_code})" for seal, s in serials.items() if check_item and s.item_code != item_code]
 		if other_item:
 			frappe.throw(
 				_("These seals are stocked under a different item than {0}: {1}. Transfer them separately under their own item code.").format(
@@ -457,17 +506,17 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 				),
 				title=_("Awaiting Approval"),
 			)
-		to_move = [s for seal, s in serials.items() if s.warehouse != to_custodian]
+		to_move = [s for seal, s in serials.items() if s.warehouse != stock_target]
 		if to_move:
 			stock_entry, pending = request_seal_material_transfer(
 				to_move,
-				to_custodian,
+				stock_target,
 				remarks=_("Seal transfer by {0}{1}").format(user, f": {remarks}" if remarks else ""),
 			)
 			stocked = {s.seal for s in to_move}
 
 	for row in rows:
-		if row["seal_device"] in stocked:
+		if row["seal_device"] in stocked or to_custody_type == "Customer":
 			continue
 		set_seal_custody(
 			row["seal_device"],
@@ -475,6 +524,12 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 			to_custodian,
 			remarks=remarks or _("Handed over by {0}").format(user),
 		)
+	if to_custody_type == "Customer":
+		# Seals whose stock moves are made the customer's when the Material
+		# Transfer is submitted (on_stock_entry_submit); the rest are sold now.
+		for row in rows:
+			if row["seal_device"] not in stocked:
+				sell_seal_to_customer(row["seal_device"], to_custodian, remarks=remarks)
 	to_label = _custody_label(to_custody_type, to_custodian)
 	# Seals waiting on the approval haven't moved, so they aren't on the transfer
 	# record; their move is recorded by the Material Transfer when approved.

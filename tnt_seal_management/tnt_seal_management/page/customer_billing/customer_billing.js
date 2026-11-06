@@ -378,13 +378,18 @@ function _cb_money_html(c, value) {
 function _cb_billing_html(page, customer) {
 	const hasRule = !!customer.billing_label;
 	const kind = (customer.billing_kind || "").toLowerCase();
-	const kindClass = hasRule ? ` cbl-billing-btn--set cbl-billing-btn--${kind}` : "";
+	// A Subscription customer who owns their seals outright takes the Outright
+	// Purchase colour and a pill with how many seals they own.
+	const outright = hasRule && kind === "subscription" && cint(customer.outright_purchase);
+	const kindClass = hasRule ? ` cbl-billing-btn--set cbl-billing-btn--${kind}${outright ? " cbl-billing-btn--outright" : ""}` : "";
 	// Show just the type (Leasing / Subscription); the rule's full name is in the tooltip.
 	const label = hasRule
 		? frappe.utils.escape_html(customer.billing_kind || customer.billing_label)
 		: __("Set billing");
 	const fullName = frappe.utils.escape_html(customer.billing_label || "");
-	const tag = "";
+	const tag = outright
+		? `<span class="cbl-billing-pill" title="${__("Seals owned (Outright Purchase)")}">${__("{0} seal(s)", [cint(customer.owned_seal_count)])}</span>`
+		: "";
 
 	if (!page.cb_state.can_edit_billing) {
 		return `
@@ -1094,6 +1099,18 @@ function _cb_inject_styles() {
 			background: #dbeafe;
 			color: #1d4ed8;
 		}
+		.cbl-billing-btn--outright { background: #fce7f3; border-color: #db2777; color: #be185d; }
+		.cbl-billing-pill {
+			flex-shrink: 0;
+			padding: 2px 8px;
+			border-radius: 999px;
+			background: #be185d;
+			color: #fff;
+			font-size: 11px;
+			font-weight: 700;
+		}
+		[data-theme="dark"] .cbl-billing-btn--outright { background: #500724; border-color: #db2777; color: #fbcfe8; }
+		[data-theme="dark"] .cbl-billing-pill { background: #fbcfe8; color: #500724; }
 		.cbl-billing-btn--special {
 			border-color: #f59e0b;
 			background: #fffbeb;
@@ -2021,6 +2038,12 @@ function _cb_show_billing_dialog(page, data) {
 	// the Local set) never overwrite the Import/Export fields on late arrival.
 	dialog.ccl_active_journey_bucket = () => activeJourneyBucket;
 	dialog.ccl_local_bucket = JT_LOCAL;
+	// The rates saved on the Local rule: what to show when there is no recurring
+	// Subscription to read them from (RECTs customers have none).
+	dialog.ccl_rule_seat_rates = {
+		owned: (journeyRateCache[JT_LOCAL] || {}).owned_rate_per_seal || null,
+		lease: (journeyRateCache[JT_LOCAL] || {}).lease_rate_per_seal || null,
+	};
 	dialog.ccl_cache_local_seat_rate = (fieldname, value) => {
 		journeyRateCache[JT_LOCAL] = journeyRateCache[JT_LOCAL] || {};
 		journeyRateCache[JT_LOCAL][fieldname] = value;
@@ -2240,7 +2263,7 @@ function _cb_load_seat_data(dialog, customer, onComplete) {
 			// the journey is classified), so this one applies regardless of the
 			// journey type on screen.
 			dialog.set_value("lease_seal_count", info.seal_count || null);
-			_cb_apply_local_seat_rate(dialog, "lease_rate_per_seal", info.rate_per_seal || null);
+			_cb_apply_local_seat_rate(dialog, "lease_rate_per_seal", info.rate_per_seal || (dialog.ccl_rule_seat_rates || {}).lease || null);
 			settle();
 		},
 		error() {
@@ -2254,7 +2277,7 @@ function _cb_load_seat_data(dialog, customer, onComplete) {
 		args: { customer },
 		callback(r) {
 			const info = r.message || {};
-			_cb_apply_local_seat_rate(dialog, "owned_rate_per_seal", info.rate_per_seal || null);
+			_cb_apply_local_seat_rate(dialog, "owned_rate_per_seal", info.rate_per_seal || (dialog.ccl_rule_seat_rates || {}).owned || null);
 			settle();
 		},
 		error() {

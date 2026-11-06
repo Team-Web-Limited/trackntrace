@@ -67,6 +67,32 @@ def check_seal_system(seal, warehouse):
 		)
 
 
+def get_customer_warehouse(customer):
+	"""The ERPNext warehouse holding the seals sold to ``customer``, created on
+	first use next to the main seal store (same company and parent). A Material
+	Transfer into it is how a sale takes the seals out of the store's ERP stock."""
+	name = frappe.db.get_value("Warehouse", {"custom_customer": customer, "disabled": 0}, "name")
+	if name:
+		return name
+	store = main_seal_store()
+	if not store:
+		frappe.throw(_("No Main Seal Store is set, so a customer warehouse can't be created."))
+	company, parent = frappe.db.get_value("Warehouse", store, ["company", "parent_warehouse"])
+	customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
+	wh = frappe.get_doc(
+		{
+			"doctype": "Warehouse",
+			"warehouse_name": customer_name,
+			"company": company,
+			"parent_warehouse": parent,
+			"custom_customer": customer,
+		}
+	)
+	wh.flags.ignore_permissions = True
+	wh.insert()
+	return wh.name
+
+
 def main_seal_store():
 	"""Name of the warehouse flagged Main Seal Store, if any."""
 	rows = seal_warehouses({"custom_is_main_seal_store": 1}, pluck="name", limit=1)
@@ -159,11 +185,11 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25, system
 	def in_status(row, key):
 		if key == "All":
 			return True
-		if key in _HOLDER_STATUSES:
+		if key in _HOLDER_STATUSES or key == "Warehouse":
 			return row["holder_type"] == key
 		return row["holder_type"] == "Warehouse" and cint(row["disabled"]) == _WAREHOUSE_STATUSES[key]
 
-	summary = {key: sum(1 for r in rows if in_status(r, key)) for key in ("All", *_WAREHOUSE_STATUSES, *_HOLDER_STATUSES)}
+	summary = {key: sum(1 for r in rows if in_status(r, key)) for key in ("All", "Warehouse", *_WAREHOUSE_STATUSES, *_HOLDER_STATUSES)}
 	selected = _parse_statuses(status, summary)
 	matched = [
 		r
@@ -171,6 +197,8 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25, system
 		if (not selected or any(in_status(r, key) for key in selected))
 		and (not search or search in r["search_text"])
 	]
+	# Warehouses always come first, then staff, then customers.
+	matched.sort(key=lambda r: {"Warehouse": 0, "User": 1, "Customer": 2}.get(r["holder_type"], 3))
 	start = (page - 1) * page_length
 	return {
 		"warehouses": [{k: v for k, v in r.items() if k != "search_text"} for r in matched[start : start + page_length]],
@@ -208,9 +236,12 @@ def _division_warehouse_rows(branch, system="TNT"):
 	Only seals that belong to ``system`` are counted: a RECTs warehouse can hold
 	PCB seals, which don't show in RECTs seal management (and the other way round)."""
 	owner = "RECTs" if system == "RECTS" else "TNT"
+	# RECTs: for now the only warehouse is the main seal store; everyone else
+	# (staff, customers) appears as a holder.
+	extra = {"custom_is_main_seal_store": 1} if owner == "RECTs" else {}
 	warehouses = frappe.get_all(
 		"Warehouse",
-		filters={branch: 1, "is_group": 0},
+		filters={branch: 1, "is_group": 0, **extra},
 		fields=[
 			"name", "warehouse_name", "company", "parent_warehouse", "disabled", "city", "address_line_1",
 			"custom_is_main_seal_store", "custom_show_erp_stock", "custom_location",
@@ -219,6 +250,7 @@ def _division_warehouse_rows(branch, system="TNT"):
 	)
 	names = [w.name for w in warehouses]
 	stock = _seals_by_warehouse(names, owner)
+	received = _seals_received_by_warehouse(names, owner)
 	held = dict(
 		frappe.get_all(
 			"Seal Device",
@@ -242,6 +274,8 @@ def _division_warehouse_rows(branch, system="TNT"):
 			"parent_warehouse": w.parent_warehouse,
 			"disabled": cint(w.disabled),
 			"is_main_seal_store": cint(w.custom_is_main_seal_store),
+			# The main seal store's keeper (Agnes, for RECTs) shows in the Role column.
+			"role": _("Seals Manager") if cint(w.custom_is_main_seal_store) else None,
 			"show_erp_stock": cint(w.custom_is_main_seal_store or w.custom_show_erp_stock),
 			"region": w.city,
 			"location": w.custom_location,
@@ -249,8 +283,11 @@ def _division_warehouse_rows(branch, system="TNT"):
 			# Seals Held is custody (what is physically there, as on the Warehouse
 			# form); In Stock is ERPNext's Serial No count, shown alongside so the
 			# two can be reconciled.
+			# Seals Held is custody (what is physically there). The ERP Stock pill is
+			# the initial ERP stock plus everything received since and never goes
+			# down; the live stock is Seals In Stock (ERP) on the Warehouse form.
 			"seals_held": cint(held.get(w.name)),
-			"in_stock": stock.get(w.name, 0),
+			"in_stock": max(received.get(w.name, 0), stock.get(w.name, 0)),
 			"search_text": " ".join(
 				str(v or "") for v in (w.name, w.warehouse_name, w.company, w.city, w.custom_location, w.address_line_1)
 			).lower(),
@@ -306,6 +343,34 @@ def _seals_by_warehouse(warehouses, owner="TNT"):
 					and (ifnull(sd.belongs_to, 'TNT') = 'RECTs') = %(rects)s
 			)
 		group by sn.warehouse
+		""",
+		{"warehouses": tuple(warehouses), "rects": 1 if owner == "RECTs" else 0},
+	)
+	return {warehouse: cint(count) for warehouse, count in rows}
+
+
+def _seals_received_by_warehouse(warehouses, owner="TNT"):
+	"""{warehouse: seals ever received}: distinct seal serials with a submitted
+	inward Serial and Batch Bundle into the warehouse (receipts and transfers in),
+	whether or not they have since left."""
+	if not warehouses:
+		return {}
+	rows = frappe.db.sql(
+		"""
+		select sbb.warehouse, count(distinct sbe.serial_no)
+		from `tabSerial and Batch Entry` sbe
+		join `tabSerial and Batch Bundle` sbb on sbb.name = sbe.parent
+		where sbb.warehouse in %(warehouses)s
+			and sbb.docstatus = 1 and ifnull(sbb.is_cancelled, 0) = 0
+			and sbb.type_of_transaction = 'Inward'
+			and ifnull(sbe.serial_no, '') != ''
+			and exists (
+				select 1 from `tabSeal Device` sd
+				where sbe.serial_no in (sd.name, sd.serial_number, sd.imei_number)
+					and ifnull(sd.in_uffizio, 1) = 1
+					and (ifnull(sd.belongs_to, 'TNT') = 'RECTs') = %(rects)s
+			)
+		group by sbb.warehouse
 		""",
 		{"warehouses": tuple(warehouses), "rects": 1 if owner == "RECTs" else 0},
 	)

@@ -50,7 +50,7 @@
    "fieldname": "to_custody_type",
    "fieldtype": "Select",
    "label": "To Type",
-   "options": "Warehouse\nUser",
+   "options": "Warehouse\nUser\nCustomer",
    "read_only": 1,
    "in_list_view": 1
   },

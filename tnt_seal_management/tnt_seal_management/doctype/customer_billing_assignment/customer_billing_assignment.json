@@ -29,7 +29,12 @@
   "validity_column_break",
   "effective_to",
   "remarks_section",
-  "remarks"
+  "remarks",
+  "upfront_section",
+  "billed_from",
+  "upfront_column_break",
+  "billed_to",
+  "last_sales_order"
  ],
  "fields": [
   {
@@ -167,6 +172,37 @@
    "fieldname": "remarks",
    "fieldtype": "Small Text",
    "label": "Remarks"
+  },
+  {
+   "fieldname": "upfront_section",
+   "fieldtype": "Section Break",
+   "label": "Upfront Billing (RECTs)"
+  },
+  {
+   "fieldname": "billed_from",
+   "fieldtype": "Date",
+   "label": "Billed From",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "upfront_column_break",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "billed_to",
+   "fieldtype": "Date",
+   "label": "Billed To",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "last_sales_order",
+   "fieldtype": "Link",
+   "label": "Last Sales Order",
+   "options": "Sales Order",
+   "read_only": 1,
+   "no_copy": 1
   }
  ],
  "index_web_pages_for_search": 1,

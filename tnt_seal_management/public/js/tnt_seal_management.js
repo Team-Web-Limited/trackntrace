@@ -305,11 +305,6 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 				const p = TNT_SEAL_STOCK[key];
 				return `<span class="indicator-pill ${p.color}" title="${e(p.help)}">${e(p.label)}</span>`;
 			};
-			const counts = {};
-			rows.forEach((d) => (counts[stateOf(d)] = (counts[stateOf(d)] || 0) + 1));
-			const legend = Object.keys(TNT_SEAL_STOCK)
-				.map((key) => `<span class="tnt-cs-legend-item">${pill(key)} <b>${counts[key] || 0}</b> <span class="text-muted">${e(TNT_SEAL_STOCK[key].help)}</span></span>`)
-				.join("");
 			const tr = rows
 				.map(
 					(d) => `<tr class="tnt-cs-row tnt-cs-row--${stateOf(d)}" data-free="${d.current_status === "Available" && !d.current_journey && d.in_stock && !d.pending_transfer ? 1 : 0}" data-search="${e([d.seal_number, d.name, d.device_id, d.current_status, d.lock_status, d.condition, d.stock_warehouse].join(" ").toLowerCase())}">
@@ -330,8 +325,6 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 				.join("");
 			$body.removeClass("text-muted").html(`
 				<style>
-					.tnt-cs-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 10px; font-size: 12px; }
-					.tnt-cs-legend-item { display: inline-flex; align-items: center; gap: 6px; }
 					.tnt-warehouse-seals .indicator-pill { white-space: nowrap; }
 					.tnt-cs-row > td { white-space: nowrap; }
 					.tnt-cs-row > td:first-child { border-left: 4px solid transparent; }
@@ -350,7 +343,6 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 						<button class="btn btn-xs btn-default tnt-cs-clear">${__("Clear")}</button>
 						<button class="btn btn-xs btn-default tnt-cs-transfer">${__("Transfer selected")}</button>` : ""}
 				</div>
-				<div class="tnt-cs-legend">${legend}</div>
 				<div class="table-responsive">
 					<table class="table table-bordered table-sm">
 						<thead><tr>
@@ -364,7 +356,10 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 			const $picks = () => $body.find(".tnt-cs-pick");
 			const shownPicks = () => $body.find(".tnt-cs-row:visible .tnt-cs-pick");
 			const refreshSelected = () => {
-				$body.find(".tnt-cs-selected").text(__("{0} selected", [$picks().filter(":checked").length]));
+				const n_picked = $picks().filter(":checked").length;
+				$body.find(".tnt-cs-selected").text(__("{0} selected", [n_picked]));
+				// Looks like the dialog's Transfer button once seals are ticked.
+				$body.find(".tnt-cs-transfer").toggleClass("btn-primary", n_picked > 0).toggleClass("btn-default", n_picked === 0);
 				const shown = shownPicks();
 				$body.find(".tnt-cs-all").prop("checked", !!shown.length && shown.filter(":checked").length === shown.length);
 			};
@@ -599,6 +594,37 @@ window.tnt_transfer_seals = function (seals, onDone) {
 
 function _tnt_transfer_dialog(seals, options, onDone) {
 	const warehouses = options.warehouses || [];
+	const send = (values) => {
+		const to = { User: values.to_user, Customer: values.to_customer, Warehouse: values.to_point }[values.to_custody_type];
+		frappe.call({
+			method: "tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device.transfer_custody",
+			args: {
+				seals,
+				to_custody_type: values.to_custody_type,
+				to_custodian: to,
+				remarks: values.remarks,
+				item_code: values.item_code || null,
+			},
+			freeze: true,
+			callback(r) {
+				if (!r.message) return;
+				d.hide();
+				const m = r.message;
+				if (m.awaiting_approval) {
+					frappe.msgprint({
+						title: __("Sent for approval"),
+						indicator: "orange",
+						message: __("{0} seal(s) will move to {1} once a stock approver approves {2}. Nothing has moved yet.", [m.awaiting_approval, to, m.stock_entry])
+							+ (m.transferred ? "<br>" + __("{0} seal(s) already stocked there were handed over now.", [m.transferred]) : ""),
+					});
+				} else {
+					const stock = m.stock_entry ? __(" — stock moved by {0}", [m.stock_entry]) : "";
+					frappe.show_alert({ message: __("{0} seal(s) handed to {1}", [m.transferred, to]) + stock, indicator: "green" }, 8);
+				}
+				if (onDone) onDone(r.message);
+			},
+		});
+	};
 	const d = new frappe.ui.Dialog({
 		title: __("Transfer {0} seal(s)", [seals.length]),
 		fields: [
@@ -606,18 +632,25 @@ function _tnt_transfer_dialog(seals, options, onDone) {
 				fieldname: "to_custody_type",
 				fieldtype: "Select",
 				label: __("Hand over to"),
-				options: "User\nWarehouse",
+				options: [
+					{ label: __("Staff"), value: "User" },
+					{ label: __("Customer"), value: "Customer" },
+					{ label: __("Warehouse"), value: "Warehouse" },
+				],
 				default: "User",
 				reqd: 1,
 				onchange() {
 					const type = d.get_value("to_custody_type");
 					d.set_df_property("to_user", "hidden", type !== "User");
 					d.set_df_property("to_user", "reqd", type === "User");
+					d.set_df_property("to_customer", "hidden", type !== "Customer");
+					d.set_df_property("to_customer", "reqd", type === "Customer");
 					d.set_df_property("to_point", "hidden", type !== "Warehouse");
 					d.set_df_property("to_point", "reqd", type === "Warehouse");
 					// Only a warehouse into a main store posts a Material Transfer, under an
 					// item code; every other transfer is a plain handover.
-					const stock = type === "Warehouse" && options.from_store
+					// (A sale to a customer takes each seal's own item code from its stock.)
+					const stock = options.from_store && type === "Warehouse"
 						&& (options.main_stores || []).includes(d.get_value("to_point"));
 					d.set_df_property("item_code", "hidden", !stock);
 					d.set_df_property("item_code", "reqd", stock);
@@ -628,8 +661,10 @@ function _tnt_transfer_dialog(seals, options, onDone) {
 					}
 				},
 			},
-			{ fieldname: "to_user", fieldtype: "Link", options: "User", label: __("Person"), reqd: 1,
+			{ fieldname: "to_user", fieldtype: "Link", options: "User", label: __("Staff"), reqd: 1,
 				get_query: () => ({ filters: { enabled: 1, user_type: "System User" } }) },
+			{ fieldname: "to_customer", fieldtype: "Link", options: "Customer", label: __("Customer"), hidden: 1,
+				get_query: () => ({ filters: { disabled: 0 } }) },
 			{ fieldname: "to_point", fieldtype: "Select", options: ["", ...warehouses].join("\n"), label: __("Warehouse"), hidden: 1,
 				onchange: () => d.fields_dict.to_custody_type.df.onchange() },
 			{
@@ -644,35 +679,14 @@ function _tnt_transfer_dialog(seals, options, onDone) {
 		],
 		primary_action_label: __("Transfer"),
 		primary_action(values) {
-			const to = values.to_custody_type === "User" ? values.to_user : values.to_point;
-			frappe.call({
-				method: "tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device.transfer_custody",
-				args: {
-					seals,
-					to_custody_type: values.to_custody_type,
-					to_custodian: to,
-					remarks: values.remarks,
-					item_code: values.item_code || null,
-				},
-				freeze: true,
-				callback(r) {
-					if (!r.message) return;
-					d.hide();
-					const m = r.message;
-					if (m.awaiting_approval) {
-						frappe.msgprint({
-							title: __("Sent for approval"),
-							indicator: "orange",
-							message: __("{0} seal(s) will move to {1} once a stock approver approves {2}. Nothing has moved yet.", [m.awaiting_approval, to, m.stock_entry])
-								+ (m.transferred ? "<br>" + __("{0} seal(s) already stocked there were handed over now.", [m.transferred]) : ""),
-						});
-					} else {
-						const stock = m.stock_entry ? __(" — stock moved by {0}", [m.stock_entry]) : "";
-						frappe.show_alert({ message: __("{0} seal(s) handed to {1}", [m.transferred, to]) + stock, indicator: "green" }, 8);
-					}
-					if (onDone) onDone(r.message);
-				},
-			});
+			if (values.to_custody_type === "Customer") {
+				frappe.confirm(
+					__("This sells {0} seal(s) to {1} as an Outright Purchase. The sale is permanent: they can't go back to Lease or to another customer. Continue?", [seals.length, values.to_customer]),
+					() => send(values)
+				);
+				return;
+			}
+			send(values);
 		},
 	});
 	d.show();

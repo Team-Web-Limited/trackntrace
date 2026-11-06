@@ -72,6 +72,7 @@ frappe.pages["warehouse-list"].on_page_show = function (wrapper) {
 function _wh_build_page(page) {
 	const statuses = [
 		["All", __("All Warehouses")],
+		["Warehouse", __("Warehouse")],
 		["Active", __("Active")],
 		["Inactive", __("Inactive")],
 		["User", __("Held by Staff")],
@@ -430,7 +431,7 @@ function _wh_row_html(page, w) {
 	const dash = "—";
 	const isWarehouse = w.holder_type === "Warehouse";
 	const type = isWarehouse
-		? (w.is_main_seal_store ? `<span class="wh-badge wh-badge--main">${__("Main Seal Store")}</span>` : esc(__("Warehouse")))
+		? `<span class="wh-badge wh-badge--main">${__("Warehouse")}</span>`
 		: `<span class="wh-badge wh-badge--${w.holder_type === "User" ? "user" : "customer"}">${w.holder_type === "User" ? __("Staff") : __("Customer")}</span>`;
 	const status = isWarehouse
 		? `<span class="wh-badge wh-badge--${w.disabled ? "inactive" : "active"}">${w.disabled ? __("Inactive") : __("Active")}</span>`
@@ -442,7 +443,7 @@ function _wh_row_html(page, w) {
 			<td>${w.role ? `<span class="wh-badge wh-badge--role">${esc(w.role)}</span>` : dash}</td>
 			${page.wh_system === "RECTS" ? "" : `<td class="wh-address" title="${esc(w.location || "")}">${isWarehouse ? esc(w.location || dash) : _wh_staff_location_html(page, w)}</td>`}
 			<td>${status}</td>
-			<td><b>${w.seals_held || 0}</b>${isWarehouse && w.show_erp_stock ? ` <span class="wh-badge wh-badge--erp" title="${esc(__("Seal serials ERPNext has in stock in this warehouse"))}">${__("ERP Stock")}: ${w.in_stock || 0}</span>` : ""}</td>
+			<td><b>${w.seals_held || 0}</b>${isWarehouse && w.show_erp_stock ? ` <span class="wh-badge wh-badge--erp" title="${esc(__("Initial ERP stock plus every seal received since; it never goes down. The live stock is Seals In Stock (ERP) on the warehouse form."))}">${__("ERP Stock")}: ${w.in_stock || 0}</span>` : ""}</td>
 			<td>${esc(w.company || dash)}</td>
 			<td>${esc(w.parent_warehouse || dash)}</td>
 			<td>${esc(w.region || dash)}</td>

@@ -358,7 +358,7 @@ function _tagging_booking_pdf_row_html(booking) {
 
 	return `
 		<tr>
-			<td>${esc(booking.booking_status || __("Draft"))}</td>
+			<td>${esc(_tb_status_label(booking.booking_status || __("Draft")))}</td>
 			<td>${esc(booking.name)}</td>
 			<td>${esc(booking.client_name || dash)}</td>
 			<td>${esc(booking.location || dash)}</td>
@@ -444,6 +444,12 @@ function _render_tagging_booking_table(page, bookings) {
 	`);
 }
 
+// RECTs has its own finance team: the stored workflow state still says "Finance PCB",
+// only the label shown on /rects reads "Finance RECTs".
+function _tb_status_label(status) {
+	return _tb_route_system() === "RECTs" ? String(status).replace("Finance PCB", "Finance RECTs") : status;
+}
+
 function _tagging_booking_row_html(booking) {
 	const status = booking.booking_status || __("Draft");
 	const statusClass = _tagging_booking_status_class(status);
@@ -453,7 +459,7 @@ function _tagging_booking_row_html(booking) {
 
 	return `
 		<tr class="tb-booking-row" data-name="${frappe.utils.escape_html(booking.name)}">
-			<td><span class="tb-badge tb-badge--${statusClass}">${frappe.utils.escape_html(status)}</span></td>
+			<td><span class="tb-badge tb-badge--${statusClass}">${frappe.utils.escape_html(_tb_status_label(status))}</span></td>
 			<td>
 				<span class="tb-booking-name">${frappe.utils.escape_html(booking.name)}</span>
 			</td>

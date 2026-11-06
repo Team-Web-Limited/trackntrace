@@ -341,6 +341,7 @@ def _apply(doc, cancelled):
 	)
 
 	moved = noted = 0
+	sold = {}  # customer -> {item_code: [serial, ...]}
 	for row in doc.items:
 		for serial in _row_serials(row):
 			seal = _seal_for_serial(serial)
@@ -358,7 +359,18 @@ def _apply(doc, cancelled):
 				continue
 
 			custody_note = ""
-			if is_seal_warehouse(row.t_warehouse):
+			buyer = frappe.db.get_value("Warehouse", row.t_warehouse, "custom_customer") if row.t_warehouse else None
+			if buyer:
+				# A transfer into a customer's warehouse is a sale (RECTs seals only).
+				from tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device import sell_seal_to_customer
+
+				if frappe.db.get_value("Seal Device", seal, "belongs_to") == "RECTs":
+					sell_seal_to_customer(seal, buyer, remarks=note)
+					sold.setdefault(buyer, {}).setdefault(row.item_code, []).append(serial)
+					moved += 1
+				else:
+					custody_note = _(" — custody kept: only RECTs seals are sold to customers")
+			elif is_seal_warehouse(row.t_warehouse):
 				journey = frappe.db.get_value("Seal Device", seal, "current_journey")
 				in_transit = journey and frappe.db.get_value("Seal Journey", journey, "journey_status") == "In Transit"
 				if in_transit:
@@ -370,4 +382,9 @@ def _apply(doc, cancelled):
 				seal, source, target, note + custody_note, from_warehouse=row.s_warehouse, to_warehouse=row.t_warehouse
 			)
 			noted += 1
+	if sold and not cancelled:
+		from tnt_seal_management.tnt_seal_management.api.rects_billing import create_seal_sale_order
+
+		for buyer, lines in sold.items():
+			create_seal_sale_order(doc.name, buyer, lines)
 	return {"history_rows": noted, "custody_moved": moved}
