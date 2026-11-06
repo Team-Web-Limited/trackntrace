@@ -180,7 +180,15 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25, system
 		mine = ("User", frappe.session.user)
 		rows = _holder_rows({k: v for k, v in _seals_held_by_custodian(system).items() if k == mine})
 	else:
-		rows = _division_warehouse_rows(branch, system) + _holder_rows(_seals_held_by_custodian(system))
+		held = _seals_held_by_custodian(system)
+		if system == "RECTS":
+			# A customer's own warehouse (made when seals are sold to them) lists as a
+			# Customer row even before they hold any seal; the Customers filter finds them.
+			for customer in frappe.get_all(
+				"Warehouse", filters={"custom_customer": ["is", "set"], "disabled": 0}, pluck="custom_customer"
+			):
+				held.setdefault(("Customer", customer), 0)
+		rows = _division_warehouse_rows(branch, system) + _holder_rows(held)
 
 	def in_status(row, key):
 		if key == "All":
