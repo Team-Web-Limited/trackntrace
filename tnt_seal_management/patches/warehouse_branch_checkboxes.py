@@ -16,8 +16,8 @@ def execute():
 		"""
 		update `tabWarehouse`
 		set custom_division_fms = ifnull(custom_division, '') in ('FMS Division', 'Both', ''),
-			custom_division_ects = custom_division in ('ECTS Division', 'Both'),
-			custom_division_rects = custom_division = 'RECTS Division',
+			custom_division_ects = ifnull(custom_division, '') in ('ECTS Division', 'Both'),
+			custom_division_rects = ifnull(custom_division, '') = 'RECTS Division',
 			custom_division_all = 0
 		"""
 	)
