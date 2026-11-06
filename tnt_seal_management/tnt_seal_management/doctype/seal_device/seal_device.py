@@ -463,7 +463,9 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 	elif to_custody_type == "Customer" and any(r["from_custody_type"] == "Warehouse" for r in rows):
 		from tnt_seal_management.tnt_seal_management.api.seal_warehouses import get_customer_warehouse
 
-		stock_target = get_customer_warehouse(to_custodian)
+		# Based on the warehouse the seals are sold from (its company and parent).
+		source = next(r["from_custodian"] for r in rows if r["from_custody_type"] == "Warehouse")
+		stock_target = get_customer_warehouse(to_custodian, store=source)
 	if stock_target and any(r["from_custody_type"] == "Warehouse" for r in rows):
 		from tnt_seal_management.tnt_seal_management.api.stock_seal_transfers import (
 			pending_seal_transfers,

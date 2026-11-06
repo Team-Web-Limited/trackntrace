@@ -67,16 +67,16 @@ def check_seal_system(seal, warehouse):
 		)
 
 
-def get_customer_warehouse(customer):
+def get_customer_warehouse(customer, store=None):
 	"""The ERPNext warehouse holding the seals sold to ``customer``, created on
 	first use next to the main seal store (same company and parent). A Material
 	Transfer into it is how a sale takes the seals out of the store's ERP stock."""
 	name = frappe.db.get_value("Warehouse", {"custom_customer": customer, "disabled": 0}, "name")
 	if name:
 		return name
-	store = main_seal_store()
+	store = store or main_seal_store()
 	if not store:
-		frappe.throw(_("No Main Seal Store is set, so a customer warehouse can't be created."))
+		frappe.throw(_("Can't create a warehouse for the customer: no seal store to base it on."))
 	company, parent = frappe.db.get_value("Warehouse", store, ["company", "parent_warehouse"])
 	customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
 	wh = frappe.get_doc(
@@ -236,12 +236,12 @@ def _division_warehouse_rows(branch, system="TNT"):
 	Only seals that belong to ``system`` are counted: a RECTs warehouse can hold
 	PCB seals, which don't show in RECTs seal management (and the other way round)."""
 	owner = "RECTs" if system == "RECTS" else "TNT"
-	# RECTs: for now the only warehouse is the main seal store; everyone else
-	# (staff, customers) appears as a holder.
-	extra = {"custom_is_main_seal_store": 1} if owner == "RECTs" else {}
+	# RECTs: for now the only warehouse is the seal store (Main Seal Store or Show
+	# ERP Stock ticked: Agnes's); everyone else (staff, customers) is a holder.
 	warehouses = frappe.get_all(
 		"Warehouse",
-		filters={branch: 1, "is_group": 0, **extra},
+		filters={branch: 1, "is_group": 0},
+		or_filters=[["custom_is_main_seal_store", "=", 1], ["custom_show_erp_stock", "=", 1]] if owner == "RECTs" else None,
 		fields=[
 			"name", "warehouse_name", "company", "parent_warehouse", "disabled", "city", "address_line_1",
 			"custom_is_main_seal_store", "custom_show_erp_stock", "custom_location",
@@ -275,7 +275,7 @@ def _division_warehouse_rows(branch, system="TNT"):
 			"disabled": cint(w.disabled),
 			"is_main_seal_store": cint(w.custom_is_main_seal_store),
 			# The main seal store's keeper (Agnes, for RECTs) shows in the Role column.
-			"role": _("Seals Manager") if cint(w.custom_is_main_seal_store) else None,
+			"role": _("Seals Manager") if cint(w.custom_is_main_seal_store or w.custom_show_erp_stock) else None,
 			"show_erp_stock": cint(w.custom_is_main_seal_store or w.custom_show_erp_stock),
 			"region": w.city,
 			"location": w.custom_location,
