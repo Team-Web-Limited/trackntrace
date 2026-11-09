@@ -11,7 +11,12 @@ from tnt_seal_management.tnt_seal_management.api.user_flags import (
 
 PROFILE = "PCB Lead Technician"
 # Only these users may transfer RECTs seals.
-SEAL_MANAGERS = ("cmalusi@trackntrace.co.ke", "awanjiru@trackntrace.co.ke", "gogera@trackntrace.co.ke")
+SEAL_MANAGERS = (
+	"cmalusi@trackntrace.co.ke",
+	"awanjiru@trackntrace.co.ke",
+	"gogera@trackntrace.co.ke",
+	"michael@teamweb.africa",
+)
 # Only these are offered as PCB Team Leader when Finance approves a booking.
 LISTED_TEAM_LEADERS = ("ekituyi@trackntrace.co.ke", "cmalusi@trackntrace.co.ke")
 
