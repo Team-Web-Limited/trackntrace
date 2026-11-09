@@ -48,6 +48,8 @@ CONTENT_FIELDS = (
 	"number_of_seals",
 	"origin",
 	"destination",
+	"origin_location",
+	"destination_location",
 	"driver_contact",
 	"entry_document",
 	"seals",
@@ -99,6 +101,8 @@ _FIELD_LABELS = {
 	"number_of_seals": "Number of Seals",
 	"origin": "Origin",
 	"destination": "Destination",
+	"origin_location": "Origin",
+	"destination_location": "Destination",
 	"driver_contact": "Driver Contact",
 	"entry_document": "Entry Pictures",
 	"seals": "Seal Serial Number(s)",
@@ -155,6 +159,7 @@ class JourneyRequest(Document):
 		self.set_photo_types()
 		self.enforce_tagging_irreversible()
 		self.validate_seals()
+		self.set_rects_route()
 		self.validate_route()
 		self.validate_journey_type()
 
@@ -287,12 +292,36 @@ class JourneyRequest(Document):
 				title=_("Not Permitted"),
 			)
 
+	def set_rects_route(self):
+		"""RECTs seals aren't in Uffizio, so a RECTs request names its Origin and
+		Destination as free text (origin_location / destination_location): an
+		existing geofence or any new place. A name matching a geofence also fills
+		the geofence link; a new place stays text only (no geofence is created)."""
+		if self.system != "RECTs":
+			return
+		for link, text in (("origin", "origin_location"), ("destination", "destination_location")):
+			typed = (self.get(text) or "").strip()
+			if not typed and self.get(link) and not self.has_value_changed(text):
+				# An older RECTs request with only the geofence: show it as text.
+				typed = _geofence_label(self.get(link)) or ""
+			self.set(text, typed or None)
+			current = self.get(link)
+			if typed and current and typed in (current, _geofence_label(current)):
+				continue  # still the geofence already linked (names aren't unique)
+			self.set(link, _match_geofence(typed) if typed else None)
+
 	def validate_route(self):
 		# The route is required when the request is submitted to the Control Room
 		# (see submit_to_control_room), not on save: a request is created with a
 		# blank route when its Tagging assignment is assigned, and older requests
 		# may have none (no Uffizio geofence to map their old location to).
-		if self.origin and self.destination and self.origin == self.destination:
+		same_text = (
+			self.system == "RECTs"
+			and self.origin_location
+			and self.destination_location
+			and self.origin_location.strip().lower() == self.destination_location.strip().lower()
+		)
+		if same_text or (self.origin and self.destination and self.origin == self.destination):
 			frappe.throw(
 				_("Origin and Destination cannot be the same address."),
 				title=_("Invalid Route"),
@@ -621,7 +650,7 @@ def _notify_control_room_approval_pending(doc):
 			doc.assigned_technician or frappe.session.user
 		),
 		_("Vehicle: {0}").format(doc.vehicle or "-"),
-		_("Route: {0} -> {1}").format(_geofence_label(doc.origin) or "-", _geofence_label(doc.destination) or "-"),
+		_("Route: {0} -> {1}").format(route_label(doc, "origin") or "-", route_label(doc, "destination") or "-"),
 	]
 	message = "<br>".join(str(line) for line in lines)
 
@@ -1983,8 +2012,8 @@ def _finalize_seal_journey_from_request(jr, row=None):
 			"journey_status": "In Transit",
 			"vehicle_plate_number": vehicle_plate,
 			"container_number": jr.container_number,
-			"origin": _geofence_label(jr.origin),
-			"destination": _geofence_label(jr.destination),
+			"origin": route_label(jr, "origin"),
+			"destination": route_label(jr, "destination"),
 			"origin_geofence": jr.origin,
 			"destination_geofence": jr.destination,
 			"assigned_technician": jr.assigned_technician,
@@ -2349,20 +2378,71 @@ def _geofence_label(geofence):
 	return frappe.db.get_value("Uffizio Geofence", geofence, "geofence_name") or geofence
 
 
+def _match_geofence(place):
+	"""Uffizio Geofence (not a route) whose ID or name is ``place``, or None."""
+	if not place:
+		return None
+	for field in ("name", "geofence_name"):
+		match = frappe.db.get_value("Uffizio Geofence", {field: place, "shape": ["!=", "Route"]}, "name")
+		if match:
+			return match
+	return None
+
+
+def route_label(doc, field):
+	"""Readable Origin / Destination of a Journey Request: the geofence's name, or
+	the place typed on a RECTs request when it isn't a geofence."""
+	return _geofence_label(doc.get(field)) or doc.get(f"{field}_location") or None
+
+
+@frappe.whitelist()
+def search_route_places(txt=None):
+	"""Suggestions for a RECTs request's Origin / Destination: geofence names
+	(not routes) and places typed on earlier RECTs requests. Free text is still
+	allowed; these only help pick an existing spelling."""
+	like = f"%{(txt or '').strip()}%"
+	names = frappe.get_all(
+		"Uffizio Geofence",
+		filters={"shape": ["!=", "Route"], "geofence_name": ["like", like]},
+		pluck="geofence_name",
+		order_by="geofence_name asc",
+		limit_page_length=15,
+	)
+	typed = frappe.db.sql(
+		"""select distinct place from (
+			select origin_location as place from `tabJourney Request` where system = 'RECTs'
+			union select destination_location from `tabJourney Request` where system = 'RECTs'
+		) t where place like %s order by place limit 15""",
+		like,
+		pluck=True,
+	)
+	return list(dict.fromkeys(p for p in [*typed, *names] if p))
+
+
 def _attach_route_names(requests):
-	"""Swap each row's origin/destination geofence IDs for the geofence names."""
+	"""Swap each row's origin/destination geofence IDs for the geofence names, and
+	fill a RECTs request's typed place where there is no geofence."""
 	ids = {r.get(f) for r in requests for f in ("origin", "destination") if r.get(f)}
-	if not ids:
-		return
 	names = dict(
 		frappe.get_all(
 			"Uffizio Geofence", filters={"name": ["in", list(ids)]}, fields=["name", "geofence_name"], as_list=True
 		)
-	)
+	) if ids else {}
+	blank = [r.name for r in requests if r.get("name") and not (r.get("origin") and r.get("destination"))]
+	typed = {
+		t.name: t
+		for t in frappe.get_all(
+			"Journey Request",
+			filters={"name": ["in", blank]},
+			fields=["name", "origin_location", "destination_location"],
+		)
+	} if blank else {}
 	for r in requests:
 		for f in ("origin", "destination"):
 			if r.get(f):
 				r[f] = names.get(r[f]) or r[f]
+			elif r.get("name") in typed:
+				r[f] = typed[r["name"]].get(f"{f}_location")
 
 
 def _attach_vehicle_details(requests):

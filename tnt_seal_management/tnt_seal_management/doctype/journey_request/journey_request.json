@@ -22,8 +22,10 @@
   "driver_contact",
   "jr_row_5_section",
   "origin",
+  "origin_location",
   "jr_row_5_column",
   "destination",
+  "destination_location",
   "jr_checkpoints_section",
   "checkpoints",
   "jr_row_3_section",
@@ -261,7 +263,15 @@
    "fieldname": "origin",
    "fieldtype": "Link",
    "label": "Origin",
-   "options": "Uffizio Geofence"
+   "options": "Uffizio Geofence",
+   "depends_on": "eval:doc.system!='RECTs'"
+  },
+  {
+   "fieldname": "origin_location",
+   "fieldtype": "Autocomplete",
+   "label": "Origin",
+   "depends_on": "eval:doc.system=='RECTs'",
+   "description": "Pick a geofence or type a new place. A new place is saved as text only; no Uffizio geofence is created."
   },
   {
    "fieldname": "jr_row_5_column",
@@ -271,7 +281,15 @@
    "fieldname": "destination",
    "fieldtype": "Link",
    "label": "Destination",
-   "options": "Uffizio Geofence"
+   "options": "Uffizio Geofence",
+   "depends_on": "eval:doc.system!='RECTs'"
+  },
+  {
+   "fieldname": "destination_location",
+   "fieldtype": "Autocomplete",
+   "label": "Destination",
+   "depends_on": "eval:doc.system=='RECTs'",
+   "description": "Pick a geofence or type a new place. A new place is saved as text only; no Uffizio geofence is created."
   },
   {
    "fieldname": "driver_contact",
@@ -632,7 +650,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-24 12:00:00.000000",
+ "modified": "2026-11-09 12:41:40.398591",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Journey Request",

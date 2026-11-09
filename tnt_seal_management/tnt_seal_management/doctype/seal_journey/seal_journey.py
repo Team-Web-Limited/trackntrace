@@ -1419,6 +1419,8 @@ def resolve_seal_journey_mirror_values(seal_journey):
 				"departure_card_number",
 				"origin",
 				"destination",
+				"origin_location",
+				"destination_location",
 				"assigned_technician",
 				"control_room_approver",
 				"control_room_approval_date_time",
@@ -1448,8 +1450,9 @@ def resolve_seal_journey_mirror_values(seal_journey):
 			put("departure_card_number", jr.departure_card_number)
 			# Seal Journey keeps the geofence's name as text for display, and the
 			# geofence itself for arrival detection.
-			put("origin", _geofence_label(jr.origin))
-			put("destination", _geofence_label(jr.destination))
+			# A RECTs request may name a place that isn't a geofence (text only).
+			put("origin", _geofence_label(jr.origin) or jr.origin_location)
+			put("destination", _geofence_label(jr.destination) or jr.destination_location)
 			put("origin_geofence", jr.origin)
 			put("destination_geofence", jr.destination)
 			put("assigned_technician", jr.assigned_technician)
@@ -1496,7 +1499,14 @@ def get_pre_tagging_checklist_template():
 @frappe.whitelist()
 @validate_and_sanitize_search_inputs
 def pcb_team_leader_query(doctype, txt, searchfield, start, page_len, filters):
-	return _user_role_query("PCB Team Leader", txt, searchfield, start, page_len)
+	from tnt_seal_management.tnt_seal_management.doctype.pcb_job_order.pcb_job_order import (
+		get_enabled_team_leaders,
+	)
+
+	# Only the Team Leaders offered for work (see get_enabled_team_leaders).
+	listed = {user for user, _name in get_enabled_team_leaders()}
+	rows = _user_role_query("PCB Team Leader", txt, searchfield, 0, 500)
+	return [r for r in rows if r[0] in listed][cint(start) : cint(start) + cint(page_len)]
 
 
 @frappe.whitelist()

@@ -52,6 +52,16 @@ frappe.ui.form.on("Journey Request", {
 		frm.set_query("destination", () => ({
 			filters: { shape: ["!=", "Route"], ...(frm.doc.origin ? { name: ["!=", frm.doc.origin] } : {}) },
 		}));
+		// A RECTs request types its Origin / Destination instead: suggestions are
+		// geofence names and places used on earlier RECTs requests, but any new
+		// place is accepted (saved as text only; no Uffizio geofence is created).
+		["origin_location", "destination_location"].forEach((f) => {
+			if (!frm.fields_dict[f]) return;
+			frm.fields_dict[f].df.ignore_validation = 1;
+			frm.set_query(f, () => ({
+				query: "tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.search_route_places",
+			}));
+		});
 		// Filled in while the request is a Draft and checked when it is submitted
 		// to the Control Room; later stages may carry older requests without one.
 		// RECTs seals aren't in Uffizio, so a RECTs request needs no route.
@@ -849,6 +859,8 @@ const JR_CONTENT_FIELDS = [
 	"number_of_seals",
 	"origin",
 	"destination",
+	"origin_location",
+	"destination_location",
 	"driver_contact",
 	"entry_document",
 	"seals",
