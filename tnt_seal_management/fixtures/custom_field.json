@@ -934,5 +934,41 @@
   "modified": "2026-10-30 18:00:00",
   "module": null,
   "name": "Purchase Receipt Item-custom_belongs_to"
+ },
+ {
+  "default": "0",
+  "description": "May transfer RECTs seals. Works alongside the Role Profile: ticking this grants the Seal Manager role, unticking removes it.",
+  "doctype": "Custom Field",
+  "dt": "User",
+  "fieldname": "custom_seal_manager",
+  "fieldtype": "Check",
+  "hidden": 0,
+  "in_list_view": 0,
+  "in_standard_filter": 0,
+  "insert_after": "role_profile_name",
+  "label": "Seal Manager",
+  "modified": "2026-11-09 15:00:00.000000",
+  "module": null,
+  "name": "User-custom_seal_manager",
+  "options": null,
+  "precision": ""
+ },
+ {
+  "default": "0",
+  "description": "Offered as a PCB Team Leader when Finance approves a tagging booking. Needs the PCB Team Leader role. If nobody is ticked, every PCB Team Leader is offered.",
+  "doctype": "Custom Field",
+  "dt": "User",
+  "fieldname": "custom_listed_pcb_team_leader",
+  "fieldtype": "Check",
+  "hidden": 0,
+  "in_list_view": 0,
+  "in_standard_filter": 0,
+  "insert_after": "custom_seal_manager",
+  "label": "Listed as PCB Team Leader",
+  "modified": "2026-11-09 15:00:00.000000",
+  "module": null,
+  "name": "User-custom_listed_pcb_team_leader",
+  "options": null,
+  "precision": ""
  }
 ]

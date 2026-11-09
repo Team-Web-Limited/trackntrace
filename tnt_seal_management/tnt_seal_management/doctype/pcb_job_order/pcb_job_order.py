@@ -124,7 +124,8 @@ class PCBJobOrder(Document):
 
 
 def get_enabled_team_leaders():
-	"""[(user, full name)] for every enabled PCB Team Leader, by name."""
+	"""[(user, full name)] for the enabled PCB Team Leaders offered for work, by
+	name: those ticked "Listed as PCB Team Leader", or all of them if none is."""
 	users = frappe.get_all(
 		"Has Role",
 		filters={"role": "PCB Team Leader", "parenttype": "User"},
@@ -134,6 +135,13 @@ def get_enabled_team_leaders():
 	users = [u for u in users if u not in ("Administrator", "Guest")]
 	if not users:
 		return []
+	# Only the users ticked "Listed as PCB Team Leader", once anyone is ticked.
+	from tnt_seal_management.tnt_seal_management.api.user_flags import TEAM_LEADER_FIELD
+
+	if frappe.get_meta("User").has_field(TEAM_LEADER_FIELD):
+		listed = frappe.get_all("User", filters={"name": ["in", users], TEAM_LEADER_FIELD: 1}, pluck="name")
+		if listed:
+			users = listed
 	return [
 		(r.name, r.full_name or r.name)
 		for r in frappe.get_all(
@@ -191,18 +199,7 @@ def _get_sole_team_leader():
 	"""Return the single enabled PCB Team Leader user, or None when there isn't
 	exactly one. This will be revisited once the team-leader identification rule
 	is finalised; for now a lone team leader is auto-assigned to job orders."""
-	users = frappe.get_all(
-		"Has Role",
-		filters={"role": "PCB Team Leader", "parenttype": "User"},
-		pluck="parent",
-		distinct=True,
-	)
-	enabled = [
-		user
-		for user in users
-		if user not in ("Administrator", "Guest")
-		and frappe.db.get_value("User", user, "enabled")
-	]
+	enabled = [user for user, _name in get_enabled_team_leaders()]
 	return enabled[0] if len(enabled) == 1 else None
 
 

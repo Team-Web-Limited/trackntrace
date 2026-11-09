@@ -48,6 +48,8 @@ fixtures = [
 					"Sales Order-custom_rects_reference",
 					"Warehouse-custom_location",
 					"User-custom_seal_base_location",
+					"User-custom_seal_manager",
+					"User-custom_listed_pcb_team_leader",
 					"Warehouse-custom_seal_column",
 					"Sales Order-custom_customer_response",
 					"Sales Order-custom_customer_response_by",
@@ -100,7 +102,10 @@ add_to_apps_screen = [
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/tnt_seal_management/css/tnt_seal_management.css"
-app_include_js = "/assets/tnt_seal_management/js/tnt_seal_management.js"
+# A .bundle.js gets a content-hashed file name on every build. A plain
+# /assets/... path keeps the same URL, and Frappe Cloud serves it as
+# "immutable" for a year, so browsers kept running old code after deploys.
+app_include_js = "tnt_seal_management.bundle.js"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/tnt_seal_management/css/tnt_seal_management.css"
@@ -238,6 +243,11 @@ has_permission = {
 # Hook on document methods and events
 
 doc_events = {
+	# Seal Manager role follows the User form's Seal Manager checkbox, even with a
+	# Role Profile (which otherwise rebuilds the roles on every save).
+	"User": {
+		"validate": "tnt_seal_management.tnt_seal_management.api.user_flags.apply_seal_manager_flag",
+	},
 	# Keeps the Customer Branch checkboxes consistent (All <-> FMS + ECTS + RECTS).
 	"Customer": {
 		"validate": "tnt_seal_management.tnt_seal_management.api.customer_branches.normalize_branches",
