@@ -4,6 +4,7 @@ import base64
 import os
 
 import frappe
+from frappe.utils import cint
 
 _RECTS_QUOTATION_SIGNATURE = "rects_quotation_signature.png"
 
@@ -11,13 +12,12 @@ _RECTS_QUOTATION_SIGNATURE = "rects_quotation_signature.png"
 def rects_quotation_signature(doc):
 	"""Data URI of the Finance signature for a RECTs quotation, else "".
 
-	RECTs is told apart from TNT by the customer (RECTS branch ticked, ECTS not;
-	see rects_billing.is_rects_customer). Embedded as data so it renders the same
-	in the print view and in wkhtmltopdf PDFs."""
-	from tnt_seal_management.tnt_seal_management.api.rects_billing import is_rects_customer
-
+	A RECTs quotation is one whose customer has the RECTS branch ticked (on its
+	own or with other branches; billing's stricter "RECTs only" rule is
+	rects_billing.is_rects_customer). Embedded as data so it renders the same in
+	the print view and in wkhtmltopdf PDFs."""
 	customer = doc.get("custom_customer") or (doc.get("party_name") if doc.get("quotation_to") == "Customer" else None)
-	if not customer or not is_rects_customer(customer):
+	if not customer or not cint(frappe.db.get_value("Customer", customer, "custom_division_rects")):
 		return ""
 	return _image_data_uri(_RECTS_QUOTATION_SIGNATURE)
 
