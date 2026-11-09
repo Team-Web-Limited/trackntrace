@@ -429,6 +429,12 @@ function _wh_edit_base_location(page, user, current) {
 function _wh_row_html(page, w) {
 	const esc = frappe.utils.escape_html;
 	const dash = "—";
+	// Roles arrive comma-joined: show the first, then "…" if there are more (full list on hover).
+	const role_badge = (roles) => {
+		const all = String(roles).split(",").map((r) => r.trim()).filter(Boolean);
+		const label = esc(all[0] || "") + (all.length > 1 ? "…" : "");
+		return `<span class="wh-badge wh-badge--role" title="${esc(all.join(", "))}">${label}</span>`;
+	};
 	const isWarehouse = w.holder_type === "Warehouse";
 	const type = isWarehouse
 		? `<span class="wh-badge wh-badge--main">${__("Warehouse")}</span>`
@@ -440,7 +446,7 @@ function _wh_row_html(page, w) {
 		<tr class="wh-row" data-name="${esc(w.name)}" data-holder-type="${esc(w.holder_type)}">
 			<td><span class="wh-name">${esc(w.label || w.name)}</span></td>
 			<td>${type}</td>
-			<td>${w.role ? `<span class="wh-badge wh-badge--role">${esc(w.role)}</span>` : dash}</td>
+			<td>${w.role ? role_badge(w.role) : dash}</td>
 			${page.wh_system === "RECTS" ? "" : `<td class="wh-address" title="${esc(w.location || "")}">${isWarehouse ? esc(w.location || dash) : _wh_staff_location_html(page, w)}</td>`}
 			<td>${status}</td>
 			<td><b>${w.seals_held || 0}</b>${isWarehouse && w.show_erp_stock ? ` <span class="wh-badge wh-badge--erp" title="${esc(__("Initial ERP stock plus every seal received since; it never goes down. The live stock is Seals In Stock (ERP) on the warehouse form."))}">${__("ERP Stock")}: ${w.in_stock || 0}</span>` : ""}</td>
