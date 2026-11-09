@@ -175,6 +175,11 @@ role_home_page = {
 # ----------
 
 # add methods and filters to jinja environment
+jinja = {
+	"methods": [
+		"tnt_seal_management.tnt_seal_management.api.print_signatures.rects_quotation_signature",
+	],
+}
 # jinja = {
 # 	"methods": "tnt_seal_management.utils.jinja_methods",
 # 	"filters": "tnt_seal_management.utils.jinja_filters"

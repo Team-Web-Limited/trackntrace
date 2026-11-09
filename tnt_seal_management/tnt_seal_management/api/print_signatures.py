@@ -1,0 +1,30 @@
+"""Signatures for print formats (exposed to Jinja via hooks.jinja)."""
+
+import base64
+import os
+
+import frappe
+
+_RECTS_QUOTATION_SIGNATURE = "rects_quotation_signature.png"
+
+
+def rects_quotation_signature(doc):
+	"""Data URI of the Finance signature for a RECTs quotation, else "".
+
+	RECTs is told apart from TNT by the customer (RECTS branch ticked, ECTS not;
+	see rects_billing.is_rects_customer). Embedded as data so it renders the same
+	in the print view and in wkhtmltopdf PDFs."""
+	from tnt_seal_management.tnt_seal_management.api.rects_billing import is_rects_customer
+
+	customer = doc.get("custom_customer") or (doc.get("party_name") if doc.get("quotation_to") == "Customer" else None)
+	if not customer or not is_rects_customer(customer):
+		return ""
+	return _image_data_uri(_RECTS_QUOTATION_SIGNATURE)
+
+
+def _image_data_uri(filename):
+	path = frappe.get_app_path("tnt_seal_management", "public", "images", filename)
+	if not os.path.exists(path):
+		return ""
+	with open(path, "rb") as f:
+		return "data:image/png;base64," + base64.b64encode(f.read()).decode()
