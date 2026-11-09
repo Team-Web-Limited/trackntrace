@@ -402,7 +402,7 @@ function booking_list_route(frm) {
 }
 
 // A RECTs booking's list crumb links to the RECTs list. (The first crumb is
-// renamed for every form by the shared rule in public/js/tnt_seal_management.js.)
+// renamed for every form by the shared rule in public/js/tnt_seal_management.bundle.js.)
 function set_system_breadcrumb(frm) {
 	const rects = frm.doc.system === "RECTs";
 	window.tnt_set_module(rects ? "RECTS" : "TNT");

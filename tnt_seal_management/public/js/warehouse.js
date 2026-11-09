@@ -8,7 +8,7 @@ function wh_sync_all_branches(frm) {
 }
 
 // Seals currently held by this ERPNext Warehouse (renderer lives in
-// tnt_seal_management.js).
+// tnt_seal_management.bundle.js).
 frappe.ui.form.on("Warehouse", {
 	custom_division_all(frm) {
 		const all = frm.doc.custom_division_all ? 1 : 0;
