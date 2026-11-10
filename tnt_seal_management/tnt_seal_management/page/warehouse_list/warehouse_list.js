@@ -242,9 +242,18 @@ function _wh_render_stats(page, summary) {
 	_wh_sync_filter_menu(page);
 }
 
-// "New Warehouse" only for users who may create ERPNext Warehouses; it starts
-// in the current system's division so it shows up here.
+// "New Warehouse" only on TNT, for users who may create ERPNext Warehouses; it
+// starts in the TNT division so it shows up here. RECTs has no such button
+// (customer warehouses are made when seals are sold), and the page is shared,
+// so switching to RECTs clears it.
 function _wh_set_create_action(page, canCreate) {
+	if (page.wh_system === "RECTS") {
+		if (page.wh_create_added) {
+			page.clear_primary_action();
+			page.wh_create_added = false;
+		}
+		return;
+	}
 	if (!canCreate || page.wh_create_added) return;
 	page.wh_create_added = true;
 	page.set_primary_action(__("New Warehouse"), () => frappe.new_doc("Warehouse", { [WH_SYSTEMS[page.wh_system].branch]: 1, custom_division_fms: 0 }));
