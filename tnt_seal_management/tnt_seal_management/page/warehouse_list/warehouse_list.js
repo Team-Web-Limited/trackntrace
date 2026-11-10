@@ -107,6 +107,7 @@ function _wh_build_page(page) {
 
 						<div class="wh-actions">
 							<button class="wh-clear-btn">${__("Clear filters")}</button>
+							<button class="wh-refresh-btn" title="${__("Reload the list, keeping the search and filters")}">${__("Refresh")}</button>
 						</div>
 					</div>
 				</div>
@@ -160,6 +161,7 @@ function _wh_build_page(page) {
 	});
 
 	$(page.body).on("click", ".wh-clear-btn", () => _wh_clear(page));
+	$(page.body).on("click", ".wh-refresh-btn", () => _wh_load(page));
 
 	$(page.body).on("click", ".wh-base-edit", function (e) {
 		e.stopPropagation(); // the row itself opens the seals held
@@ -751,7 +753,7 @@ function _wh_inject_styles() {
 
 		/* ---- actions ---- */
 		.wh-actions { display: flex; gap: 8px; }
-		.wh-clear-btn {
+		.wh-clear-btn, .wh-refresh-btn {
 			padding: 9px 16px;
 			border: 1px solid #cbd5e1;
 			border-radius: 10px;
@@ -763,7 +765,7 @@ function _wh_inject_styles() {
 			height: 38px;
 			transition: background .12s, border-color .12s;
 		}
-		.wh-clear-btn:hover { background: #f8fafc; border-color: #94a3b8; }
+		.wh-clear-btn:hover, .wh-refresh-btn:hover { background: #f8fafc; border-color: #94a3b8; }
 
 		/* ---- table ---- */
 		.wh-table {
@@ -901,7 +903,8 @@ function _wh_inject_styles() {
 		[data-theme="dark"] .wh-search-inline input,
 		[data-theme="dark"] .wh-filter-btn,
 		[data-theme="dark"] .wh-filter-menu,
-		[data-theme="dark"] .wh-clear-btn {
+		[data-theme="dark"] .wh-clear-btn,
+		[data-theme="dark"] .wh-refresh-btn {
 			background: #1e293b;
 			border-color: #334155;
 			color: #cbd5e1;
