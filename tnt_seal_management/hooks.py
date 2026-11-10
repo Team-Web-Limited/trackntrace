@@ -31,6 +31,7 @@ fixtures = [
 					"Customer-custom_division_fms",
 					"Customer-custom_division_ects",
 					"Customer-custom_division_rects",
+					"Customer-custom_rects_billing_rule",
 					"Purchase Receipt Item-custom_belongs_to",
 					"Warehouse-custom_division",
 					"Warehouse-custom_branches_section",
@@ -256,6 +257,8 @@ doc_events = {
 	# Keeps the Customer Branch checkboxes consistent (All <-> FMS + ECTS + RECTS).
 	"Customer": {
 		"validate": "tnt_seal_management.tnt_seal_management.api.customer_branches.normalize_branches",
+		# RECTS ticked with no RECTs billing: warn Finance (RECTs is prepaid).
+		"on_update": "tnt_seal_management.tnt_seal_management.api.rects_billing.on_customer_update",
 	},
 	# Same for the Warehouse Branch checkboxes.
 	"Warehouse": {

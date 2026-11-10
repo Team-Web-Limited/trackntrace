@@ -176,15 +176,29 @@ def _billing_ready(customer, rule_name):
 	"""A period can be billed: the Managing Director has approved the rule and
 	the customer is enabled again (it stays disabled while any of its rules,
 	the Import/Export one included, waits for approval)."""
-	return frappe.db.get_value("Seal Billing Rate", rule_name, "approval_status") == "Approved" and not cint(
+	return bool(rule_name) and frappe.db.get_value("Seal Billing Rate", rule_name, "approval_status") == "Approved" and not cint(
 		frappe.db.get_value("Customer", customer, "disabled")
 	)
 
 
+def _rects_rule(customer, assignment=None):
+	"""The rule that prices the customer's RECTs periods. A RECTs-only customer's
+	billing (RECTs Customer Billing page) is its RECTs billing. A customer also on
+	ECTS has a TNT rate there, which is no RECTs price, so it needs its own RECTs
+	Prepay Rate (Customer.custom_rects_billing_rule) — None until one is set."""
+	if is_rects_customer(customer):
+		assignment = assignment or _primary_assignment(customer)
+		return assignment.billing_rule if assignment else None
+	if not frappe.get_meta("Customer").has_field(RECTS_RULE_FIELD):
+		return None
+	return frappe.db.get_value("Customer", customer, RECTS_RULE_FIELD)
+
+
 def _period_sales_order(customer, assignment, period_from, period_to):
-	rule = frappe.db.get_value(
+	rule_name = _rects_rule(customer, assignment)
+	rule = rule_name and frappe.db.get_value(
 		"Seal Billing Rate",
-		assignment.billing_rule,
+		rule_name,
 		["billing_type", "currency", "first_period_amount", "owned_rate_per_seal"],
 		as_dict=True,
 	)
@@ -193,7 +207,7 @@ def _period_sales_order(customer, assignment, period_from, period_to):
 	billing_type = rule.billing_type
 	item = "PCB-LEASING" if billing_type == "Leasing" else "PCB SUBSCRIPTIONS"
 	seals, per_seal = cint(assignment.owned_seal_count), flt(rule.owned_rate_per_seal)
-	if cint(assignment.outright_purchase) and seals > 0 and per_seal > 0:
+	if is_rects_customer(customer) and cint(assignment.outright_purchase) and seals > 0 and per_seal > 0:
 		qty, rate = seals, per_seal
 	else:
 		qty, rate = 1, flt(rule.first_period_amount)
@@ -228,15 +242,16 @@ def _start_period(customer, assignment, period_from, period_to):
 
 
 def on_billing_saved(customer):
-	"""After Set Billing (Local) is saved for a customer with the RECTS branch:
-	raise the Sales Order for the first prepaid period. A period already running
-	keeps its order; changed terms apply from the next one. Billing still waiting
-	for approval starts its first period once approved (see on_billing_approved).
-	Returns the Sales Order name, or None."""
+	"""After Set Billing (Local), or a RECTs Prepay Rate, is saved for a customer
+	with the RECTS branch: raise the Sales Order for the first prepaid period. A
+	period already running keeps its order; changed terms apply from the next one.
+	Billing still waiting for approval starts its first period once approved (see
+	on_billing_approved). Returns the Sales Order name, or None."""
 	if not prepays_rects(customer):
 		return None
 	a = _primary_assignment(customer)
-	if not a:
+	rule_name = _rects_rule(customer, a)
+	if not a or not rule_name:
 		return None
 	if a.billed_to and getdate(a.billed_to) >= getdate(today()):
 		frappe.msgprint(
@@ -246,13 +261,13 @@ def on_billing_saved(customer):
 			alert=True,
 		)
 		return None
-	if not _billing_ready(customer, a.billing_rule):
+	if not _billing_ready(customer, rule_name):
 		frappe.msgprint(
 			_("The RECTs prepaid Sales Order is raised once the Managing Director approves the billing."), alert=True
 		)
 		return None
 	start = today()
-	end = add_days(start, _rule_period_days(a.billing_rule) - 1)
+	end = add_days(start, _rule_period_days(rule_name) - 1)
 	so = _start_period(customer, a, start, end)
 	if not so:
 		frappe.msgprint(_("No Sales Order raised: the billing rate is zero."), alert=True, indicator="orange")
@@ -280,18 +295,19 @@ def _catch_up(customer):
 		return
 	for _i in range(MAX_CATCH_UP_PERIODS):
 		a = _primary_assignment(customer)
-		if not a or not _billing_ready(customer, a.billing_rule):
+		rule_name = _rects_rule(customer, a)
+		if not a or not _billing_ready(customer, rule_name):
 			return
 		if a.billed_to and getdate(a.billed_to) >= getdate(today()):
 			return
 		start = add_days(a.billed_to, 1) if a.billed_to else today()
-		end = add_days(start, _rule_period_days(a.billing_rule) - 1)
+		end = add_days(start, _rule_period_days(rule_name) - 1)
 		if not _start_period(customer, a, start, end):
 			return
 
 
 def raise_due_cycle_sales_orders():
-	"""Daily: every customer with the RECTS branch and an active billing gets the
+	"""Daily: every customer with the RECTS branch and RECTs billing gets the
 	Sales Order for each prepaid period that is due (the first one too, if the
 	billing was set before prepay existed or its rule was approved later)."""
 	rows = frappe.db.sql(
@@ -337,25 +353,43 @@ def sales_order_paid(sales_order):
 	return flt(outstanding[0][0] if outstanding else 0) <= 0.01
 
 
+def _missing_billing_message(customer, a=None):
+	"""Why the customer has no RECTs billing to prepay against, or None."""
+	if not prepays_rects(customer):
+		return None
+	a = a or _primary_assignment(customer)
+	if not a:
+		return _("{0} is a RECTs customer with no billing set. RECTs is prepaid: Finance must set the customer's billing first.").format(customer)
+	if not _rects_rule(customer, a):
+		return _("{0} is on both ECTS and RECTS but has no RECTs Prepay Rate. RECTs is prepaid: Finance must set it on the customer (RECTs Prepay Rate button) first.").format(customer)
+	return None
+
+
 def prepay_status(customer):
 	"""Where the customer's RECTs prepay stands: {"ok": bool, "message": str,
-	"sales_order", "period_from", "period_to"}. ``ok`` with no message for a
-	customer without the RECTS branch."""
-	result = frappe._dict(ok=True, message=None, sales_order=None, period_from=None, period_to=None)
+	"missing_billing": bool, "sales_order", "period_from", "period_to"}. ``ok``
+	with no message for a customer without the RECTS branch."""
+	result = frappe._dict(ok=True, message=None, missing_billing=False, sales_order=None, period_from=None, period_to=None)
 	if not prepays_rects(customer):
 		return result
 	a = _primary_assignment(customer)
-	if not a:
-		result.update(ok=False, message=_("{0} has no billing set. RECTs is prepaid: set the customer's billing first.").format(customer))
+	missing = _missing_billing_message(customer, a)
+	if missing:
+		result.update(ok=False, missing_billing=True, message=missing)
 		return result
-	if not _billing_ready(customer, a.billing_rule):
-		result.update(ok=False, message=_("{0}'s billing is waiting for the Managing Director's approval.").format(customer))
+	rule_name = _rects_rule(customer, a)
+	if not _billing_ready(customer, rule_name):
+		result.update(ok=False, message=_("{0}'s RECTs billing is waiting for the Managing Director's approval.").format(customer))
 		return result
 	if not a.billed_to or getdate(a.billed_to) < getdate(today()):
 		_catch_up(customer)
 		a = _primary_assignment(customer)
 	if not a.billed_to or getdate(a.billed_to) < getdate(today()) or not a.last_sales_order:
-		result.update(ok=False, message=_("{0} has no prepaid RECTs period running (the billing rate may be zero).").format(customer))
+		result.update(
+			ok=False,
+			missing_billing=True,
+			message=_("{0} has no prepaid RECTs period running: its RECTs billing rate is zero.").format(customer),
+		)
 		return result
 	result.update(sales_order=a.last_sales_order, period_from=a.billed_from, period_to=a.billed_to)
 	if not sales_order_paid(a.last_sales_order):
@@ -371,17 +405,172 @@ def prepay_status(customer):
 def ensure_prepaid(customer, title=None, allow_unbilled=False):
 	"""Throw unless the customer's current RECTs period is paid. With
 	``allow_unbilled`` a customer with no billing set yet passes (a first seal
-	sale comes before the billing is set up, and carries its own order)."""
-	if allow_unbilled and not _primary_assignment(customer):
-		return
+	sale comes before the billing is set up, and carries its own order).
+	Missing billing also warns Finance."""
 	status = prepay_status(customer)
-	if not status.ok:
-		frappe.throw(status.message, title=title or _("RECTs Prepayment Required"))
+	if status.ok:
+		return
+	if status.missing_billing:
+		warn_finance_missing_billing(customer, status.message)
+		if allow_unbilled:
+			return
+	frappe.throw(status.message, title=title or _("RECTs Prepayment Required"))
 
 
 @frappe.whitelist()
 def get_prepay_status(customer):
 	return prepay_status(customer)
+
+
+# ---------------------------------------------------------------------------
+# Finance warning: a RECTs customer with no billing
+# ---------------------------------------------------------------------------
+
+FINANCE_ROLE = "Finance PCB"
+
+
+def warn_finance_missing_billing(customer, message=None):
+	"""Tell Finance (bell + email) that a RECTs customer needs its billing set,
+	at most once a day per customer. Queued, so it still goes out when the
+	journey request that triggered it is refused and rolled back."""
+	message = message or _missing_billing_message(customer)
+	if not message:
+		return
+	key = f"rects_missing_billing_warned:{customer}:{today()}"
+	cache = frappe.cache()
+	if cache.get_value(key, expires=True):
+		return
+	cache.set_value(key, 1, expires_in_sec=86400)
+	frappe.enqueue(
+		"tnt_seal_management.tnt_seal_management.api.rects_billing._send_finance_warning",
+		queue="short",
+		customer=customer,
+		message=message,
+		enqueue_after_commit=False,
+	)
+
+
+def _send_finance_warning(customer, message):
+	from tnt_seal_management.tnt_seal_management.api.notifications import get_users_with_role, notify_users
+
+	link = "/app/customer-billing/rects" if is_rects_customer(customer) else f"/app/customer/{customer}"
+	notify_users(
+		get_users_with_role(FINANCE_ROLE),
+		_("RECTs customer needs billing: {0}").format(customer),
+		"<br>".join(
+			[
+				message,
+				_("New RECTs journey requests for this customer are blocked until it is set, approved and the period is paid."),
+			]
+		),
+		document_type="Customer",
+		document_name=customer,
+		link=link,
+	)
+	frappe.db.commit()
+
+
+def on_customer_update(doc, method=None):
+	"""Customer saved with the RECTS branch newly ticked and no RECTs billing:
+	warn Finance straight away."""
+	if cint(doc.get("custom_division_rects")) and (doc.is_new() or doc.has_value_changed("custom_division_rects")
+		or doc.has_value_changed("custom_division_ects")):
+		message = _missing_billing_message(doc.name)
+		if message:
+			warn_finance_missing_billing(doc.name, message)
+
+
+# ---------------------------------------------------------------------------
+# RECTs Prepay Rate (customers on both ECTS and RECTS)
+# ---------------------------------------------------------------------------
+
+RECTS_RULE_FIELD = "custom_rects_billing_rule"
+RECTS_RULE_CUSTOM_FIELD = {
+	"fieldname": RECTS_RULE_FIELD,
+	"fieldtype": "Link",
+	"label": "RECTs Prepay Rate",
+	"options": "Seal Billing Rate",
+	"insert_after": "custom_division_rects",
+	"read_only": 1,
+	"no_copy": 1,
+	"depends_on": "eval:doc.custom_division_rects && doc.custom_division_ects",
+	"description": "What this customer prepays for RECTs each period. Only for customers on both ECTS and RECTS "
+	"(RECTs-only customers use their billing on the RECTs Customer Billing page). Set it with the RECTs Prepay Rate button.",
+}
+FREQUENCIES = ("Weekly", "Bi-Weekly", "Monthly", "Quarterly", "Semi-Annually", "Annually", "Custom")
+
+
+@frappe.whitelist()
+def get_rects_prepay_rate(customer):
+	rule_name = frappe.db.get_value("Customer", customer, RECTS_RULE_FIELD)
+	rule = rule_name and frappe.db.get_value(
+		"Seal Billing Rate",
+		rule_name,
+		["name", "billing_period_type", "first_period_days", "first_period_amount", "currency", "approval_status"],
+		as_dict=True,
+	)
+	a = _primary_assignment(customer)
+	return {
+		"rule": rule or None,
+		"has_billing": bool(a),
+		"billed_from": a and a.billed_from,
+		"billed_to": a and a.billed_to,
+		"last_sales_order": a and a.last_sales_order,
+		"status": prepay_status(customer),
+	}
+
+
+@frappe.whitelist()
+def set_rects_prepay_rate(customer, billing_period_type, amount, currency=None, first_period_days=None):
+	"""Create or update the RECTs Prepay Rate of a customer on both ECTS and
+	RECTS: its own rule "<Customer> RECTs BR" (sent to the Managing Director for
+	approval like any rule), separate from the TNT rate that bills its PCB
+	journeys. The first period's order follows once it is approved."""
+	if not frappe.has_permission("Customer", "write"):
+		frappe.throw(_("Not permitted to update customers."), frappe.PermissionError)
+	if not customer or not frappe.db.exists("Customer", customer):
+		frappe.throw(_("Customer not found."))
+	if is_rects_customer(customer) or not prepays_rects(customer):
+		frappe.throw(_("The RECTs Prepay Rate is for customers on both ECTS and RECTS. Set a RECTs-only customer's billing on the RECTs Customer Billing page."))
+	if billing_period_type not in FREQUENCIES:
+		frappe.throw(_("Choose a Frequency."))
+	from tnt_seal_management.tnt_seal_management.doctype.seal_billing_rate.seal_billing_rate import PERIOD_TYPE_DAYS
+
+	days = PERIOD_TYPE_DAYS.get(billing_period_type) or cint(first_period_days)
+	if days <= 0:
+		frappe.throw(_("Enter the number of days in a period."))
+	if flt(amount) <= 0:
+		frappe.throw(_("Enter the amount the customer prepays each period."))
+
+	customer_name = frappe.db.get_value("Customer", customer, "customer_name") or customer
+	values = {
+		"billing_rule_name": f"{customer_name} RECTs BR",
+		"billing_type": "Subscription",
+		"rate_type": "Flat Rate",
+		"computation_method": "Simple",
+		"active": 1,
+		"is_global_default": 0,
+		"currency": currency or "KES",
+		"billing_period_type": billing_period_type,
+		"first_period_days": days,
+		"first_period_amount": flt(amount),
+		"extra_day_rate": 0,
+	}
+	existing = frappe.db.get_value("Customer", customer, RECTS_RULE_FIELD)
+	frappe.flags.in_import = True
+	try:
+		if existing and frappe.db.exists("Seal Billing Rate", existing):
+			doc = frappe.get_doc("Seal Billing Rate", existing)
+			doc.update(values)
+			doc.save(ignore_permissions=True)
+		else:
+			doc = frappe.get_doc({"doctype": "Seal Billing Rate", **values})
+			doc.insert(ignore_permissions=True)
+	finally:
+		frappe.flags.in_import = False
+	frappe.db.set_value("Customer", customer, RECTS_RULE_FIELD, doc.name)
+	sales_order = on_billing_saved(customer)
+	return {"rule": doc.name, "approval_status": doc.approval_status, "sales_order": sales_order}
 
 
 def create_seal_sale_order(stock_entry, customer, lines):

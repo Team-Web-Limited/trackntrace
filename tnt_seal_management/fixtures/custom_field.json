@@ -970,5 +970,25 @@
   "name": "User-custom_listed_pcb_team_leader",
   "options": null,
   "precision": ""
+ },
+ {
+  "depends_on": "eval:doc.custom_division_rects && doc.custom_division_ects",
+  "description": "What this customer prepays for RECTs each period. Only for customers on both ECTS and RECTS (RECTs-only customers use their billing on the RECTs Customer Billing page). Set it with the RECTs Prepay Rate button.",
+  "doctype": "Custom Field",
+  "dt": "Customer",
+  "fieldname": "custom_rects_billing_rule",
+  "fieldtype": "Link",
+  "hidden": 0,
+  "in_list_view": 0,
+  "in_standard_filter": 0,
+  "insert_after": "custom_division_rects",
+  "label": "RECTs Prepay Rate",
+  "modified": "2026-11-10 12:00:00.000000",
+  "module": null,
+  "name": "Customer-custom_rects_billing_rule",
+  "no_copy": 1,
+  "options": "Seal Billing Rate",
+  "precision": "",
+  "read_only": 1
  }
 ]
