@@ -142,6 +142,7 @@ doctype_js = {
 	"Warehouse": "public/js/warehouse.js",
 	"Customer": "public/js/customer.js",
 	"Purchase Receipt": "public/js/purchase_receipt.js",
+	"Item": "public/js/item.js",
 }
 doctype_list_js = {"Sales Order": "public/js/sales_order_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -273,7 +274,11 @@ doc_events = {
 	},
 	# Serials received on a seal item become Seal Devices in the receiving warehouse.
 	"Purchase Receipt": {
-		"validate": "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.set_receipt_systems",
+		"validate": [
+			"tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.set_receipt_systems",
+			# Serials on an item that doesn't track them: say so on save, not as a bare error at submit.
+			"tnt_seal_management.tnt_seal_management.api.serial_tracking.check_untracked_serials",
+		],
 		"on_submit": "tnt_seal_management.tnt_seal_management.api.stock_seal_transfers.create_seals_from_purchase_receipt",
 	},
 	# Customer emails when a journey starts (In Transit) and arrives.
