@@ -298,8 +298,11 @@ window.tnt_render_custody_seals = function (frm, custody_type, title) {
 				$body.text(__("No seals are currently held in this warehouse."));
 				return;
 			}
-			// Moving seals between warehouses is limited to System Managers (Administrator has the role).
-			const can_transfer = frappe.user.has_role("System Manager");
+			// Moving seals between warehouses is limited to System Managers (Administrator
+			// has the role), and to Seal Managers for a RECTs warehouse's seals.
+			const can_transfer =
+				frappe.user.has_role("System Manager") ||
+				(frappe.user.has_role("Seal Manager") && !!frm.doc.custom_division_rects);
 			const stateOf = (d) => (d.pending_transfer ? "pending" : d.in_stock ? "in_stock" : "no_stock");
 			const pill = (key) => {
 				const p = TNT_SEAL_STOCK[key];

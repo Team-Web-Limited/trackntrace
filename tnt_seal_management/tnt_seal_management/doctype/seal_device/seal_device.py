@@ -371,14 +371,28 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 	if to_custody_type == "Warehouse":
 		from tnt_seal_management.tnt_seal_management.api.seal_warehouses import is_seal_warehouse
 
-		if frappe.session.user != "Administrator" and "System Manager" not in frappe.get_roles():
-			frappe.throw(_("Only a System Manager can transfer seals to a warehouse."), frappe.PermissionError)
+		# A Seal Manager stocks RECTs warehouses with RECTs seals; anything else
+		# into a warehouse is a System Manager's job.
+		from tnt_seal_management.tnt_seal_management.api.seal_warehouses import warehouse_system
+
+		rects_restock = (
+			_RECTS_TRANSFER_ROLE in frappe.get_roles()
+			and warehouse_system(to_custodian) == "RECTs"
+			and all(frappe.db.get_value(_DOCTYPE, s, "belongs_to") == "RECTs" for s in seals)
+		)
+		if frappe.session.user != "Administrator" and "System Manager" not in frappe.get_roles() and not rects_restock:
+			frappe.throw(
+				_("Only a System Manager can transfer seals to a warehouse (a Seal Manager: RECTs seals to a RECTs warehouse)."),
+				frappe.PermissionError,
+			)
 
 		if not is_seal_warehouse(to_custodian):
 			frappe.throw(_("{0} is not an active seal warehouse (Branch ECTS or RECTS ticked).").format(to_custodian))
 
 	user = frappe.session.user
 	supervisor = user == "Administrator" or bool(set(frappe.get_roles(user)) & set(_TRANSFER_SUPERVISOR_ROLES))
+	# The Seal Manager is the supervisor for RECTs seals: any RECTs seal, whoever holds it.
+	rects_manager = _RECTS_TRANSFER_ROLE in frappe.get_roles(user)
 
 	rows = []
 	for seal in seals:
@@ -406,7 +420,8 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 				),
 				title=_("Seal Not Available"),
 			)
-		if not supervisor and not (info.current_custody_type == "User" and info.current_custodian == user):
+		seal_supervisor = supervisor or (rects_manager and frappe.db.get_value(_DOCTYPE, seal, "belongs_to") == "RECTs")
+		if not seal_supervisor and not (info.current_custody_type == "User" and info.current_custodian == user):
 			frappe.throw(
 				_("You can only hand over seals you are currently holding ({0} is not with you).").format(seal),
 				frappe.PermissionError,

@@ -309,7 +309,9 @@ function _wh_staff_location_html(page, w) {
 // seals only move back through the journey workflow, so theirs are read-only.
 function _wh_show_holder_seals(page, custody_type, custodian, label) {
 	const esc = frappe.utils.escape_html;
-	const can_transfer = custody_type === "User" && frappe.user.has_role("System Manager");
+	const can_transfer =
+		custody_type === "User" &&
+		(frappe.user.has_role("System Manager") || (page.wh_system === "RECTS" && frappe.user.has_role("Seal Manager")));
 	const d = new frappe.ui.Dialog({ title: __("Seals held by {0}", [label || custodian]), size: "extra-large" });
 	const $body = $(d.body).html(`<div class="text-muted">${__("Loading...")}</div>`);
 	const load = () =>
