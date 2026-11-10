@@ -282,8 +282,7 @@ function _wh_render_table(page, warehouses) {
 				${page.wh_system === "RECTS" ? "" : `<th title="${__("Warehouse location; for staff, their base and the latest GPS position of the seals they hold")}">${__("Location")}</th>`}
 				<th>${__("Status")}</th>
 				<th title="${page.wh_system === "RECTS" ? esc(__("For a customer: the seals sold to them, wherever they are now, plus any others they hold")) : ""}">${page.wh_system === "RECTS" ? __("Seals") : __("Seals Held")}</th>
-				<th>${__("Company")}</th>
-				<th>${__("Parent Warehouse")}</th>
+				${page.wh_system === "RECTS" ? "" : `<th>${__("Company")}</th><th>${__("Parent Warehouse")}</th>`}
 				<th>${__("City")}</th>
 				<th>${__("Address / Contact")}</th>
 			</tr></thead>
@@ -469,9 +468,14 @@ function _wh_row_html(page, w) {
 		: `<span class="wh-badge wh-badge--active">${__("Holding")}</span>`;
 	const notes = [];
 	if (w.sold) {
-		notes.push(__("{0} sold", [w.sold]) + (w.holding ? ` · ${__("{0} held", [w.holding])}` : ""));
-		if (w.sold_with_customer !== w.sold) notes.push(__("{0} with them", [w.sold_with_customer || 0]));
-		(w.sold_away || []).forEach((a) => notes.push(__("{0} with {1}", [a.count, esc(a.label)])));
+		// The Sold badge already says they're sold: only break the count down
+		// when some are held (not bought) or are away with someone else.
+		if (w.holding) notes.push(__("{0} sold", [w.sold]) + ` · ${__("{0} held", [w.holding])}`);
+		const away = w.sold_away || [];
+		if (away.length && w.sold_with_customer) notes.push(__("{0} with them", [w.sold_with_customer]));
+		away.forEach((a) => notes.push(
+			__("{0} with {1}", [a.count, (a.kind ? `<span class="wh-kind">${esc(a.kind)}</span> ` : "") + esc(a.label)])
+		));
 	}
 	(w.sold_carrying || []).forEach((c) => notes.push(__("{0} sold to {1}", [c.count, esc(c.customer)])));
 	const notes_html = notes.length ? `<div class="wh-sold-note">${notes.join("<br>")}</div>` : "";
@@ -483,8 +487,7 @@ function _wh_row_html(page, w) {
 			${page.wh_system === "RECTS" ? "" : `<td class="wh-address" title="${esc(w.location || "")}">${isWarehouse ? esc(w.location || dash) : _wh_staff_location_html(page, w)}</td>`}
 			<td>${status}</td>
 			<td><b>${w.seals_held || 0}</b>${notes_html}${isWarehouse && w.show_erp_stock ? ` <span class="wh-badge wh-badge--erp" title="${esc(__("Initial ERP stock plus every seal received since; it never goes down. The live stock is Seals In Stock (ERP) on the warehouse form."))}">${__("ERP Stock")}: ${w.in_stock || 0}</span>` : ""}</td>
-			<td>${esc(w.company || dash)}</td>
-			<td>${esc(w.parent_warehouse || dash)}</td>
+			${page.wh_system === "RECTS" ? "" : `<td>${esc(w.company || dash)}</td><td>${esc(w.parent_warehouse || dash)}</td>`}
 			<td>${esc(w.region || dash)}</td>
 			<td class="wh-address" title="${esc(w.address_line || "")}">${esc(w.address_line || dash)}</td>
 		</tr>
@@ -826,6 +829,8 @@ function _wh_inject_styles() {
 		.wh-badge--inactive    { background: #e2e8f0; color: #475569; }
 		.wh-badge--sold        { background: #fce7f3; color: #be185d; }
 		[data-theme="dark"] .wh-badge--sold { background: #500724; color: #fbcfe8; }
+		.wh-kind               { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 11px; font-weight: 600; background: #e0f2fe; color: #0369a1; }
+		[data-theme="dark"] .wh-kind { background: #0c4a6e; color: #bae6fd; }
 		.wh-sold-note          { color: var(--text-muted); font-size: 12px; line-height: 1.35; margin-top: 2px; white-space: nowrap; }
 		.wh-empty {
 			display: flex;

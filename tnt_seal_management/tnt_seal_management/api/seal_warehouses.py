@@ -209,8 +209,14 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25, system
 		if (not selected or any(in_status(r, key) for key in selected))
 		and (not search or search in r["search_text"])
 	]
-	# Warehouses always come first, then staff, then customers.
-	matched.sort(key=lambda r: {"Warehouse": 0, "User": 1, "Customer": 2}.get(r["holder_type"], 3))
+	# Warehouses always come first, then staff, then customers; customers whose
+	# seals are sold (status Sold) always go to the bottom.
+	matched.sort(
+		key=lambda r: (
+			{"Warehouse": 0, "User": 1, "Customer": 2}.get(r["holder_type"], 3),
+			1 if r["holder_type"] == "Customer" and r.get("sold") else 0,
+		)
+	)
 	start = (page - 1) * page_length
 	return {
 		"warehouses": [{k: v for k, v in r.items() if k != "search_text"} for r in matched[start : start + page_length]],
@@ -443,21 +449,28 @@ def _seals_sold(system="TNT"):
 	)
 	users = {s.current_custodian for s in seals if s.current_custody_type == "User" and s.current_custodian}
 	names = dict(frappe.get_all("User", filters={"name": ["in", list(users)]}, fields=["name", "full_name"], as_list=True)) if users else {}
+	roles = _lifecycle_roles(list(users))
 	for s in seals:
 		entry = out["by_customer"].setdefault(s.category_customer, {"total": 0, "with_customer": 0, "away": {}})
 		entry["total"] += 1
 		if s.current_custody_type == "Customer" and s.current_custodian == s.category_customer:
 			entry["with_customer"] += 1
 			continue
+		# A word for who has them, e.g. "TO" for a technical officer tagging for the buyer.
 		if s.current_custody_type == "User":
 			where = names.get(s.current_custodian) or s.current_custodian
+			kind = (roles.get(s.current_custodian) or [_("Staff")])[0]
 			out["by_user"].setdefault(s.current_custodian, {}).setdefault(s.category_customer, 0)
 			out["by_user"][s.current_custodian][s.category_customer] += 1
+		elif s.current_custody_type and s.current_custodian:
+			where = s.current_custody_label or s.current_custodian
+			kind = _(s.current_custody_type)
 		else:
-			where = s.current_custodian or s.current_custody_label or _("no custodian")
+			where, kind = _("no custodian"), None
 		if s.current_journey:
 			where = _("{0}, on a journey").format(where)
-		entry["away"][where] = entry["away"].get(where, 0) + 1
+		key = (kind, where)
+		entry["away"][key] = entry["away"].get(key, 0) + 1
 	return out
 
 
@@ -514,7 +527,10 @@ def _holder_rows(held, sold=None):
 				sold_info = {
 					"sold": bought["total"],
 					"sold_with_customer": bought["with_customer"],
-					"sold_away": [{"label": k, "count": v} for k, v in sorted(bought["away"].items())],
+					"sold_away": [
+						{"kind": kind, "label": where, "count": n}
+						for (kind, where), n in sorted(bought["away"].items(), key=lambda i: (i[0][0] or "~", i[0][1]))
+					],
 					"holding": holding,
 				}
 				seals = bought["total"] + holding
