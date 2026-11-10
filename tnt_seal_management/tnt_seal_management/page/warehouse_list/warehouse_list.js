@@ -260,6 +260,7 @@ function _wh_set_create_action(page, canCreate) {
 }
 
 function _wh_render_table(page, warehouses) {
+	const esc = frappe.utils.escape_html;
 	if (!warehouses.length) {
 		$(page.body).find(".wh-table-wrap").html(`
 			<div class="wh-empty">
@@ -278,7 +279,7 @@ function _wh_render_table(page, warehouses) {
 				<th title="${__("Seal journey role of the staff member holding the seals")}">${__("Role")}</th>
 				${page.wh_system === "RECTS" ? "" : `<th title="${__("Warehouse location; for staff, their base and the latest GPS position of the seals they hold")}">${__("Location")}</th>`}
 				<th>${__("Status")}</th>
-				<th>${__("Seals Held")}</th>
+				<th title="${page.wh_system === "RECTS" ? esc(__("For a customer: the seals sold to them, wherever they are now, plus any others they hold")) : ""}">${page.wh_system === "RECTS" ? __("Seals") : __("Seals Held")}</th>
 				<th>${__("Company")}</th>
 				<th>${__("Parent Warehouse")}</th>
 				<th>${__("City")}</th>
@@ -309,10 +310,15 @@ function _wh_staff_location_html(page, w) {
 // seals only move back through the journey workflow, so theirs are read-only.
 function _wh_show_holder_seals(page, custody_type, custodian, label) {
 	const esc = frappe.utils.escape_html;
+	// On RECTs a customer's own (sold) seals can be collected by staff, e.g. a TO tagging for them.
+	const rects = page.wh_system === "RECTS";
 	const can_transfer =
-		custody_type === "User" &&
-		(frappe.user.has_role("System Manager") || (page.wh_system === "RECTS" && frappe.user.has_role("Seal Manager")));
-	const d = new frappe.ui.Dialog({ title: __("Seals held by {0}", [label || custodian]), size: "extra-large" });
+		(custody_type === "User" || (rects && custody_type === "Customer")) &&
+		(frappe.user.has_role("System Manager") || (rects && frappe.user.has_role("Seal Manager")));
+	const d = new frappe.ui.Dialog({
+		title: rects && custody_type === "Customer" ? __("Seals of {0}", [label || custodian]) : __("Seals held by {0}", [label || custodian]),
+		size: "extra-large",
+	});
 	const $body = $(d.body).html(`<div class="text-muted">${__("Loading...")}</div>`);
 	const load = () =>
 		frappe.call({
@@ -326,7 +332,7 @@ function _wh_show_holder_seals(page, custody_type, custodian, label) {
 				}
 				const tr = rows
 					.map(
-						(s) => `<tr class="wh-hs-row" data-free="${s.current_status === "Available" && !s.current_journey ? 1 : 0}" data-search="${esc([s.seal_number, s.name, s.device_id, s.current_status, s.lock_status, s.condition].join(" ").toLowerCase())}">
+						(s) => `<tr class="wh-hs-row" data-free="${s.current_status === "Available" && !s.current_journey ? 1 : 0}" data-search="${esc([s.seal_number, s.name, s.device_id, s.current_status, s.lock_status, s.condition, s.sold ? "sold" : "", s.category_customer_name, s.current_custody_label].join(" ").toLowerCase())}">
 							${can_transfer ? `<td><input type="checkbox" class="wh-hs-pick" data-seal="${esc(s.name)}"></td>` : ""}
 							<td><a href="/app/seal-device/${encodeURIComponent(s.name)}">${esc(s.seal_number || s.name)}</a></td>
 							<td>${esc(s.device_id || "")}</td>
@@ -334,6 +340,8 @@ function _wh_show_holder_seals(page, custody_type, custodian, label) {
 							<td>${esc(s.lock_status || "")}</td>
 							<td>${esc(s.condition || "")}</td>
 							<td>${s.current_custody_since ? frappe.datetime.str_to_user(s.current_custody_since) : ""}</td>
+							${rects ? `<td>${s.sold ? `<span class="wh-badge wh-badge--sold">${__("Sold")}</span> ${esc(s.category_customer_name || s.category_customer || "")}` : esc(s.seal_category || "")}</td>
+							<td>${s.current_custody_type === custody_type && s.current_custodian === custodian ? esc(label || custodian) : esc(s.current_custody_label || s.current_custodian || "")}</td>` : ""}
 						</tr>`
 					)
 					.join("");
@@ -360,6 +368,7 @@ function _wh_show_holder_seals(page, custody_type, custodian, label) {
 							<thead><tr>
 								${can_transfer ? `<th><input type="checkbox" class="wh-hs-all" title="${__("Select all shown")}"></th>` : ""}<th>${__("Seal Number")}</th><th>${__("Device ID")}</th><th>${__("Status")}</th>
 								<th>${__("Lock Status")}</th><th>${__("Condition")}</th><th>${__("In Custody Since")}</th>
+								${rects ? `<th>${__("Ownership")}</th><th>${__("With")}</th>` : ""}
 							</tr></thead>
 							<tbody>${tr}</tbody>
 						</table>
@@ -450,9 +459,20 @@ function _wh_row_html(page, w) {
 	const type = isWarehouse
 		? `<span class="wh-badge wh-badge--main">${__("Warehouse")}</span>`
 		: `<span class="wh-badge wh-badge--${w.holder_type === "User" ? "user" : "customer"}">${w.holder_type === "User" ? __("Staff") : __("Customer")}</span>`;
+	// A customer's seals they bought are Sold, wherever they are; others in their custody are Holding.
 	const status = isWarehouse
 		? `<span class="wh-badge wh-badge--${w.disabled ? "inactive" : "active"}">${w.disabled ? __("Inactive") : __("Active")}</span>`
+		: w.sold
+		? `<span class="wh-badge wh-badge--sold">${__("Sold")}</span>${w.holding ? ` <span class="wh-badge wh-badge--active">${__("Holding")}</span>` : ""}`
 		: `<span class="wh-badge wh-badge--active">${__("Holding")}</span>`;
+	const notes = [];
+	if (w.sold) {
+		notes.push(__("{0} sold", [w.sold]) + (w.holding ? ` · ${__("{0} held", [w.holding])}` : ""));
+		if (w.sold_with_customer !== w.sold) notes.push(__("{0} with them", [w.sold_with_customer || 0]));
+		(w.sold_away || []).forEach((a) => notes.push(__("{0} with {1}", [a.count, esc(a.label)])));
+	}
+	(w.sold_carrying || []).forEach((c) => notes.push(__("{0} sold to {1}", [c.count, esc(c.customer)])));
+	const notes_html = notes.length ? `<div class="wh-sold-note">${notes.join("<br>")}</div>` : "";
 	return `
 		<tr class="wh-row" data-name="${esc(w.name)}" data-holder-type="${esc(w.holder_type)}">
 			<td><span class="wh-name">${esc(w.label || w.name)}</span></td>
@@ -460,7 +480,7 @@ function _wh_row_html(page, w) {
 			<td>${w.role ? role_badge(w.role) : dash}</td>
 			${page.wh_system === "RECTS" ? "" : `<td class="wh-address" title="${esc(w.location || "")}">${isWarehouse ? esc(w.location || dash) : _wh_staff_location_html(page, w)}</td>`}
 			<td>${status}</td>
-			<td><b>${w.seals_held || 0}</b>${isWarehouse && w.show_erp_stock ? ` <span class="wh-badge wh-badge--erp" title="${esc(__("Initial ERP stock plus every seal received since; it never goes down. The live stock is Seals In Stock (ERP) on the warehouse form."))}">${__("ERP Stock")}: ${w.in_stock || 0}</span>` : ""}</td>
+			<td><b>${w.seals_held || 0}</b>${notes_html}${isWarehouse && w.show_erp_stock ? ` <span class="wh-badge wh-badge--erp" title="${esc(__("Initial ERP stock plus every seal received since; it never goes down. The live stock is Seals In Stock (ERP) on the warehouse form."))}">${__("ERP Stock")}: ${w.in_stock || 0}</span>` : ""}</td>
 			<td>${esc(w.company || dash)}</td>
 			<td>${esc(w.parent_warehouse || dash)}</td>
 			<td>${esc(w.region || dash)}</td>
@@ -802,6 +822,9 @@ function _wh_inject_styles() {
 		[data-theme="dark"] .wh-badge--customer { background: #052e16; color: #bbf7d0; }
 		.wh-address { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 		.wh-badge--inactive    { background: #e2e8f0; color: #475569; }
+		.wh-badge--sold        { background: #fce7f3; color: #be185d; }
+		[data-theme="dark"] .wh-badge--sold { background: #500724; color: #fbcfe8; }
+		.wh-sold-note          { color: var(--text-muted); font-size: 12px; line-height: 1.35; margin-top: 2px; white-space: nowrap; }
 		.wh-empty {
 			display: flex;
 			flex-direction: column;

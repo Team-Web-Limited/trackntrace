@@ -426,14 +426,23 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 				_("You can only hand over seals you are currently holding ({0} is not with you).").format(seal),
 				frappe.PermissionError,
 			)
-		if info.current_custody_type == "Customer":
-			frappe.throw(_("Seal {0} is with a customer; it moves back through the journey workflow.").format(seal))
-		if to_custody_type == "Customer":
+		belongs_to, category, owner = frappe.db.get_value(
+			_DOCTYPE, seal, ["belongs_to", "seal_category", "category_customer"]
+		)
+		# A RECTs seal the customer bought stays theirs wherever it is: staff may
+		# collect it from them (a TO tagging for them) and hand it back.
+		owned = belongs_to == "RECTs" and category == "Outright Purchase" and bool(owner)
+		if info.current_custody_type == "Customer" and not (
+			owned and owner == info.current_custodian and to_custody_type == "User"
+		):
+			frappe.throw(
+				_("Seal {0} is with a customer; it moves back through the journey workflow (a seal they bought can be collected by staff).").format(seal)
+			)
+		if to_custody_type == "Customer" and owned and owner == to_custodian:
+			pass  # their own seal coming back to them: no sale
+		elif to_custody_type == "Customer":
 			# Handing a seal to a customer from here is a sale (Outright Purchase),
 			# RECTs only for now; TNT seals are leased and move on journeys.
-			belongs_to, category, owner = frappe.db.get_value(
-				_DOCTYPE, seal, ["belongs_to", "seal_category", "category_customer"]
-			)
 			if belongs_to != "RECTs":
 				frappe.throw(
 					_("Seal {0} is a TNT seal. Only RECTs seals can be sold to a customer from the warehouse.").format(seal),
@@ -474,8 +483,10 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 	# goes into that customer's own warehouse so the store's ERP stock goes down.
 	stock_target = None
 	if to_custody_type == "Customer" and any(
-		frappe.db.get_value("Seal Device", r["seal_device"], "belongs_to") == "RECTs" for r in rows
-	):
+		frappe.db.get_value("Seal Device", r["seal_device"], "belongs_to") == "RECTs"
+		and frappe.db.get_value("Seal Device", r["seal_device"], "category_customer") != to_custodian
+		for r in rows
+	):  # (seals they already own coming back are no new sale)
 		# RECTs is prepaid: no more seals to a customer behind on its period.
 		from tnt_seal_management.tnt_seal_management.api.rects_billing import ensure_prepaid
 

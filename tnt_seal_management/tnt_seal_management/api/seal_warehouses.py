@@ -176,9 +176,10 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25, system
 	search = (search or "").strip().lower()
 	branch = SYSTEM_BRANCH.get(system) or SYSTEM_BRANCH["TNT"]
 
+	sold = _seals_sold(system)
 	if is_technician_only():
 		mine = ("User", frappe.session.user)
-		rows = _holder_rows({k: v for k, v in _seals_held_by_custodian(system).items() if k == mine})
+		rows = _holder_rows({k: v for k, v in _seals_held_by_custodian(system).items() if k == mine}, sold)
 	else:
 		held = _seals_held_by_custodian(system)
 		if system == "RECTS":
@@ -188,7 +189,10 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25, system
 				"Warehouse", filters={"custom_customer": ["is", "set"], "disabled": 0}, pluck="custom_customer"
 			):
 				held.setdefault(("Customer", customer), 0)
-		rows = _division_warehouse_rows(branch, system) + _holder_rows(held)
+			# So does every customer seals were sold to, wherever those seals are now.
+			for customer in sold["by_customer"]:
+				held.setdefault(("Customer", customer), 0)
+		rows = _division_warehouse_rows(branch, system) + _holder_rows(held, sold)
 
 	def in_status(row, key):
 		if key == "All":
@@ -315,23 +319,40 @@ def get_warehouse_stock_count(warehouse):
 @frappe.whitelist()
 def get_holder_seals(custody_type, custodian, system="TNT"):
 	"""Seals a staff member or customer holds right now, only those of ``system``
-	(TNT / RECTS), for the holder panel on the Warehouses page."""
+	(TNT / RECTS), for the holder panel on the Warehouses page. On RECTs a
+	customer's list also has every seal sold to them that is away from them now
+	(with a TO tagging for them...); each row says who bought it and who has it."""
 	if custody_type not in _HOLDER_STATUSES or not custodian:
 		return []
-	return frappe.get_list(
+	fields = [
+		"name", "seal_number", "device_id", "current_status", "lock_status", "condition", "current_custody_since",
+		"current_journey", "seal_category", "category_customer", "category_customer_name",
+		"current_custody_type", "current_custodian", "current_custody_label",
+	]
+	belongs = "RECTs" if system == "RECTS" else ["!=", "RECTs"]
+	rows = frappe.get_list(
 		"Seal Device",
-		filters={
-			"current_custody_type": custody_type,
-			"current_custodian": custodian,
-			"belongs_to": "RECTs" if system == "RECTS" else ["!=", "RECTs"],
-		},
-		fields=[
-			"name", "seal_number", "device_id", "current_status", "lock_status", "condition", "current_custody_since",
-			"current_journey",
-		],
+		filters={"current_custody_type": custody_type, "current_custodian": custodian, "belongs_to": belongs},
+		fields=fields,
 		order_by="current_custody_since desc, seal_number asc",
 		limit_page_length=0,
 	)
+	if system == "RECTS" and custody_type == "Customer":
+		mine = {r.name for r in rows}
+		rows += [
+			r
+			for r in frappe.get_list(
+				"Seal Device",
+				filters={"belongs_to": "RECTs", "seal_category": SOLD_CATEGORY, "category_customer": custodian},
+				fields=fields,
+				order_by="seal_number asc",
+				limit_page_length=0,
+			)
+			if r.name not in mine
+		]
+	for r in rows:
+		r.sold = r.seal_category == SOLD_CATEGORY and bool(r.category_customer)
+	return rows
 
 
 def _seals_by_warehouse(warehouses, owner="TNT"):
@@ -403,10 +424,52 @@ def _seals_held_by_custodian(system="TNT"):
 	return {(r.current_custody_type, r.current_custodian): cint(r.seals) for r in rows}
 
 
-def _holder_rows(held):
-	"""One row per User or Customer holding seals right now, most seals first."""
+SOLD_CATEGORY = "Outright Purchase"
+
+
+def _seals_sold(system="TNT"):
+	"""RECTs seals bought outright, by buyer, wherever each is now: with the
+	buyer, or away from them (a TO collecting them to tag, a warehouse...).
+	{"by_customer": {customer: {"total", "with_customer", "away": {label: n}}},
+	 "by_user": {user: {customer: n}}}. Empty for TNT: only RECTs seals are sold."""
+	out = {"by_customer": {}, "by_user": {}}
+	if system != "RECTS":
+		return out
+	seals = frappe.get_all(
+		"Seal Device",
+		filters={"belongs_to": "RECTs", "seal_category": SOLD_CATEGORY, "category_customer": ["is", "set"]},
+		fields=["category_customer", "current_custody_type", "current_custodian", "current_custody_label", "current_journey"],
+		limit_page_length=0,
+	)
+	users = {s.current_custodian for s in seals if s.current_custody_type == "User" and s.current_custodian}
+	names = dict(frappe.get_all("User", filters={"name": ["in", list(users)]}, fields=["name", "full_name"], as_list=True)) if users else {}
+	for s in seals:
+		entry = out["by_customer"].setdefault(s.category_customer, {"total": 0, "with_customer": 0, "away": {}})
+		entry["total"] += 1
+		if s.current_custody_type == "Customer" and s.current_custodian == s.category_customer:
+			entry["with_customer"] += 1
+			continue
+		if s.current_custody_type == "User":
+			where = names.get(s.current_custodian) or s.current_custodian
+			out["by_user"].setdefault(s.current_custodian, {}).setdefault(s.category_customer, 0)
+			out["by_user"][s.current_custodian][s.category_customer] += 1
+		else:
+			where = s.current_custodian or s.current_custody_label or _("no custodian")
+		if s.current_journey:
+			where = _("{0}, on a journey").format(where)
+		entry["away"][where] = entry["away"].get(where, 0) + 1
+	return out
+
+
+def _holder_rows(held, sold=None):
+	"""One row per User or Customer holding seals right now, most seals first.
+	On RECTs a customer's row counts the seals sold to them (Sold), wherever
+	they are, plus any others in their custody (Holding); a staff row notes the
+	sold seals it is carrying for their owners."""
+	sold = sold or {"by_customer": {}, "by_user": {}}
 	users = [c for (t, c) in held if t == "User"]
 	customers = [c for (t, c) in held if t == "Customer"]
+	customers += [c for owners in sold["by_user"].values() for c in owners if c not in customers]
 	user_info = {
 		u.name: u
 		for u in frappe.get_all(
@@ -426,17 +489,35 @@ def _holder_rows(held):
 	rows = []
 	for (custody_type, custodian), seals in held.items():
 		role = location = base_location = None
+		sold_info = {}
 		if custody_type == "User":
 			info = user_info.get(custodian) or frappe._dict()
 			label, region, detail = info.full_name or custodian, None, custodian
 			role = ", ".join(user_roles.get(custodian, [])) or None
 			location = user_locations.get(custodian)
 			base_location = info.custom_seal_base_location
+			carrying = sold["by_user"].get(custodian) or {}
+			if carrying:
+				sold_info["sold_carrying"] = [
+					{"customer": (customer_info.get(c) or frappe._dict()).customer_name or c, "count": n}
+					for c, n in sorted(carrying.items())
+				]
 		elif custody_type == "Customer":
 			info = customer_info.get(custodian) or frappe._dict()
 			# The root territory says nothing about where the customer is.
 			region = info.territory if info.territory != "All Territories" else None
 			label, detail = info.customer_name or custodian, None
+			bought = sold["by_customer"].get(custodian)
+			if bought:
+				# Seals in their custody that they didn't buy (leased) still show as held.
+				holding = max(seals - bought["with_customer"], 0)
+				sold_info = {
+					"sold": bought["total"],
+					"sold_with_customer": bought["with_customer"],
+					"sold_away": [{"label": k, "count": v} for k, v in sorted(bought["away"].items())],
+					"holding": holding,
+				}
+				seals = bought["total"] + holding
 		else:
 			continue
 		rows.append(
@@ -450,8 +531,10 @@ def _holder_rows(held):
 				"role": role,
 				"address_line": detail,
 				"seals_held": seals,
+				**sold_info,
 				"search_text": " ".join(
-					str(v or "") for v in (custodian, label, region, base_location, location, role, custody_type)
+					str(v or "")
+					for v in (custodian, label, region, base_location, location, role, custody_type, "sold" if sold_info else "")
 				).lower(),
 			}
 		)
