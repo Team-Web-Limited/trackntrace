@@ -173,7 +173,7 @@ def approve_seal_billing_rate(name, remarks=None):
 		# _gate_customer_on_rule_approval running against stale data) without
 		# ever living through a Pending -> Approved transition here, so make
 		# sure they aren't left disabled on a rule that's fine.
-		_reenable_customers_pending_on_rule(doc.name)
+		_start_rects_prepay(_reenable_customers_pending_on_rule(doc.name))
 		return doc.as_dict()
 
 	doc.flags.approval_action = True
@@ -190,7 +190,7 @@ def approve_seal_billing_rate(name, remarks=None):
 		doc.save(ignore_permissions=True)
 	finally:
 		frappe.flags.in_import = False
-	_reenable_customers_pending_on_rule(doc.name)
+	_start_rects_prepay(_reenable_customers_pending_on_rule(doc.name))
 	frappe.db.commit()
 	_notify_rule_owner_decision(doc, approved=True)
 	return doc.as_dict()
@@ -284,9 +284,20 @@ def _reenable_customers_pending_on_rule(rule_name):
 		if owner:
 			customers.add(owner)
 
+	enabled = []
 	for customer in customers:
 		if _customer_billing_fully_approved(customer):
 			frappe.db.set_value("Customer", customer, "disabled", 0)
+			enabled.append(customer)
+	return enabled
+
+
+def _start_rects_prepay(customers):
+	"""RECTs is prepaid: a customer's first period Sales Order waits until all
+	its billing is approved (see rects_billing.on_billing_approved)."""
+	from tnt_seal_management.tnt_seal_management.api.rects_billing import on_billing_approved
+
+	on_billing_approved(customers)
 
 
 def _customer_billing_fully_approved(customer):

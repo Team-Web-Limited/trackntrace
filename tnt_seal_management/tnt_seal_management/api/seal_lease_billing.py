@@ -237,7 +237,7 @@ def _get_subscription_line_info(customer, item_code):
 	}
 
 
-def customer_has_seat_subscription(customer):
+def customer_has_seat_subscription(customer, system=None, include_prepay=True):
 	"""True if the customer has an active recurring Seal Lease Fee (Scenario 4)
 	or Seal Ownership Service Fee (Scenario 5) line — either means their base
 	seat count is billed on a recurring cycle, not per journey. Used by
@@ -245,8 +245,8 @@ def customer_has_seat_subscription(customer):
 	customers (see doctype/seal_journey/seal_journey.py)."""
 	from tnt_seal_management.tnt_seal_management.api.rects_billing import is_upfront_billed
 
-	# RECTs customers are billed upfront by period, so no per-journey charge either.
-	if is_upfront_billed(customer):
+	# RECTs journeys are prepaid by period, so no per-journey charge either.
+	if include_prepay and is_upfront_billed(customer, system):
 		return True
 	sub = _find_customer_subscription(customer)
 	if not sub:

@@ -458,6 +458,13 @@ def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_co
 	# leaving a warehouse into a Main Seal Store, or sold to a customer: the sale
 	# goes into that customer's own warehouse so the store's ERP stock goes down.
 	stock_target = None
+	if to_custody_type == "Customer" and any(
+		frappe.db.get_value("Seal Device", r["seal_device"], "belongs_to") == "RECTs" for r in rows
+	):
+		# RECTs is prepaid: no more seals to a customer behind on its period.
+		from tnt_seal_management.tnt_seal_management.api.rects_billing import ensure_prepaid
+
+		ensure_prepaid(to_custodian, allow_unbilled=True)
 	if to_custody_type == "Warehouse" and frappe.db.get_value("Warehouse", to_custodian, "custom_is_main_seal_store"):
 		stock_target = to_custodian
 	elif to_custody_type == "Customer" and any(r["from_custody_type"] == "Warehouse" for r in rows):

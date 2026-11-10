@@ -846,12 +846,14 @@ def set_customer_billing(
 	# category, disabled flag). The Import/Export save is rates-only.
 	is_primary_journey_type = journey_type == JOURNEY_TYPE_LOCAL
 
-	# RECTs customers pay upfront: Frequency drives the billing period, and a Sales
-	# Order is raised for it once the billing is saved (see rects_billing).
+	# RECTs is prepaid: Frequency drives the billing period, and a Sales Order is
+	# raised for it once the billing is saved (see rects_billing). A RECTs-only
+	# customer's billing window is that period; a customer also on ECTS keeps its
+	# own window for the TNT side and prepays only its RECTs side.
 	from tnt_seal_management.tnt_seal_management.api import rects_billing
 
-	rects_upfront = is_primary_journey_type and rects_billing.is_rects_customer(customer)
-	if rects_upfront:
+	rects_prepay = is_primary_journey_type and rects_billing.prepays_rects(customer)
+	if rects_prepay and rects_billing.is_rects_customer(customer):
 		period_from_date, period_to_date = rects_billing.resolve_period(customer, billing_period_type, first_period_days)
 
 	if tax_category and is_primary_journey_type:
@@ -939,7 +941,7 @@ def set_customer_billing(
 		# customer newly pending, or clear a pending state that's now resolved.
 		_gate_customer_on_rule_approval(customer)
 
-		sales_order = rects_billing.on_billing_saved(customer, period_from_date, period_to_date) if rects_upfront else None
+		sales_order = rects_billing.on_billing_saved(customer) if rects_prepay else None
 		frappe.db.commit()
 		rule = frappe.db.get_value(
 			"Seal Billing Rate", rule_name, ["name", "billing_rule_name", "billing_type"], as_dict=True
@@ -1003,7 +1005,7 @@ def set_customer_billing(
 	# branch above.
 	_gate_customer_on_rule_approval(customer)
 
-	sales_order = rects_billing.on_billing_saved(customer, period_from_date, period_to_date) if rects_upfront else None
+	sales_order = rects_billing.on_billing_saved(customer) if rects_prepay else None
 	frappe.db.commit()
 	rule = frappe.db.get_value(
 		"Seal Billing Rate", rule_name, ["name", "billing_rule_name", "billing_type"], as_dict=True
