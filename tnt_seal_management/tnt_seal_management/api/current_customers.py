@@ -43,9 +43,10 @@ def _get_customer_level_assignment_map(customer_names):
 	return mapping
 
 
-def _customers_by_billing_type():
+def _customers_by_billing_type(system="TNT"):
 	"""{billing_type: {customer, ...}} from each customer's active customer-level
-	assignment (the primary rule, as shown in the Billing Type column)."""
+	assignment (the primary rule, as shown in the Billing Type column). On the
+	RECTs page a customer on both branches counts by its RECTs rate instead."""
 	assignments = frappe.get_all(
 		"Customer Billing Assignment",
 		filters={"assignment_type": "Customer", "active": 1, "is_extra_billing": 0},
@@ -63,6 +64,11 @@ def _customers_by_billing_type():
 	# Later rows (higher priority, more recent) win, matching
 	# _get_customer_level_assignment_map.
 	customer_type = {a.customer: rule_types.get(a.billing_rule) for a in assignments}
+	if system == "RECTS":
+		rects_rules = _rects_rule_map()
+		for customer in _dual_branch_customers():
+			rule = rects_rules.get(customer)
+			customer_type[customer] = rule and frappe.db.get_value("Seal Billing Rate", rule, "billing_type")
 	result = {}
 	for customer, rate_type in customer_type.items():
 		if rate_type:
@@ -198,6 +204,36 @@ def _branch_field(system):
 	return "custom_division_rects" if system == "RECTS" else "custom_division_ects"
 
 
+def _dual_branch_customers(names=None):
+	"""Customers on both ECTS and RECTS (optionally among ``names``): they have an
+	ECTS rate (the billing assignment) and a separate RECTs rate
+	(Customer.custom_rects_billing_rule), edited on their own page each."""
+	filters = {"custom_division_ects": 1, "custom_division_rects": 1}
+	if names is not None:
+		filters["name"] = ["in", list(names) or [""]]
+	return frappe.get_all("Customer", filters=filters, pluck="name")
+
+
+def _rects_rule_map(names=None):
+	"""{customer: RECTs rate} for customers on both branches."""
+	from tnt_seal_management.tnt_seal_management.api.rects_billing import RECTS_RULE_FIELD
+
+	if not frappe.get_meta("Customer").has_field(RECTS_RULE_FIELD):
+		return {}
+	filters = {"custom_division_ects": 1, "custom_division_rects": 1}
+	if names is not None:
+		filters["name"] = ["in", list(names) or [""]]
+	return {r.name: r.get(RECTS_RULE_FIELD) for r in frappe.get_all("Customer", filters=filters, fields=["name", RECTS_RULE_FIELD])}
+
+
+def _is_rects_side(customer, system):
+	"""A read/save from the RECTs page for a customer on both branches: it targets
+	the customer's RECTs rate, never its ECTS billing (no mixing)."""
+	from tnt_seal_management.tnt_seal_management.api.rects_billing import is_rects_customer, prepays_rects
+
+	return system == "RECTS" and prepays_rects(customer) and not is_rects_customer(customer)
+
+
 def get_billing_customer_names(system="TNT"):
 	"""Names of the customers listed on Customer Billing (the system's branch
 	ticked). Other pages that should only deal with these customers (e.g. the
@@ -219,7 +255,7 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25, 
 
 	# "Rates" filter: customers whose primary billing rule is of this type
 	# (Subscription / Leasing), same vocabulary as the Seal Billing Rates list.
-	customers_by_type = _customers_by_billing_type()
+	customers_by_type = _customers_by_billing_type(system)
 	if billing_type in ("Subscription", "Leasing"):
 		filters.append(["name", "in", list(customers_by_type.get(billing_type) or []) or [""]])
 
@@ -253,6 +289,13 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25, 
 	# The page edits each customer's customer-level billing assignment directly,
 	# so display the rule from that assignment (not the resolved hierarchy).
 	assignment_map = _get_customer_level_assignment_map([c.name for c in customers])
+	if system == "RECTS":
+		# A customer on both branches shows its RECTs rate here, not its ECTS one.
+		for customer, rule in _rects_rule_map([c.name for c in customers]).items():
+			if rule:
+				assignment_map[customer] = rule
+			else:
+				assignment_map.pop(customer, None)
 	rule_label_map = _get_rule_label_map(assignment_map.values())
 	approval_map = dict(
 		frappe.get_all(
@@ -679,8 +722,14 @@ def _customer_rule_name(customer_name):
 	return f"{customer_name} BR"
 
 
+def _customer_rects_rule_name(customer_name):
+	"""Auto-name for the RECTs rate of a customer on both ECTS and RECTS, kept
+	apart from its ECTS rate ("<Customer> BR")."""
+	return f"{customer_name} RECTs BR"
+
+
 @frappe.whitelist()
-def get_customer_billing(customer):
+def get_customer_billing(customer, system=None):
 	"""Prefill payload for the Set Billing modal: the customer's current
 	assignment. Neither billing type picks from a shared list anymore — both
 	are private, per-customer contracts entered directly in the modal, so
@@ -720,7 +769,15 @@ def get_customer_billing(customer):
 		current["outright_purchase"] = cint(assignment.outright_purchase)
 		current["owned_seal_count"] = cint(assignment.owned_seal_count)
 
-	if assignment and assignment.billing_rule:
+	rects_side = _is_rects_side(customer, system)
+	if rects_side:
+		from tnt_seal_management.tnt_seal_management.api.rects_billing import RECTS_RULE_FIELD
+
+		rects_rule = frappe.db.get_value("Customer", customer, RECTS_RULE_FIELD)
+		rule = rects_rule and frappe.db.get_value("Seal Billing Rate", rects_rule, RULE_DISPLAY_FIELDS, as_dict=True)
+		if rule:
+			current.update({"billing_type": rule.billing_type or "Subscription", "billing_rule": rule.name, "rule": rule})
+	elif assignment and assignment.billing_rule:
 		rule = frappe.db.get_value(
 			"Seal Billing Rate", assignment.billing_rule, RULE_DISPLAY_FIELDS, as_dict=True
 		)
@@ -760,7 +817,7 @@ def get_customer_billing(customer):
 	alt_rule = frappe.db.get_value(
 		"Seal Billing Rate",
 		{
-			"billing_rule_name": _customer_rule_name(customer_name),
+			"billing_rule_name": (_customer_rects_rule_name if rects_side else _customer_rule_name)(customer_name),
 			"journey_type": JOURNEY_TYPE_IMPORT_EXPORT,
 		},
 		RULE_DISPLAY_FIELDS,
@@ -797,8 +854,14 @@ def set_customer_billing(
 	journey_type=None,
 	owned_rate_per_seal=None,
 	lease_rate_per_seal=None,
+	system=None,
 ):
 	"""Assign billing to the customer.
+
+	``system`` is the page saving it: "RECTS" for RECTs Customer Billing. For a
+	customer on both ECTS and RECTS that save is its RECTs rate ("<Customer>
+	RECTs BR", on Customer.custom_rects_billing_rule): it never touches the
+	ECTS billing assignment, and once approved it raises the prepaid Sales Order.
 
 	Neither billing type picks from a shared list of pre-approved rate cards
 	anymore — both are private, per-customer contracts entered directly here
@@ -853,6 +916,7 @@ def set_customer_billing(
 	from tnt_seal_management.tnt_seal_management.api import rects_billing
 
 	rects_prepay = is_primary_journey_type and rects_billing.prepays_rects(customer)
+	rects_side = _is_rects_side(customer, system)
 	if rects_prepay and rects_billing.is_rects_customer(customer):
 		period_from_date, period_to_date = rects_billing.resolve_period(customer, billing_period_type, first_period_days)
 
@@ -915,8 +979,12 @@ def set_customer_billing(
 			computation_method="Compound" if is_compound else "Simple",
 			billing_period_type=billing_period_type or "Custom",
 			rate_type=rate_type,
+			rects_side=rects_side,
 		)
-		if is_primary_journey_type:
+		if rects_side:
+			if is_primary_journey_type:
+				_set_rects_rule(customer, rule_name)
+		elif is_primary_journey_type:
 			_upsert_customer_assignment(
 				customer,
 				rule_name,
@@ -932,7 +1000,7 @@ def set_customer_billing(
 			)
 
 		if is_primary_journey_type:
-			_ensure_international_defaults(customer_name, rule_name)
+			_ensure_international_defaults(customer_name, rule_name, rects_side=rects_side)
 
 		# Runs for both journey types: the Import/Export rate set has no
 		# assignment of its own, but it's still one of the customer's active
@@ -983,8 +1051,12 @@ def set_customer_billing(
 		journey_type=journey_type,
 		owned_rate_per_seal=owned_rate_per_seal,
 		lease_rate_per_seal=lease_rate_per_seal,
+		rects_side=rects_side,
 	)
-	if is_primary_journey_type:
+	if rects_side:
+		if is_primary_journey_type:
+			_set_rects_rule(customer, rule_name)
+	elif is_primary_journey_type:
 		_upsert_customer_assignment(
 			customer,
 			rule_name,
@@ -999,7 +1071,7 @@ def set_customer_billing(
 		)
 
 	if is_primary_journey_type:
-		_ensure_international_defaults(customer_name, rule_name)
+		_ensure_international_defaults(customer_name, rule_name, rects_side=rects_side)
 
 	# Runs for both journey types — see the mirroring comment in the Leasing
 	# branch above.
@@ -1033,14 +1105,26 @@ _INTERNATIONAL_COPY_FIELDS = (
 )
 
 
-def _ensure_international_defaults(customer_name, local_rule_name):
+def _set_rects_rule(customer, rule_name):
+	"""Record the RECTs rate of a customer on both branches. Its prepaid periods
+	are tracked on the billing assignment (billed_from/billed_to), so one is
+	created pointing at this rate if the customer has no ECTS billing yet; the
+	ECTS page repoints it at the ECTS rate once that is set."""
+	from tnt_seal_management.tnt_seal_management.api.rects_billing import RECTS_RULE_FIELD, _primary_assignment
+
+	frappe.db.set_value("Customer", customer, RECTS_RULE_FIELD, rule_name)
+	if not _primary_assignment(customer):
+		_upsert_customer_assignment(customer, rule_name)
+
+
+def _ensure_international_defaults(customer_name, local_rule_name, rects_side=False):
 	"""A customer's International (stored "Import/Export") rates default to
 	their Local rates: the first time Local billing is set and no International
 	set exists yet, copy it across. After that the two sets are independent —
 	International is edited on its own via Set Billing -> Journey Type, and later
 	Local changes never overwrite it. The copy goes through the normal approval
 	gate like any other rule."""
-	expected_name = _customer_rule_name(customer_name)
+	expected_name = (_customer_rects_rule_name if rects_side else _customer_rule_name)(customer_name)
 	if frappe.db.exists(
 		"Seal Billing Rate",
 		{"billing_rule_name": expected_name, "journey_type": JOURNEY_TYPE_IMPORT_EXPORT},
@@ -1095,6 +1179,27 @@ def _gate_customer_on_rule_approval(customer):
 	)
 
 
+def _current_local_rule(customer, rects_side=False):
+	"""The customer's current Local rule on the side being saved: its RECTs rate
+	(Customer.custom_rects_billing_rule) for a RECTs-side save, otherwise the
+	billing assignment's rule — unless that is the RECTs rate (a customer on both
+	branches with no ECTS rate yet), which an ECTS save must never overwrite."""
+	from tnt_seal_management.tnt_seal_management.api.rects_billing import RECTS_RULE_FIELD
+
+	rects_rule = frappe.get_meta("Customer").has_field(RECTS_RULE_FIELD) and frappe.db.get_value(
+		"Customer", customer, RECTS_RULE_FIELD
+	)
+	if rects_side:
+		return rects_rule or None
+	rule = frappe.db.get_value(
+		"Customer Billing Assignment",
+		{"assignment_type": "Customer", "customer": customer, "active": 1, "is_extra_billing": 0},
+		"billing_rule",
+		order_by="priority desc, modified desc",
+	)
+	return None if rule and rule == rects_rule else rule
+
+
 def _find_customer_rule(expected_name, billing_type, journey_type):
 	"""Locate one of a customer's private rules.
 
@@ -1130,6 +1235,7 @@ def _upsert_customer_leasing_rule(
 	computation_method="Simple",
 	billing_period_type=None,
 	rate_type="Non-Flat Rate",
+	rects_side=False,
 ):
 	"""Create or update the customer's private Leasing rate, auto-named
 	"<Customer Name> BR". There is exactly one per customer — found via the
@@ -1143,16 +1249,11 @@ def _upsert_customer_leasing_rule(
 	current option list — while every other validation on the doctype (pricing,
 	single-global-default, etc.) still runs normally."""
 	journey_type = _resolve_journey_type(journey_type)
-	expected_name = _customer_rule_name(customer_name)
+	expected_name = (_customer_rects_rule_name if rects_side else _customer_rule_name)(customer_name)
 	existing_rule = None
 
 	if journey_type == JOURNEY_TYPE_LOCAL:
-		current_rule_name = frappe.db.get_value(
-			"Customer Billing Assignment",
-			{"assignment_type": "Customer", "customer": customer, "active": 1},
-			"billing_rule",
-			order_by="priority desc, modified desc",
-		)
+		current_rule_name = _current_local_rule(customer, rects_side)
 		if current_rule_name:
 			row = frappe.db.get_value(
 				"Seal Billing Rate", current_rule_name, ["name", "billing_type", "journey_type"], as_dict=True
@@ -1212,6 +1313,7 @@ def _upsert_customer_subscription_rule(
 	journey_type=None,
 	owned_rate_per_seal=None,
 	lease_rate_per_seal=None,
+	rects_side=False,
 ):
 	"""Create or update the customer's private Subscription rate, auto-named
 	"<Customer Name> BR" — same mechanism as ``_upsert_customer_leasing_rule``,
@@ -1234,16 +1336,11 @@ def _upsert_customer_subscription_rule(
 	at Sales Order generation time — see completed_journeys.generate_sales_order
 	/ _billing_summary's compound_charges)."""
 	journey_type = _resolve_journey_type(journey_type)
-	expected_name = _customer_rule_name(customer_name)
+	expected_name = (_customer_rects_rule_name if rects_side else _customer_rule_name)(customer_name)
 	existing_rule = None
 
 	if journey_type == JOURNEY_TYPE_LOCAL:
-		current_rule_name = frappe.db.get_value(
-			"Customer Billing Assignment",
-			{"assignment_type": "Customer", "customer": customer, "active": 1},
-			"billing_rule",
-			order_by="priority desc, modified desc",
-		)
+		current_rule_name = _current_local_rule(customer, rects_side)
 		if current_rule_name:
 			row = frappe.db.get_value(
 				"Seal Billing Rate",

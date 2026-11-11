@@ -1171,7 +1171,9 @@ function _cb_inject_styles() {
 function _cb_open_billing_modal(page, customer) {
 	frappe.call({
 		method: "tnt_seal_management.tnt_seal_management.api.current_customers.get_customer_billing",
-		args: { customer },
+		// The RECTs page edits the customer's RECTs billing, the PCB page its
+		// ECTS billing: a customer on both branches has one of each.
+		args: { customer, system: page.cb_system },
 		freeze: true,
 		callback(r) {
 			if (!r.message) return;
@@ -2480,7 +2482,10 @@ function _cb_collect_extra_billing_args(dialog) {
 // Extra Billing agreement (whichever the caller collected) before closing the
 // dialog and reloading, so "Save Billing" acts as one combined save.
 function _cb_finish_billing_save(page, dialog, customer, billingMessage, recurringArgs) {
-	const { leaseArgs, ownershipArgs, extraArgs } = recurringArgs || {};
+	let { leaseArgs, ownershipArgs, extraArgs } = recurringArgs || {};
+	// RECTs is prepaid by a Sales Order each period (raised by the billing save
+	// itself): no recurring lease/ownership Subscription from the RECTs page.
+	if (page.cb_system === "RECTS") leaseArgs = ownershipArgs = null;
 	if (!leaseArgs && !ownershipArgs && !extraArgs) {
 		dialog.hide();
 		frappe.show_alert({ message: billingMessage, indicator: "green" });
@@ -2580,6 +2585,7 @@ function _cb_submit_leasing_billing(page, customer, terms, dialog, recurringArgs
 			journey_type: terms.journey_type,
 			owned_rate_per_seal: terms.owned_rate_per_seal,
 			lease_rate_per_seal: terms.lease_rate_per_seal,
+			system: page.cb_system,
 		},
 		freeze: true,
 		freeze_message: __("Saving billing…"),
@@ -2626,6 +2632,7 @@ function _cb_submit_billing(page, customer, terms, dialog, recurringArgs) {
 			journey_type: terms.journey_type,
 			owned_rate_per_seal: terms.owned_rate_per_seal,
 			lease_rate_per_seal: terms.lease_rate_per_seal,
+			system: page.cb_system,
 		},
 		freeze: true,
 		freeze_message: __("Saving billing…"),
