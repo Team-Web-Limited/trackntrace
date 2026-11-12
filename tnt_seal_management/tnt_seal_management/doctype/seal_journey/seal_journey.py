@@ -18,7 +18,6 @@ from tnt_seal_management.tnt_seal_management.billing import (
 	resolve_customer_billing,
 	resolve_customer_extra_billing,
 )
-from tnt_seal_management.tnt_seal_management.api.rects_billing import is_journey_prepaid
 from tnt_seal_management.tnt_seal_management.api.seal_lease_billing import (
 	customer_has_seat_subscription,
 )
@@ -203,12 +202,6 @@ class SealJourney(Document):
 		total_days = (getdate(end_date) - getdate(self.billing_start_date)).days + 1
 		seal_count = self._billable_seal_count()
 
-		# RECTs is prepaid by period (rects_billing): the journey is covered by the
-		# customer's paid period, so it carries no charge of its own, base or extra.
-		if is_journey_prepaid(self.customer, self.system, self.billing_start_date):
-			self._set_prepaid_billing(rule, total_days, seal_count)
-			return
-
 		# Scenarios 4/5: a customer with a recurring Seal Lease Fee / Seal
 		# Ownership Service Fee subscription is billed that flat recurring
 		# amount instead — their per-journey base charge is zero (the picked
@@ -229,7 +222,7 @@ class SealJourney(Document):
 		# is zeroed exactly like the seat-subscription case above —
 		# billable_days still needs to survive so the aggregate total can be
 		# computed later.
-		if customer_has_seat_subscription(self.customer, include_prepay=False) or rule.computation_method == "Compound":
+		if customer_has_seat_subscription(self.customer) or rule.computation_method == "Compound":
 			result = {
 				"billable_days": total_days, "first_period_days": 0, "first_period_amount": 0,
 				"extra_days": 0, "extra_day_rate": 0, "extra_day_amount": 0,
@@ -264,21 +257,6 @@ class SealJourney(Document):
 		# then it functionally DOES have a per-journey charge.
 		if self.billing_status == "No Per-Journey Charge" and flt(self.extra_billing_amount) > 0:
 			self.billing_status = "Pending Billing"
-
-	def _set_prepaid_billing(self, rule, total_days, seal_count):
-		self.billing_rule = rule.name
-		self.currency = rule.currency
-		self.billable_days = total_days
-		self.first_period_days = 0
-		self.first_period_amount = 0
-		self.extra_days = 0
-		self.extra_day_rate = 0
-		self.extra_day_amount = 0
-		self.seal_count = seal_count
-		self.per_seal_amount = 0
-		self.total_charge = 0
-		self.billing_status = "Prepaid"
-		self._clear_extra_billing()
 
 	def set_extra_billing(self, primary_billing_type, total_days):
 		"""Compute the additional Extra Billing (Scenario 6) leasing charge for

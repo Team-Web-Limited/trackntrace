@@ -237,23 +237,13 @@ def check_stock_entry_systems(doc, method=None):
 
 	if doc.purpose not in _PURPOSES:
 		return
-	buyers = set()
 	for row in doc.items:
 		if not row.t_warehouse:
 			continue
-		buyer = frappe.db.get_value("Warehouse", row.t_warehouse, "custom_customer")
 		for serial in _row_serials(row):
 			seal = _seal_for_serial(serial)
 			if seal:
 				check_seal_system(seal, row.t_warehouse)
-				if buyer and frappe.db.get_value("Seal Device", seal, "belongs_to") == "RECTs":
-					buyers.add(buyer)
-	if buyers:
-		# RECTs is prepaid: no more seals to a customer behind on its period.
-		from tnt_seal_management.tnt_seal_management.api.rects_billing import ensure_prepaid
-
-		for buyer in sorted(buyers):
-			ensure_prepaid(buyer, allow_unbilled=True)
 
 
 @frappe.whitelist()

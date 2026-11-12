@@ -162,18 +162,6 @@ class JourneyRequest(Document):
 		self.set_rects_route()
 		self.validate_route()
 		self.validate_journey_type()
-		self.validate_rects_prepaid()
-
-	def validate_rects_prepaid(self):
-		"""RECTs is prepaid (rects_billing): a new RECTs request, or one moved to
-		another customer, needs that customer's current period paid."""
-		if self.system != "RECTs" or not self.client_name:
-			return
-		if not self.is_new() and not self.has_value_changed("client_name"):
-			return
-		from tnt_seal_management.tnt_seal_management.api.rects_billing import ensure_prepaid
-
-		ensure_prepaid(self.client_name)
 
 	def validate_journey_type(self):
 		"""Journey Type picks which of the customer's rate sets bills this
@@ -951,10 +939,6 @@ def submit_to_control_room(docname, vehicle_rows=None):
 		)
 	if not doc.seals:
 		frappe.throw(_("Select at least one Seal before submitting."), title=_("Seals Required"))
-	if doc.system == "RECTs" and doc.client_name:
-		from tnt_seal_management.tnt_seal_management.api.rects_billing import ensure_prepaid
-
-		ensure_prepaid(doc.client_name)
 	if doc.pre_tagging_checklist and any(not row.completed for row in doc.pre_tagging_checklist):
 		frappe.throw(
 			_("Complete every item on the Pre-Tagging Checklist before submitting to the Control Room."),

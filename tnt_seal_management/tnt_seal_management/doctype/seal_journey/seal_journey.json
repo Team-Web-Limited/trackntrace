@@ -918,7 +918,7 @@
    "fieldname": "billing_status",
    "fieldtype": "Select",
    "label": "Billing Status",
-   "options": "Not Billed\nPending Billing\nProcessing Payment\nNo Per-Journey Charge\nPrepaid\nBilled\nCancelled",
+   "options": "Not Billed\nPending Billing\nProcessing Payment\nNo Per-Journey Charge\nBilled\nCancelled",
    "read_only": 1
   },
   {
@@ -1197,7 +1197,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-10 10:00:00.000000",
+ "modified": "2026-11-12 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Journey",

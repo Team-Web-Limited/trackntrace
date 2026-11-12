@@ -475,7 +475,7 @@ def _compute_compound_charge(compound_rules, group):
 	days_by_rule = {}
 	for j in group:
 		key = j.get("billing_rule") or None
-		if key not in compound_rules or j.get("billing_status") == "Prepaid":
+		if key not in compound_rules:
 			continue
 		seal_days = cint(j.get("billable_days")) * max(cint(j.get("seal_count")), 1)
 		days_by_rule[key] = days_by_rule.get(key, 0) + seal_days
@@ -525,11 +525,7 @@ def _build_customer_groups(journeys, customer_filter=None, system=None):
 		# A seat-subscription customer's journeys are zeroed in favour of the
 		# recurring seat fee (Seal Journey.set_billing) — batching their days
 		# as Compound too would bill them twice.
-		# Prepaid RECTs journeys are skipped one by one (billing_status Prepaid,
-		# see _compute_compound_charge), so older ones still batch.
-		compound_rules = (
-			{} if customer_has_seat_subscription(c, include_prepay=False) else _get_customer_compound_rules(c, group)
-		)
+		compound_rules = {} if customer_has_seat_subscription(c) else _get_customer_compound_rules(c, group)
 		customers.append({
 			"customer": c,
 			"journeys": group,
