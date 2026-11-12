@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cint, date_diff, flt, getdate, now_datetime
+from frappe.utils import cint, cstr, date_diff, flt, getdate, now_datetime
 
 # Default number of days a fixed contract period covers.
 PERIOD_TYPE_DAYS = {
@@ -41,6 +41,45 @@ APPROVAL_WATCHED_FIELDS = (
 	"lease_rate_per_seal",
 )
 
+# The priced terms of a customer's rate: an Import/Export (International) rate
+# whose terms all match its approved Local rate needs no approval of its own.
+TERM_FIELDS = (
+	"billing_type",
+	"rate_type",
+	"computation_method",
+	"billing_period_type",
+	"first_period_days",
+	"first_period_amount",
+	"extra_day_rate",
+	"currency",
+	"owned_rate_per_seal",
+	"lease_rate_per_seal",
+)
+_NUMERIC_TERMS = {"first_period_days", "first_period_amount", "extra_day_rate", "owned_rate_per_seal", "lease_rate_per_seal"}
+SAME_AS_LOCAL_REMARK = "Same terms as the approved Local rate"
+
+
+def _same_terms(a, b):
+	return all(
+		flt(a.get(f)) == flt(b.get(f)) if f in _NUMERIC_TERMS else cstr(a.get(f)) == cstr(b.get(f))
+		for f in TERM_FIELDS
+	)
+
+
+def _approved_local_with_same_terms(doc):
+	"""The approved Local rate an Import/Export rate shares its name and every
+	term with, or None."""
+	if doc.journey_type != "Import/Export" or not doc.billing_rule_name or not cint(doc.active):
+		return None
+	for local in frappe.get_all(
+		"Seal Billing Rate",
+		filters={"billing_rule_name": doc.billing_rule_name, "name": ["!=", doc.name or ""], "approval_status": "Approved", "active": 1},
+		fields=["name", "journey_type", *TERM_FIELDS],
+	):
+		if (local.journey_type or "Local") == "Local" and _same_terms(doc, local):
+			return local.name
+	return None
+
 
 class SealBillingRate(Document):
 	def validate(self):
@@ -48,6 +87,18 @@ class SealBillingRate(Document):
 		self.validate_pricing()
 		self.validate_single_global_default()
 		self.validate_approval_status()
+		self.approve_if_same_as_local()
+
+	def approve_if_same_as_local(self):
+		"""An Import/Export rate with the same terms as its approved Local rate is
+		approved with it; any differing term leaves it for Finance to approve."""
+		if self.flags.approval_action or self.approval_status == "Approved":
+			return
+		if _approved_local_with_same_terms(self):
+			self.approval_status = "Approved"
+			self.approved_by = frappe.session.user
+			self.approved_on = now_datetime()
+			self.approval_remarks = SAME_AS_LOCAL_REMARK
 
 	def on_update(self):
 		if self.approval_status == "Pending Approval" and self.has_value_changed("approval_status"):
@@ -197,10 +248,40 @@ def approve_seal_billing_rate(name, remarks=None):
 		doc.save(ignore_permissions=True)
 	finally:
 		frappe.flags.in_import = False
+	approve_matching_import_export(doc)
 	_reenable_customers_pending_on_rule(doc.name)
 	frappe.db.commit()
 	_notify_rule_owner_decision(doc, approved=True)
 	return doc.as_dict()
+
+
+def approve_matching_import_export(local_doc):
+	"""Local rate just approved: approve its pending Import/Export sibling(s)
+	whose terms are the same."""
+	if (local_doc.journey_type or "Local") != "Local" or not local_doc.billing_rule_name:
+		return []
+	approved = []
+	for name in frappe.get_all(
+		"Seal Billing Rate",
+		filters={"billing_rule_name": local_doc.billing_rule_name, "journey_type": "Import/Export",
+			"approval_status": ["!=", "Approved"], "active": 1},
+		pluck="name",
+	):
+		doc = frappe.get_doc("Seal Billing Rate", name)
+		if not _same_terms(doc, local_doc):
+			continue
+		doc.flags.approval_action = True
+		doc.approval_status = "Approved"
+		doc.approved_by = frappe.session.user
+		doc.approved_on = now_datetime()
+		doc.approval_remarks = SAME_AS_LOCAL_REMARK
+		frappe.flags.in_import = True
+		try:
+			doc.save(ignore_permissions=True)
+		finally:
+			frappe.flags.in_import = False
+		approved.append(name)
+	return approved
 
 
 def _rule_summary_lines(doc):
