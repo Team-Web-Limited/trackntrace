@@ -230,6 +230,94 @@ def get_warehouse_list(search=None, status="All", page=1, page_length=25, system
 
 
 @frappe.whitelist()
+def download_warehouse_report(search=None, status="All", system="TNT", file_format="xlsx"):
+	"""Download the Warehouses page list (same search and status filters, every
+	row rather than one page) as an Excel or PDF file."""
+	file_format = "pdf" if file_format == "pdf" else "xlsx"
+	rows, page_no = [], 1
+	while True:
+		data = get_warehouse_list(search=search, status=status, page=page_no, page_length=100, system=system)
+		rows += data["warehouses"]
+		if len(rows) >= data["total"] or not data["warehouses"]:
+			break
+		page_no += 1
+
+	rects = system == "RECTS"
+	headers = ["Holder", "Type", "Role", "Status", "Seals"]
+	if rects:
+		headers += ["Sold", "ERP Stock", "Address / Contact"]
+	else:
+		headers += ["ERP Stock", "Location", "Company", "Parent Warehouse"]
+
+	def line(r):
+		is_wh = r["holder_type"] == "Warehouse"
+		status_text = ("Inactive" if cint(r.get("disabled")) else "Active") if is_wh else "Holding"
+		seals = r.get("seals_held")
+		if is_wh:
+			erp = r.get("in_stock") if r.get("show_erp_stock") else ""
+		else:
+			erp = ""
+		out = [r.get("label"), r["holder_type"], r.get("role") or "", status_text, seals]
+		if rects:
+			out += [r.get("sold") or "", erp, r.get("address_line") or ""]
+		else:
+			out += [erp, r.get("location") or r.get("base_location") or "", r.get("company") or "", r.get("parent_warehouse") or ""]
+		return out
+
+	table = [line(r) for r in rows]
+	title = "RECTs Warehouses" if rects else "TNT Warehouses"
+	stamp = frappe.utils.now_datetime().strftime("%Y-%m-%d_%H%M")
+	base = f"{title.replace(' ', '_')}_{stamp}"
+
+	if file_format == "xlsx":
+		from io import BytesIO
+
+		from openpyxl import Workbook
+		from openpyxl.styles import Font, PatternFill
+
+		wb = Workbook()
+		ws = wb.active
+		ws.title = "Warehouses"
+		ws.append(headers)
+		for c in ws[1]:
+			c.font = Font(bold=True)
+			c.fill = PatternFill("solid", fgColor="DBEAFE")
+		for t in table:
+			ws.append(t)
+		for i, h in enumerate(headers, 1):
+			width = max([len(str(h))] + [len(str(t[i - 1] or "")) for t in table]) + 2
+			ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = min(width, 60)
+		ws.freeze_panes = "A2"
+		buf = BytesIO()
+		wb.save(buf)
+		frappe.response["filename"] = base + ".xlsx"
+		frappe.response["filecontent"] = buf.getvalue()
+		frappe.response["type"] = "binary"
+		return
+
+	from frappe.utils import escape_html
+	from frappe.utils.pdf import get_pdf
+
+	head = "".join(f"<th>{escape_html(h)}</th>" for h in headers)
+	body = "".join(
+		"<tr>" + "".join(f"<td>{escape_html(str(v if v is not None else ''))}</td>" for v in t) + "</tr>" for t in table
+	)
+	html = f"""<style>
+		body {{ font-family: sans-serif; font-size: 10px; }}
+		h2 {{ margin: 0 0 2px; }} .meta {{ color: #64748b; margin-bottom: 10px; }}
+		table {{ border-collapse: collapse; width: 100%; }}
+		th, td {{ border: 1px solid #cbd5e1; padding: 4px 6px; text-align: left; }}
+		th {{ background: #dbeafe; }}
+	</style>
+	<h2>{title}</h2>
+	<div class="meta">Generated {frappe.utils.format_datetime(frappe.utils.now_datetime())} &middot; {len(table)} row(s)</div>
+	<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"""
+	frappe.response["filename"] = base + ".pdf"
+	frappe.response["filecontent"] = get_pdf(html, {"orientation": "Landscape"})
+	frappe.response["type"] = "pdf"
+
+
+@frappe.whitelist()
 def set_staff_base_location(user, base_location=None):
 	"""Set a staff member's fixed base (e.g. Mombasa office), shown on the
 	Warehouses page next to the live GPS position of the seals they hold."""

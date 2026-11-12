@@ -108,6 +108,8 @@ function _wh_build_page(page) {
 						<div class="wh-actions">
 							<button class="wh-clear-btn">${__("Clear filters")}</button>
 							<button class="wh-refresh-btn" title="${__("Reload the list, keeping the search and filters")}">${__("Refresh")}</button>
+							<button class="wh-download-btn" data-fmt="xlsx" title="${__("Download the filtered list as Excel")}">${__("Excel")}</button>
+							<button class="wh-download-btn" data-fmt="pdf" title="${__("Download the filtered list as PDF")}">${__("PDF")}</button>
 						</div>
 					</div>
 				</div>
@@ -162,6 +164,14 @@ function _wh_build_page(page) {
 
 	$(page.body).on("click", ".wh-clear-btn", () => _wh_clear(page));
 	$(page.body).on("click", ".wh-refresh-btn", () => _wh_load(page));
+	$(page.body).on("click", ".wh-download-btn", function () {
+		open_url_post("/api/method/tnt_seal_management.tnt_seal_management.api.seal_warehouses.download_warehouse_report", {
+			search: page.wh_state.search || "",
+			status: JSON.stringify(page.wh_state.statuses),
+			system: page.wh_system,
+			file_format: $(this).data("fmt"),
+		});
+	});
 
 	$(page.body).on("click", ".wh-base-edit", function (e) {
 		e.stopPropagation(); // the row itself opens the seals held
@@ -756,7 +766,7 @@ function _wh_inject_styles() {
 
 		/* ---- actions ---- */
 		.wh-actions { display: flex; gap: 8px; }
-		.wh-clear-btn, .wh-refresh-btn {
+		.wh-clear-btn, .wh-refresh-btn, .wh-download-btn {
 			padding: 9px 16px;
 			border: 1px solid #cbd5e1;
 			border-radius: 10px;
@@ -768,7 +778,7 @@ function _wh_inject_styles() {
 			height: 38px;
 			transition: background .12s, border-color .12s;
 		}
-		.wh-clear-btn:hover, .wh-refresh-btn:hover { background: #f8fafc; border-color: #94a3b8; }
+		.wh-clear-btn:hover, .wh-refresh-btn:hover, .wh-download-btn:hover { background: #f8fafc; border-color: #94a3b8; }
 
 		/* ---- table ---- */
 		.wh-table {
@@ -909,6 +919,7 @@ function _wh_inject_styles() {
 		[data-theme="dark"] .wh-filter-btn,
 		[data-theme="dark"] .wh-filter-menu,
 		[data-theme="dark"] .wh-clear-btn,
+		[data-theme="dark"] .wh-download-btn,
 		[data-theme="dark"] .wh-refresh-btn {
 			background: #1e293b;
 			border-color: #334155;
