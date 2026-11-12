@@ -417,10 +417,10 @@ function _cb_status_cell_html(page, c) {
 
 	const approval = c.approval_status || "Pending Approval";
 	if (approval === "Pending Approval") {
-		// Only approvers (Managing Director) can act; everyone else, e.g. Finance,
-		// just sees that the rule is waiting.
+		// Only approvers (Finance) can act; everyone else just sees that the
+		// rule is waiting.
 		if (!page.cb_state.can_approve_billing) {
-			return `<button class="cbl-activate-btn cbl-activate-btn--pending" disabled title="${__("Waiting for Managing Director approval")}">${__("Pending Approval")}</button>`;
+			return `<button class="cbl-activate-btn cbl-activate-btn--pending" disabled title="${__("Waiting for Finance approval")}">${__("Pending Approval")}</button>`;
 		}
 		return `<button class="cbl-activate-btn" data-name="${esc(c.billing_rule)}">${__("Activate")}</button>`;
 	}
@@ -428,7 +428,7 @@ function _cb_status_cell_html(page, c) {
 	return `<button class="cbl-activate-btn ${cls}" disabled>${esc(__(approval))}</button>`;
 }
 
-// Activate: Managing Director reviews the customer's pending billing rule and
+// Activate: Finance reviews the customer's pending billing rule and
 // approves (which also re-enables the customer) or rejects it, with a reason.
 function _cb_open_activate_dialog(page, name, customer) {
 	const dialog = new frappe.ui.Dialog({

@@ -16,8 +16,12 @@ PERIOD_TYPE_DAYS = {
 	"Annually": 365,
 }
 
+# Finance (Finance PCB) approves billing rules: whoever sets a customer's
+# billing can approve it themselves.
+BILLING_APPROVER_ROLE = "Finance PCB"
+
 # A change to any of these fields on an already-Approved rule means the terms
-# the Managing Director signed off on no longer hold — the rule must be
+# Finance signed off on no longer hold — the rule must be
 # re-approved before it can be used again. See validate_approval_status().
 APPROVAL_WATCHED_FIELDS = (
 	"billing_type",
@@ -47,7 +51,7 @@ class SealBillingRate(Document):
 
 	def on_update(self):
 		if self.approval_status == "Pending Approval" and self.has_value_changed("approval_status"):
-			_notify_managing_director_pending(self)
+			_notify_approvers_pending(self)
 
 	def set_period_days_from_range(self):
 		"""Derive first_period_days from the period type. For Date Range, use the
@@ -111,7 +115,7 @@ class SealBillingRate(Document):
 	def validate_approval_status(self):
 		"""New Subscription rules start Pending Approval. Any edit to the watched
 		terms on an already-Approved rule resets it back to Pending Approval — the
-		Managing Director must sign off on the terms actually in effect. The
+		Finance must sign off on the terms actually in effect. The
 		approve/reject whitelisted actions set flags.approval_action so their own
 		save() doesn't trigger this reset.
 
@@ -152,20 +156,23 @@ class SealBillingRate(Document):
 			self.approval_remarks = None
 
 
-def _ensure_managing_director_role():
-	roles = set(frappe.get_roles())
-	if "System Manager" in roles or frappe.session.user == "Administrator":
-		return
-	if "Managing Director" not in roles:
+def can_approve_billing_rules(user=None):
+	user = user or frappe.session.user
+	roles = set(frappe.get_roles(user))
+	return user == "Administrator" or "System Manager" in roles or BILLING_APPROVER_ROLE in roles
+
+
+def _ensure_billing_approver_role():
+	if not can_approve_billing_rules():
 		frappe.throw(
-			_("Only the Managing Director can approve or reject billing rules."),
+			_("Only Finance can approve or reject billing rules."),
 			title=_("Insufficient Permission"),
 		)
 
 
 @frappe.whitelist()
 def approve_seal_billing_rate(name, remarks=None):
-	_ensure_managing_director_role()
+	_ensure_billing_approver_role()
 	doc = frappe.get_doc("Seal Billing Rate", name)
 	if doc.approval_status == "Approved":
 		# Nothing to transition, but still reconcile: a customer can end up
@@ -207,9 +214,10 @@ def _rule_summary_lines(doc):
 	]
 
 
-def _notify_managing_director_pending(doc):
-	"""Ask the Managing Director to sign off on a new billing rule, or on an
-	approved one whose terms just changed, via desk notification and email."""
+def _notify_approvers_pending(doc):
+	"""Ask Finance to sign off on a new billing rule, or on an approved one whose
+	terms just changed, via desk notification and email. Whoever saved it is left
+	out: they can approve it straight away."""
 	from tnt_seal_management.tnt_seal_management.api.notifications import (
 		get_users_with_role,
 		notify_users,
@@ -220,7 +228,7 @@ def _notify_managing_director_pending(doc):
 		*_rule_summary_lines(doc),
 	]
 	notify_users(
-		get_users_with_role("Managing Director"),
+		[u for u in get_users_with_role(BILLING_APPROVER_ROLE) if u[0] != frappe.session.user],
 		_("Billing Rule Awaiting Approval: {0}").format(doc.billing_rule_name or doc.name),
 		"<br>".join(str(line) for line in lines),
 		document_type="Seal Billing Rate",
@@ -230,7 +238,7 @@ def _notify_managing_director_pending(doc):
 
 
 def _notify_rule_owner_decision(doc, approved, remarks=None):
-	"""Tell whoever created the billing rule how the Managing Director ruled."""
+	"""Tell whoever created the billing rule how Finance ruled."""
 	from tnt_seal_management.tnt_seal_management.api.notifications import notify_users
 
 	user = doc.owner
@@ -238,7 +246,7 @@ def _notify_rule_owner_decision(doc, approved, remarks=None):
 		return
 
 	verdict = _("approved") if approved else _("rejected")
-	lines = [_("The Managing Director {0} this billing rule.").format(verdict), *_rule_summary_lines(doc)]
+	lines = [_("Finance {0} this billing rule.").format(verdict), *_rule_summary_lines(doc)]
 	if (remarks or "").strip():
 		lines.append(_("Remarks: {0}").format(remarks.strip()))
 	if not approved:
@@ -258,7 +266,7 @@ def _notify_rule_owner_decision(doc, approved, remarks=None):
 def _reenable_customers_pending_on_rule(rule_name):
 	"""Customer.disabled is set to 1 by current_customers.set_customer_billing /
 	set_customer_extra_billing whenever billing is (re)assigned, as a gate that
-	holds until the Managing Director signs off. Once this rule is approved,
+	holds until Finance signs off. Once this rule is approved,
 	re-enable every customer whose assignment points at it — unless that
 	customer has another active assignment (primary or extra-billing) still
 	sitting on a not-yet-approved rule, in which case they stay disabled."""
@@ -334,7 +342,7 @@ def _customer_billing_fully_approved(customer):
 
 @frappe.whitelist()
 def reject_seal_billing_rate(name, remarks=None):
-	_ensure_managing_director_role()
+	_ensure_billing_approver_role()
 	doc = frappe.get_doc("Seal Billing Rate", name)
 	doc.flags.approval_action = True
 	doc.approval_status = "Rejected"

@@ -292,7 +292,7 @@ def _rule_is_usable(rule_name):
 	)
 	if not rule or not rule.active:
 		return False
-	# A rule pending (re-)approval by the Managing Director cannot be used for
+	# A rule pending (re-)approval by Finance cannot be used for
 	# billing, even if a customer already has an active assignment pointing to
 	# it — e.g. its terms were edited after approval and reset to Pending.
 	return rule.approval_status == "Approved"

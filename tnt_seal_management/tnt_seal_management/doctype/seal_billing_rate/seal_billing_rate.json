@@ -185,7 +185,7 @@
   },
   {
    "default": "Pending Approval",
-   "description": "New rules, and any edit to an approved rule's terms, require Managing Director approval before the rule can be assigned to customers or used for billing.",
+   "description": "New rules, and any edit to an approved rule's terms, require Finance approval before the rule can be assigned to customers or used for billing.",
    "fieldname": "approval_status",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -231,7 +231,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-27 17:01:24.613134",
+ "modified": "2026-11-12 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Billing Rate",

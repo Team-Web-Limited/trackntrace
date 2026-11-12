@@ -71,10 +71,13 @@ def _customers_by_billing_type():
 
 
 def _can_approve_billing_rate():
-	# Managing Director approves/rejects billing rules (same gate as the
-	# Seal Billing Rate approve/reject actions).
-	roles = set(frappe.get_roles())
-	return "Managing Director" in roles or "System Manager" in roles or frappe.session.user == "Administrator"
+	# Finance approves/rejects billing rules (same gate as the Seal Billing Rate
+	# approve/reject actions).
+	from tnt_seal_management.tnt_seal_management.doctype.seal_billing_rate.seal_billing_rate import (
+		can_approve_billing_rules,
+	)
+
+	return can_approve_billing_rules()
 
 
 def _get_rule_label_map(rule_names):
@@ -1058,7 +1061,7 @@ def _ensure_international_defaults(customer_name, local_rule_name):
 def _gate_customer_on_rule_approval(customer):
 	"""Customer.disabled doubles as a "billing pending approval" gate: a
 	customer stays disabled from the moment billing is (re)assigned until the
-	Managing Director approves every one of their active rules — see
+	Finance approves every one of their active rules — see
 	seal_billing_rate._reenable_customers_pending_on_rule /
 	_customer_billing_fully_approved, which flip it back on a *fresh* Pending
 	-> Approved transition.
@@ -1157,7 +1160,7 @@ def _upsert_customer_leasing_rule(
 		"journey_type": journey_type,
 		"active": 1,
 		"is_global_default": 0,
-		# Leasing rules now require Managing Director approval
+		# Leasing rules now require Finance approval
 		# workflow that applies to shared Subscription rate cards.
 		"currency": currency or "KES",
 		"first_period_days": cint(first_period_days),
@@ -1270,7 +1273,7 @@ def _upsert_customer_subscription_rule(
 	# frappe.flags.in_import bypasses the Select options check on
 	# billing_period_type for a value like "Bi-Weekly" not yet in every
 	# existing rule's option list, and lets this private rule skip the
-	# Managing Director approval workflow meant for shared rate cards — same
+	# Finance approval workflow meant for shared rate cards — same
 	# escape hatch _upsert_customer_leasing_rule already relies on.
 	frappe.flags.in_import = True
 	try:
@@ -1334,7 +1337,7 @@ def _upsert_customer_extra_leasing_rule(
 		"billing_type": "Leasing",
 		"active": 1,
 		"is_global_default": 0,
-		# Leasing rules now require Managing Director approval
+		# Leasing rules now require Finance approval
 		# workflow that applies to shared Subscription rate cards.
 		"currency": currency or "KES",
 		"first_period_days": cint(first_period_days),

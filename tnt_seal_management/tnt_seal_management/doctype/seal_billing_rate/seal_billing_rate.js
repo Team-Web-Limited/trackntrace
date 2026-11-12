@@ -135,12 +135,12 @@ function _lock_leasing_rule(frm) {
 	}
 }
 
-// Managing Director approval — same escalation as the list page's per-row
+// Finance approval — same escalation as the list page's per-row
 // Approve/Reject buttons, for when the rule is opened directly (e.g. via a
 // link from Customer Billing Assignment) rather than from the list.
 function _add_approval_actions(frm) {
 	if (frm.is_new()) return;
-	if (!frappe.user.has_role("Managing Director") && !frappe.user.has_role("System Manager")) return;
+	if (!frappe.user.has_role("Finance PCB") && !frappe.user.has_role("System Manager")) return;
 	if (frm.doc.approval_status === "Approved") return;
 
 	frm.add_custom_button(__("Approve"), () => {
