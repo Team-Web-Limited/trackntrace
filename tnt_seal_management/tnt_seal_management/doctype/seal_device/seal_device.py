@@ -340,6 +340,28 @@ _RECTS_TRANSFER_ROLE = "Seal Manager"
 
 
 @frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def staff_query(doctype, txt, searchfield, start, page_len, filters):
+	"""Staff a seal can be handed over to: every enabled System User. The
+	standard User search only lists users the searcher may read, so staff
+	without User access (e.g. the Seal Manager) saw just themselves; this lists
+	names only, to any staff (System User) member."""
+	if frappe.session.user == "Guest" or frappe.db.get_value("User", frappe.session.user, "user_type") != "System User":
+		return []
+	from frappe.core.doctype.user.user import STANDARD_USERS
+
+	txt = f"%{txt or ''}%"
+	return frappe.db.sql(
+		"""select name, full_name from `tabUser`
+		where enabled = 1 and user_type = 'System User' and name not in %(standard)s
+		and (name like %(txt)s or full_name like %(txt)s)
+		order by full_name asc, name asc
+		limit %(start)s, %(page_len)s""",
+		{"standard": tuple(STANDARD_USERS), "txt": txt, "start": int(start), "page_len": int(page_len)},
+	)
+
+
+@frappe.whitelist()
 def transfer_custody(seals, to_custody_type, to_custodian, remarks=None, item_code=None):
 	"""Hand seals over to a live person (User) or a seal warehouse (an ERPNext Warehouse
 	whose Branch is ECTS or RECTS, such as the main store). One step: custody moves as soon as this is submitted, and a

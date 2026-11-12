@@ -665,7 +665,9 @@ function _tnt_transfer_dialog(seals, options, onDone) {
 				},
 			},
 			{ fieldname: "to_user", fieldtype: "Link", options: "User", label: __("Staff"), reqd: 1,
-				get_query: () => ({ filters: { enabled: 1, user_type: "System User" } }) },
+				// Server-side list: the standard User search hides users the
+				// current user can't read, so most staff only saw themselves.
+				get_query: () => ({ query: "tnt_seal_management.tnt_seal_management.doctype.seal_device.seal_device.staff_query" }) },
 			{ fieldname: "to_customer", fieldtype: "Link", options: "Customer", label: __("Customer"), hidden: 1,
 				get_query: () => ({ filters: { disabled: 0 } }) },
 			{ fieldname: "to_point", fieldtype: "Select", options: ["", ...warehouses].join("\n"), label: __("Warehouse"), hidden: 1,
