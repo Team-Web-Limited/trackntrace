@@ -99,6 +99,16 @@ def main_seal_store():
 	return rows[0] if rows else None
 
 
+def warehouse_is_main_store(warehouse, system="TNT"):
+	"""True when ``warehouse`` is the seal store seals are returned to: the Main Seal
+	Store for PCB, the "Show ERP Stock" store (Agnes's) for RECTs."""
+	if not warehouse:
+		return False
+	flag = "custom_show_erp_stock" if system == "RECTs" else "custom_is_main_seal_store"
+	branch = SYSTEM_BRANCH["RECTS" if system == "RECTs" else "TNT"]
+	return bool(seal_warehouses({"name": warehouse, flag: 1, branch: 1}, limit=1))
+
+
 @frappe.whitelist()
 def get_seal_warehouse_options():
 	"""Active seal warehouses for pickers, main store first. A plain list, so the

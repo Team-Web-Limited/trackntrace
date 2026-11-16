@@ -1573,6 +1573,14 @@ def confirm_seal_return(
 			_("Select the Warehouse the seal is being returned to before confirming."),
 			title=_("Warehouse Required"),
 		)
+	if not retained and not is_admin:
+		from tnt_seal_management.tnt_seal_management.api.seal_warehouses import warehouse_is_main_store
+
+		if not warehouse_is_main_store(doc.return_warehouse, doc.system):
+			frappe.throw(
+				_("Seals can only be returned to the main seal store. To keep the seal in your own custody, choose Retain Seal."),
+				title=_("Invalid Return Warehouse"),
+			)
 
 	# RECTs seals have no seal API, so there is no GPS fix to read or to ask for.
 	if doc.system == "RECTs":

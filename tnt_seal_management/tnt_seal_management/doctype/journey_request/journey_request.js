@@ -446,11 +446,15 @@ function _journey_request_add_buttons(frm) {
 	}
 }
 
-// Seal warehouses a seal can be returned to: PCB's have the ECTS Branch ticked,
-// RECTs' have the RECTS Branch ticked.
+// A seal is returned only to the main seal store (the Seal Manager's, e.g. Agnes
+// for RECTs), never to a technician's own warehouse - a technician who wants to
+// keep the seal picks "Retain Seal". PCB's store has the ECTS Branch ticked,
+// RECTs' has the RECTS Branch ticked.
 function _jr_return_warehouse_filters(system) {
 	const branch = system === "RECTs" ? "custom_division_rects" : "custom_division_ects";
-	return { [branch]: 1, is_group: 0, disabled: 0 };
+	// RECTs' store is flagged "Show ERP Stock" (Agnes's); PCB's is the Main Seal Store.
+	const store = system === "RECTs" ? "custom_show_erp_stock" : "custom_is_main_seal_store";
+	return { [branch]: 1, is_group: 0, disabled: 0, [store]: 1 };
 }
 
 function _jr_is_multi_vehicle(frm) {
