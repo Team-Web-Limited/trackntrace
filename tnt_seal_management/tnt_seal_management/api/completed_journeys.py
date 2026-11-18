@@ -48,6 +48,19 @@ ITEM_LEASING = "PCB-LEASING"
 ITEM_LEASING_EXTRA_DAYS = "PCB-LEASING-EXTRADAYS"
 ITEM_SUBSCRIPTION = "PCB SUBSCRIPTIONS"
 
+# RECTs bills on its own item codes so its revenue is kept apart from PCB's.
+RECTS_ITEM_LEASING = "RECTs-LEASING"
+RECTS_ITEM_LEASING_EXTRA_DAYS = "RECTs-LEASING-EXTRADAYS"
+RECTS_ITEM_SUBSCRIPTION = "RECTs SUBSCRIPTIONS"
+
+
+def _sales_order_items(system):
+	"""(leasing, leasing extra days, subscription) item codes for a Sales
+	Order raised for ``system`` — RECTs has its own set, everything else PCB's."""
+	if system == "RECTS":
+		return RECTS_ITEM_LEASING, RECTS_ITEM_LEASING_EXTRA_DAYS, RECTS_ITEM_SUBSCRIPTION
+	return ITEM_LEASING, ITEM_LEASING_EXTRA_DAYS, ITEM_SUBSCRIPTION
+
 
 def _get_customer_billing_type(customer, journeys=None):
 	"""billing_type ("Leasing"/"Subscription") the Sales Order for ``journeys``
@@ -641,12 +654,14 @@ def generate_sales_order(customer, from_date=None, to_date=None, system=None):
 				"delivery_date": frappe.utils.today()
 			})
 
+	item_leasing, item_leasing_extra_days, item_subscription = _sales_order_items(system)
+
 	if billing_type == "Leasing":
-		rental_item = ITEM_LEASING
-		extra_item = ITEM_LEASING_EXTRA_DAYS
+		rental_item = item_leasing
+		extra_item = item_leasing_extra_days
 	elif billing_type == "Subscription":
-		rental_item = ITEM_SUBSCRIPTION
-		extra_item = ITEM_SUBSCRIPTION
+		rental_item = item_subscription
+		extra_item = item_subscription
 	else:
 		# No resolved rule (shouldn't normally happen) — fall back to the
 		# original generic items rather than fail Sales Order creation.
@@ -699,7 +714,7 @@ def generate_sales_order(customer, from_date=None, to_date=None, system=None):
 		if extra_billing_seals > 0:
 			if flt(summary["extra_billing_base"]) > 0:
 				rate = flt(summary["extra_billing_base"]) / extra_billing_seals
-				add_item(ITEM_LEASING, extra_billing_seals, rate, "Completed Journeys - Extra Billing (leased seals)")
+				add_item(item_leasing, extra_billing_seals, rate, "Completed Journeys - Extra Billing (leased seals)")
 
 			if flt(summary["extra_billing_extra_day_total"]) > 0:
 				extra_billing_extra_days = sum(
@@ -709,12 +724,12 @@ def generate_sales_order(customer, from_date=None, to_date=None, system=None):
 				if extra_billing_extra_days > 0:
 					rate = flt(summary["extra_billing_extra_day_total"]) / extra_billing_extra_days
 					add_item(
-						ITEM_LEASING_EXTRA_DAYS, extra_billing_extra_days, rate,
+						item_leasing_extra_days, extra_billing_extra_days, rate,
 						"Completed Journeys - Extra Billing - Extra Days",
 					)
 		else:
 			# Fallback if seal count is 0 (should not happen if extra_billing_total > 0)
-			add_item(ITEM_LEASING, 1, summary["extra_billing_total"], "Completed Journeys - Extra Billing (leased seals)")
+			add_item(item_leasing, 1, summary["extra_billing_total"], "Completed Journeys - Extra Billing (leased seals)")
 
 	if flt(summary.get("compound_charges")) > 0:
 		# Computation = Compound (Set Billing modal, Leasing or Non-Flat Rate

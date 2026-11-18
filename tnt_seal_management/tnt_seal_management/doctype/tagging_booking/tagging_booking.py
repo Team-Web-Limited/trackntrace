@@ -37,6 +37,7 @@ class TaggingBooking(Document):
 
 	def validate(self):
 		self._validate_client_in_system()
+		self._validate_customer_billing_ready()
 		self._validate_booking_date_time_not_past()
 		self._validate_vehicles_belong_to_client()
 		self._validate_return_trip()
@@ -53,6 +54,21 @@ class TaggingBooking(Document):
 				),
 				title=_("Not Allowed"),
 			)
+
+	def _validate_customer_billing_ready(self):
+		"""Stop a booking for a customer whose billing isn't set up or is still
+		awaiting Finance approval — its journeys would complete unbillable.
+		Checked only for a new booking or when the client changes, so existing
+		bookings can still be amended, approved or reopened."""
+		if not self.client_name:
+			return
+		if not self.is_new() and not self.has_value_changed("client_name"):
+			return
+		from tnt_seal_management.tnt_seal_management.billing import get_booking_block_reason
+
+		reason = get_booking_block_reason(self.client_name, self.booking_date_time)
+		if reason:
+			frappe.throw(reason, title=_("Billing Not Ready"))
 
 	def _validate_client_in_system(self):
 		"""A booking only deals with customers ticked for its system's branch."""

@@ -97,6 +97,63 @@ def resolve_customer_billing(customer, on_date=None, journey_type=None):
 	return {"billing_rule": _global_default_rule(), **_NO_OVERRIDE}
 
 
+def get_booking_block_reason(customer, on_date=None):
+	"""Why a customer cannot take a new booking yet, or None when billing is ready.
+
+	A journey booked for a customer with no usable billing rule completes as
+	"Not Billed" and then cannot be put on a Sales Order, so the booking is
+	stopped up front. "Usable" means exactly what ``resolve_customer_billing``
+	requires: an active, in-date assignment (the customer's own, else their
+	customer group's) pointing at an active, Approved rule — or an Approved
+	global default rule to fall back on. Returns a message telling the user
+	what to fix and who has to do it.
+	"""
+	on_date = getdate(on_date) if on_date else getdate(nowdate())
+	group = frappe.db.get_value("Customer", customer, "customer_group")
+
+	targets = [("Customer", "customer", customer)]
+	if group:
+		targets.append(("Customer Group", "customer_group", group))
+
+	unusable = None  # first in-date assignment whose rule can't be used
+	for assignment_type, field, value in targets:
+		rows = frappe.get_all(
+			"Customer Billing Assignment",
+			filters={"assignment_type": assignment_type, field: value, "active": 1, "is_extra_billing": 0},
+			fields=["billing_rule", "effective_from", "effective_to"],
+			order_by="priority desc, modified desc",
+		)
+		for row in rows:
+			if not row.billing_rule or not _date_valid(row.effective_from, row.effective_to, on_date):
+				continue
+			if _rule_is_usable(row.billing_rule):
+				return None
+			unusable = unusable or row.billing_rule
+
+	if _global_default_rule():
+		return None
+
+	if unusable:
+		rule = frappe.db.get_value(
+			"Seal Billing Rate", unusable, ["billing_rule_name", "active", "approval_status"], as_dict=True
+		) or frappe._dict()
+		label = rule.billing_rule_name or unusable
+		if rule.get("active") and rule.get("approval_status") != "Approved":
+			return _(
+				"{0}'s billing rule {1} is {2}. A booking can only be made once Finance has approved it — "
+				"ask Finance to approve the rule, then book again."
+			).format(customer, frappe.bold(label), frappe.bold(rule.approval_status or "awaiting approval"))
+		return _(
+			"{0}'s billing rule {1} is inactive. Set billing for this customer again (Set Billing) "
+			"and have Finance approve it before booking."
+		).format(customer, frappe.bold(label))
+
+	return _(
+		"{0} has no billing set up for {1}. A journey booked now could not be billed. "
+		"Use Set Billing on this customer (and have Finance approve it) before booking."
+	).format(customer, frappe.utils.formatdate(on_date))
+
+
 def _is_import_export(journey_type):
 	from tnt_seal_management.tnt_seal_management.api.current_customers import (
 		JOURNEY_TYPE_BUCKET,
