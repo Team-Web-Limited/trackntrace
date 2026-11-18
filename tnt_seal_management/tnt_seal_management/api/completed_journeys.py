@@ -628,6 +628,10 @@ def generate_sales_order(customer, from_date=None, to_date=None, system=None):
 	if summary.get("tax_category") and summary["tax_category"] != TAX_CATEGORY_NORMAL:
 		so.tax_category = summary["tax_category"]
 
+	if system == "RECTS":
+		# Stamp the order so the Sales Order list colours it (public/js/sales_order_list.js).
+		so.custom_rects_order_type = "RECTs Billing"
+
 	billing_type = _get_customer_billing_type(customer, journeys)
 	business_line = _get_business_line(billing_type)
 	if business_line:
