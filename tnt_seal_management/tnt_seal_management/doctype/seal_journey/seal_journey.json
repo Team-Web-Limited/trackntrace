@@ -14,6 +14,8 @@
   "journey_request",
   "journey_type",
   "tagging_booking",
+  "consignment_category",
+  "salesperson",
   "system",
   "pcb_job_order",
   "pcb_assignment",
@@ -208,6 +210,20 @@
    "fieldtype": "Link",
    "label": "Tagging Booking",
    "options": "Tagging Booking",
+   "read_only": 1
+  },
+  {
+   "fieldname": "consignment_category",
+   "fieldtype": "Select",
+   "label": "Consignment Category",
+   "options": "\nT1\nExit Note\nEntry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "salesperson",
+   "fieldtype": "Link",
+   "label": "Salesperson",
+   "options": "User",
    "read_only": 1
   },
   {

@@ -1336,6 +1336,8 @@ def resolve_seal_journey_mirror_values(seal_journey):
 		booking_name,
 		[
 			"client_name",
+			"consignment_category",
+			"salesperson",
 			"location",
 			"contact_person_name",
 			"contact_person_phone",
@@ -1349,6 +1351,8 @@ def resolve_seal_journey_mirror_values(seal_journey):
 	)
 	if booking:
 		put("customer", booking.client_name)
+		put("consignment_category", booking.consignment_category)
+		put("salesperson", booking.salesperson)
 		put("booking_location", booking.location)
 		put("contact_person_name", booking.contact_person_name)
 		put("contact_person_phone", booking.contact_person_phone)

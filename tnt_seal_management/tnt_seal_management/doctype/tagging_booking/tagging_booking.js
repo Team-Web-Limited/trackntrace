@@ -189,6 +189,47 @@ frappe.ui.form.on("Tagging Booking", {
 				},
 				__("Actions")
 			);
+
+			// Reject is final (the booking is closed and the account manager is told
+			// why), unlike Amend, which sends it back to Draft to be corrected and
+			// resubmitted. Remarks are mandatory so the reason is on record.
+			frm.add_custom_button(
+				__("Reject"),
+				() => {
+					frappe.prompt(
+						[
+							{
+								fieldname: "remarks",
+								fieldtype: "Small Text",
+								label: __("Reason for Rejection"),
+								reqd: 1,
+							},
+						],
+						(values) => {
+							frappe.call({
+								method:
+									"tnt_seal_management.tnt_seal_management.doctype.tagging_booking.tagging_booking.reject_booking",
+								args: {
+									docname: frm.doc.name,
+									remarks: values.remarks,
+								},
+								freeze: true,
+								freeze_message: __("Rejecting booking…"),
+								callback: () => {
+									frappe.show_alert(
+										{ message: __("Booking rejected"), indicator: "red" },
+										5
+									);
+									frm.reload_doc();
+								},
+							});
+						},
+						__("Reject Tagging Booking"),
+						__("Reject")
+					);
+				},
+				__("Actions")
+			);
 		}
 	},
 });

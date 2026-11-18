@@ -763,6 +763,9 @@ def reject_booking(docname, remarks=None):
 			title=_("Invalid Status"),
 		)
 
+	if not cstr(remarks).strip():
+		frappe.throw(_("Remarks are required to reject a booking."), title=_("Remarks Required"))
+
 	doc.booking_status = "Finance PCB Rejected"
 	doc.finance_pcb_approver = frappe.session.user
 	doc.finance_pcb_approval_date_time = now_datetime()
