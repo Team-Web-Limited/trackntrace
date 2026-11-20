@@ -970,5 +970,45 @@
   "name": "User-custom_listed_pcb_team_leader",
   "options": null,
   "precision": ""
- }
+ },
+{
+ "default": null,
+ "description": "Copied from the customer when the quotation is created.",
+ "doctype": "Custom Field",
+ "dt": "Quotation",
+ "fetch_from": null,
+ "fieldname": "custom_account_manager",
+ "fieldtype": "Link",
+ "hidden": 0,
+ "in_list_view": 0,
+ "in_standard_filter": 1,
+ "insert_after": "customer_name",
+ "label": "Account Manager",
+ "modified": "2026-11-20 12:00:00",
+ "module": null,
+ "name": "Quotation-custom_account_manager",
+ "options": "User",
+ "precision": "",
+ "read_only": 1
+},
+{
+ "default": null,
+ "description": null,
+ "doctype": "Custom Field",
+ "dt": "Quotation",
+ "fetch_from": "custom_account_manager.full_name",
+ "fieldname": "custom_account_manager_name",
+ "fieldtype": "Data",
+ "hidden": 0,
+ "in_list_view": 0,
+ "in_standard_filter": 0,
+ "insert_after": "custom_account_manager",
+ "label": "Account Manager Name",
+ "modified": "2026-11-20 12:00:00",
+ "module": null,
+ "name": "Quotation-custom_account_manager_name",
+ "options": null,
+ "precision": "",
+ "read_only": 1
+}
 ]

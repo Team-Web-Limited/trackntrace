@@ -55,6 +55,8 @@ fixtures = [
 					"Sales Order-custom_customer_response_by",
 					"Sales Order-custom_customer_response_date",
 					"Sales Order-custom_customer_response_remarks",
+					"Quotation-custom_account_manager",
+					"Quotation-custom_account_manager_name",
 				],
 			]
 		],
@@ -258,7 +260,11 @@ doc_events = {
 	"Customer": {
 		"validate": "tnt_seal_management.tnt_seal_management.api.customer_branches.normalize_branches",
 		# A converted lead/prospect: fill custom_customer on its quotations.
-		"after_insert": "tnt_seal_management.quotation_customer.link_quotations_to_new_customer",
+		"after_insert": [
+			"tnt_seal_management.quotation_customer.link_quotations_to_new_customer",
+			# ...and its account manager (see quotation_account_manager.py).
+			"tnt_seal_management.quotation_account_manager.fill_for_converted_customer",
+		],
 	},
 	# Same for the Warehouse Branch checkboxes.
 	"Warehouse": {
@@ -297,6 +303,8 @@ doc_events = {
 			"tnt_seal_management.vehicle_links.validate_vehicle_links",
 			# Fill custom_customer from the party (see quotation_customer.py).
 			"tnt_seal_management.quotation_customer.set_quotation_customer",
+			# Snapshot the customer's account manager (see quotation_account_manager.py).
+			"tnt_seal_management.quotation_account_manager.set_account_manager",
 		],
 	},
 	"Sales Order": {"validate": "tnt_seal_management.vehicle_links.validate_vehicle_links"},

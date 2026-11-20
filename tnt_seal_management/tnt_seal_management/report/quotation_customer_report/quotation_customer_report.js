@@ -30,6 +30,12 @@ frappe.query_reports["Quotation Customer Report"] = {
 			options: "Customer",
 		},
 		{
+			fieldname: "account_manager",
+			label: __("Account Manager"),
+			fieldtype: "Link",
+			options: "User",
+		},
+		{
 			fieldname: "quotation_to",
 			label: __("Quotation To"),
 			fieldtype: "Select",

@@ -32,6 +32,8 @@ def get_columns():
 		{"label": _("Party Name"), "fieldname": "customer_name", "fieldtype": "Data", "width": 200},
 		{"label": _("Customer"), "fieldname": "customer", "fieldtype": "Link", "options": "Customer", "width": 200},
 		{"label": _("Customer Source"), "fieldname": "customer_source", "fieldtype": "Data", "width": 120},
+		{"label": _("Account Manager"), "fieldname": "custom_account_manager_name", "fieldtype": "Data", "width": 160},
+		{"label": _("Account Manager User"), "fieldname": "custom_account_manager", "fieldtype": "Link", "options": "User", "width": 180},
 		{"label": _("Status"), "fieldname": "status", "fieldtype": "Data", "width": 100},
 		{"label": _("Workflow State"), "fieldname": "workflow_state", "fieldtype": "Data", "width": 120},
 		{"label": _("Currency"), "fieldname": "currency", "fieldtype": "Link", "options": "Currency", "width": 80},
@@ -53,6 +55,8 @@ def get_data(filters):
 	for field in ("company", "quotation_to", "status", "owner"):
 		if filters.get(field):
 			list_filters.append([field, "=", filters.get(field)])
+	if filters.account_manager:
+		list_filters.append(["custom_account_manager", "=", filters.account_manager])
 	if filters.customer:
 		list_filters.append(["party_name", "in", _parties_for_customer(filters.customer)])
 
@@ -64,6 +68,8 @@ def get_data(filters):
 			"name", "transaction_date", "quotation_to", "party_name", "customer_name",
 			"status", "workflow_state", "currency", "grand_total", "base_grand_total",
 			"prepared_by_name", "owner", "valid_till", "company",
+			# Snapshot taken when the quotation was created (quotation_account_manager.py).
+			"custom_account_manager", "custom_account_manager_name",
 		],
 		order_by="transaction_date desc, name desc",
 		limit_page_length=0,
