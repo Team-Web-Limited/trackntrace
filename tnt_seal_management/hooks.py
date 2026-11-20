@@ -257,6 +257,8 @@ doc_events = {
 	# Keeps the Customer Branch checkboxes consistent (All <-> FMS + ECTS + RECTS).
 	"Customer": {
 		"validate": "tnt_seal_management.tnt_seal_management.api.customer_branches.normalize_branches",
+		# A converted lead/prospect: fill custom_customer on its quotations.
+		"after_insert": "tnt_seal_management.quotation_customer.link_quotations_to_new_customer",
 	},
 	# Same for the Warehouse Branch checkboxes.
 	"Warehouse": {
@@ -290,7 +292,13 @@ doc_events = {
 		"validate": "tnt_seal_management.vehicle_links.validate_vehicle_links",
 	},
 	# Vehicle rows must name an existing Vehicle (see vehicle_links.py).
-	"Quotation": {"validate": "tnt_seal_management.vehicle_links.validate_vehicle_links"},
+	"Quotation": {
+		"validate": [
+			"tnt_seal_management.vehicle_links.validate_vehicle_links",
+			# Fill custom_customer from the party (see quotation_customer.py).
+			"tnt_seal_management.quotation_customer.set_quotation_customer",
+		],
+	},
 	"Sales Order": {"validate": "tnt_seal_management.vehicle_links.validate_vehicle_links"},
 	"Delivery Note": {"validate": "tnt_seal_management.vehicle_links.validate_vehicle_links"},
 }
