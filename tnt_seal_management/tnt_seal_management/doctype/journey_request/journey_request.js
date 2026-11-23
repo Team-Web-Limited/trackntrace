@@ -36,8 +36,15 @@ frappe.ui.form.on("Journey Request", {
 		frm.set_query("seal_device", "seals", () => ({
 			query:
 				"tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.available_seal_query",
-			filters: { journey_request: frm.doc.name || "", system: frm.doc.system, customer: frm.doc.client_name || "" },
+			filters: {
+				journey_request: frm.doc.name || "",
+				system: frm.doc.system,
+				customer: frm.doc.client_name || "",
+				// A RECTs Data Entry clerk is offered only the Tag Operator's own seals.
+				technician: frm.doc.assigned_technician || "",
+			},
 		}));
+		_journey_request_configure_tag_operator(frm);
 
 		// Origin/Destination are the journey's start/end points, picked from
 		// Uffizio Geofences (excluding routes); Checkpoints are the
@@ -98,6 +105,21 @@ frappe.ui.form.on("Journey Request", {
 
 	client_name(frm) {
 		_journey_request_apply_journey_type_options(frm);
+	},
+
+	// The seals come out of the Tag Operator's stock: a clerk who switches the
+	// operator has to pick that operator's seals again.
+	assigned_technician(frm) {
+		if (!_jr_is_rects_clerk(frm)) return;
+		const picked = (frm.doc.seals || []).some((row) => row.seal_device);
+		if (!picked) return;
+		(frm.doc.seals || []).forEach((row) => {
+			frappe.model.set_value(row.doctype, row.name, "seal_device", null);
+		});
+		frappe.show_alert({
+			message: __("Seals cleared: pick seals held by the selected Tag Operator."),
+			indicator: "orange",
+		});
 	},
 
 	number_of_seals(frm) {
@@ -360,11 +382,41 @@ function _journey_request_autofill_seal_vehicles(frm) {
 	if (changed) frm.refresh_field("seals");
 }
 
+// A RECTs Data Entry clerk fills in and finishes RECTs requests in the office for
+// the Tag Operator (who sends the details over Slack / WhatsApp). A Field
+// Technician who also holds the role still works as a technician.
+function _jr_is_rects_clerk(frm) {
+	return (
+		frm.doc.system === "RECTs" &&
+		frappe.user.has_role("RECTs Data Entry") &&
+		!frappe.user.has_role("Field Technician")
+	);
+}
+
+// The clerk picks the Tag Operator ("Tagged By") while the request is a Draft;
+// the seal picker then lists only that operator's seals. Everyone else keeps
+// the field hidden, as it is set from the assignment.
+function _journey_request_configure_tag_operator(frm) {
+	const clerk = _jr_is_rects_clerk(frm);
+	const draft = frm.is_new() || _jr_effective_status(frm) === "Draft";
+	frm.set_df_property("assigned_technician", "label", clerk ? __("Tag Operator (Tagged By)") : __("Assigned Technician"));
+	frm.set_df_property("assigned_technician", "hidden", clerk ? 0 : 1);
+	frm.set_df_property("assigned_technician", "read_only", clerk && draft ? 0 : 1);
+	frm.set_df_property("assigned_technician", "reqd", clerk && draft ? 1 : 0);
+	if (clerk) {
+		frm.set_query("assigned_technician", () => ({
+			query: "tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.rects_tag_operator_query",
+		}));
+	}
+}
+
 function _journey_request_add_buttons(frm) {
 	const status = frm.doc.journey_request_status;
 	// System Manager / Administrator may act at any stage of the workflow.
 	const isAdmin = frappe.user.has_role("System Manager");
 	const isTech = frappe.user.has_role("Field Technician") || isAdmin;
+	// The RECTs Data Entry clerk also completes tagging for the Tag Operator.
+	const canTag = isTech || _jr_is_rects_clerk(frm);
 	const isControlRoom = frappe.user.has_role("Operations Control Room") || isAdmin;
 	const isTeamLead = frappe.user.has_role("PCB Team Leader") || isAdmin;
 
@@ -391,7 +443,7 @@ function _journey_request_add_buttons(frm) {
 		);
 	}
 
-	if (_jr_has_stage(frm, "Tagging") && isTech) {
+	if (_jr_has_stage(frm, "Tagging") && canTag) {
 		frm.add_custom_button(__("Complete Tagging"), () => {
 			frappe.warn(
 				__("Complete Tagging"),
@@ -828,7 +880,7 @@ function _journey_request_add_seals_grid_button(frm) {
 
 	const isAdmin = frappe.user.has_role("System Manager");
 	const isTech = frappe.user.has_role("Field Technician") || isAdmin;
-	if (!isTech) return;
+	if (!isTech && !_jr_is_rects_clerk(frm)) return;
 
 	frm.add_custom_button(frm.doc.system === "RECTs" ? __("Submit") : __("Submit to Control Room"), () => {
 		const incomplete = (frm.doc.pre_tagging_checklist || []).some((row) => !row.completed);
@@ -930,6 +982,8 @@ function _journey_request_apply_locks(frm) {
 
 	const status = _jr_effective_status(frm);
 	const isTech = frappe.user.has_role("Field Technician");
+	// The RECTs Data Entry clerk edits the Draft and the tagging details only.
+	const isClerk = _jr_is_rects_clerk(frm);
 	const isNew = frm.is_new();
 
 	let lockedContent = !isNew;
@@ -937,10 +991,10 @@ function _journey_request_apply_locks(frm) {
 	let lockedUntagging = !isNew;
 	let lockedSealReturn = !isNew;
 
-	if (isTech && (isNew || status === "Draft")) {
+	if ((isTech || isClerk) && (isNew || status === "Draft")) {
 		lockedContent = false;
 		lockedTagging = false;
-	} else if (isTech && status === "Tagging") {
+	} else if ((isTech || isClerk) && status === "Tagging") {
 		lockedContent = true;
 		lockedTagging = false;
 	} else if (isTech && status === "Untagging") {

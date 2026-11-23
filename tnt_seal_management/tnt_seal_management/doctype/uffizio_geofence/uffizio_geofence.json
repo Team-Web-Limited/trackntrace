@@ -5,7 +5,7 @@
  "creation": "2026-10-09 00:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
- "modified": "2026-10-12 12:00:00.000000",
+ "modified": "2026-11-23 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Uffizio Geofence",
@@ -195,6 +195,10 @@
    "role": "Managing Director",
    "read": 1,
    "report": 1
+  },
+  {
+   "role": "RECTs Data Entry",
+   "read": 1
   }
  ]
 }

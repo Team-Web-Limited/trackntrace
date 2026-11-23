@@ -38,7 +38,7 @@ CARD_COUNT_RULES = {
 				"filters": {"journey_request_status": "Pending Control Room Approval"},
 			},
 			{
-				"roles": ["Field Technician"],
+				"roles": ["Field Technician", "RECTs Data Entry"],
 				"label": "Tagging work",
 				"filters": {
 					"journey_request_status": [
@@ -414,6 +414,20 @@ for _route in (
 ):
 	CARD_COUNT_RULES[f"{_route}/rects"] = _scoped_to_system(CARD_COUNT_RULES[_route], "RECTs")
 	CARD_COUNT_RULES[_route] = _scoped_to_system(CARD_COUNT_RULES[_route], "PCB")
+
+# The "Missing details" badge on the RECTs Assignments card, for the RECTs Data
+# Entry team: RECTs requests still in Draft, which they fill in from what the
+# Tag Operator sends over Slack / WhatsApp.
+CARD_COUNT_RULES["journey-request-details/rects"] = {
+	"doctype": "Journey Request",
+	"rules": [
+		{
+			"roles": ["RECTs Data Entry"],
+			"label": "Missing details",
+			"filters": {"system": "RECTs", "journey_request_status": "Draft"},
+		},
+	],
+}
 
 # Vehicles are those of the customers on the system's Branch.
 CARD_COUNT_RULES["vehicle-list/rects"] = {

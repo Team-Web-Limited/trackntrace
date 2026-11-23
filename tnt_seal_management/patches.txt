@@ -4,6 +4,7 @@
 tnt_seal_management.patches.create_customer_care_role
 tnt_seal_management.patches.create_account_manager_role
 tnt_seal_management.patches.rename_team_lead_technician_role
+tnt_seal_management.patches.create_rects_data_entry_role
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated

@@ -12,8 +12,11 @@ frappe.pages["rects"].on_page_load = function (wrapper) {
 
 	$(page.body).html(get_rects_landing_html());
 	load_rects_card_counts(page);
-	$(page.body).on("click", "[data-route]", function () {
+	$(page.body).on("click", "[data-route]", function (e) {
 		const route = $(this).data("route");
+		// A badge can open the list pre-filtered, e.g. Missing details on Draft.
+		const status = $(e.target).closest("[data-route-status]").data("routeStatus");
+		if (status) frappe.route_options = { status };
 		if (route) frappe.set_route(...String(route).split("/"));
 	});
 };
@@ -45,6 +48,7 @@ const RECTS_DASHBOARD_CARDS = [
 		// Field Technician) land on the Journey Requests list instead.
 		fallback_route: "journey-request-list/rects",
 		primary: true,
+		data_entry: true,
 		badges: [
 			{ label: "Tagging", count: 0, route: "assignment-list/rects" },
 			{ label: "Untagging", count: 0, variant: "arrival", route: "assignment-untagging/rects" },
@@ -66,6 +70,28 @@ const RECTS_DASHBOARD_CARDS = [
 	{ title: "Customer Billing", icon: "🧾", route: "customer-billing/rects", count: 0, label: "Customers" },
 	{ title: "Vehicles", icon: "🚘", route: "vehicle-list/rects", count: 0 },
 ];
+
+// The page's roles other than RECTs Data Entry (see rects.json). A user with
+// only the data-entry role works journey requests, so the other cards (whose
+// pages they cannot open) stay hidden.
+const RECTS_NON_DATA_ENTRY_ROLES = [
+	"System Manager",
+	"Account Manager",
+	"Field Technician",
+	"Finance PCB",
+	"Management",
+	"Operations Control Room",
+	"PCB Team Leader",
+	"Managing Director",
+];
+
+function rects_card_visible(card) {
+	if (card.roles && !card.roles.some((role) => frappe.user.has_role(role))) return false;
+	const dataEntryOnly =
+		frappe.user.has_role("RECTs Data Entry") &&
+		!RECTS_NON_DATA_ENTRY_ROLES.some((role) => frappe.user.has_role(role));
+	return !dataEntryOnly || !!card.data_entry;
+}
 
 function get_rects_count_html(count, variant, route) {
 	const classes = ["rects-count"];
@@ -106,6 +132,17 @@ function get_rects_card_html(card) {
 				{ label: "Seal Return", count: 0, variant: "arrival", route: "journey-request-seal-return/rects" },
 			],
 		};
+		// The RECTs Data Entry team also sees the requests still missing their
+		// details (Drafts) that they fill in from the Tag Operators' messages.
+		if (frappe.user.has_role("RECTs Data Entry")) {
+			card.badges.unshift({
+				label: "Missing details",
+				count: 0,
+				variant: "alert",
+				route: "journey-request-details/rects",
+				open_status: "Draft",
+			});
+		}
 	}
 	const primaryClass = card.primary ? " rects-card--primary" : "";
 	let badges = "";
@@ -114,7 +151,9 @@ function get_rects_card_html(card) {
 			<div class="rects-badges">
 				${card.badges
 					.map(
-						(b) => `<div class="rects-badge-stat">
+						(b) => `<div class="rects-badge-stat"${
+							b.open_status ? ` data-route-status="${frappe.utils.escape_html(b.open_status)}"` : ""
+						}>
 							${get_rects_count_html(b.count, b.variant, b.route)}
 							<span class="rects-badge-label">${__(b.label)}</span>
 						</div>`
@@ -322,7 +361,7 @@ function get_rects_landing_html() {
 
 		<div class="rects-landing">
 			<section class="rects-grid">
-				${RECTS_DASHBOARD_CARDS.map(get_rects_card_html).join("")}
+				${RECTS_DASHBOARD_CARDS.filter(rects_card_visible).map(get_rects_card_html).join("")}
 			</section>
 		</div>
 	`;

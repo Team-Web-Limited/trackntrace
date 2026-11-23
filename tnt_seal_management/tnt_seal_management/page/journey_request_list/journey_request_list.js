@@ -62,9 +62,28 @@ frappe.pages["journey-request-list"].on_page_show = function (wrapper) {
 		Object.assign(page.jrl_state, { search: "", status: "All", from_date: "", to_date: "", page: 1 });
 		if ("field_technician" in page.jrl_state) page.jrl_state.field_technician = "";
 	}
-	if (page.jrl_loaded) _jrl_load(page);
+	// A dashboard card can open the list on one status (RECTs Journey Request
+	// Details opens it on Draft) through frappe.route_options.
+	const routeStatus = frappe.route_options && frappe.route_options.status;
+	if (routeStatus) {
+		frappe.route_options = null;
+		_jrl_set_status(page, routeStatus);
+		_jrl_load(page);
+	} else if (page.jrl_loaded) {
+		_jrl_load(page);
+	}
 	page.jrl_loaded = true;
 };
+
+function _jrl_set_status(page, status) {
+	const $item = $(page.body).find(`.jrl-filter-item[data-status="${CSS.escape(status)}"]`);
+	if (!$item.length) return;
+	page.jrl_state.status = status;
+	page.jrl_state.page = 1;
+	$(page.body).find(".jrl-filter-item").removeClass("active");
+	$item.addClass("active");
+	$(page.body).find(".jrl-filter-btn-label").text($item.data("label"));
+}
 
 function _jrl_build_page(page) {
 	const statuses = [

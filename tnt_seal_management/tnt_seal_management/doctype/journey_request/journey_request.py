@@ -385,19 +385,37 @@ class JourneyRequest(Document):
 			self._ensure_rects_seals_held_by_user(seal_devices)
 
 	def _ensure_rects_seals_held_by_user(self, seal_devices):
-		"""On a RECTs request, seals newly added by a technician must be ones they hold.
-		Seals already on the request are left alone so other users can still edit it."""
+		"""On a RECTs request, seals newly added must be held by the Tag Operator:
+		the technician themselves, or for a RECTs Data Entry clerk filling in on
+		their behalf, the request's Assigned Technician. Seals already on the
+		request are left alone so other users can still edit it."""
 		if self.system != "RECTs" or not _rects_holds_own_seals_only():
 			return
+		clerk = _is_rects_data_entry()
+		holder = _rects_seal_holder(self.assigned_technician)
 		before = self.get_doc_before_save()
 		existing = {r.seal_device for r in (before.seals if before else [])}
-		for seal_device in seal_devices:
-			if seal_device in existing:
-				continue
+		# A clerk switching the Tag Operator re-checks every seal against the new one.
+		if clerk and before and before.assigned_technician != self.assigned_technician:
+			existing = set()
+		new_seals = [s for s in seal_devices if s not in existing]
+		if new_seals and not holder:
+			frappe.throw(
+				_("Select the Tag Operator (Assigned Technician) before picking seals."),
+				title=_("Tag Operator Required"),
+			)
+		for seal_device in new_seals:
 			custody_type, custodian = frappe.db.get_value(
 				"Seal Device", seal_device, ["current_custody_type", "current_custodian"]
 			) or (None, None)
-			if not (custody_type == "User" and custodian == frappe.session.user):
+			if not (custody_type == "User" and custodian == holder):
+				if clerk:
+					frappe.throw(
+						_("Seal {0} is not held by {1}. Pick seals in the Tag Operator's own custody.").format(
+							seal_device, frappe.utils.get_fullname(holder)
+						),
+						title=_("Seal Not In Tag Operator's Custody"),
+					)
 				frappe.throw(
 					_("Seal {0} is not held by you. You can only tag with seals in your own custody.").format(seal_device),
 					title=_("Seal Not In Your Custody"),
@@ -508,6 +526,16 @@ def _locked_fields_for(roles, status):
 			)
 		return all_managed
 
+	# The RECTs Data Entry clerk does the Tag Operator's form work: the Draft and
+	# the tagging details. Untagging and seal return stay with the operator.
+	# They pick the Tag Operator, whose seals the request uses, only while Draft.
+	if RECTS_DATA_ENTRY_ROLE in roles:
+		if status == "Draft":
+			return set()
+		if status == "Tagging":
+			return set(CONTENT_FIELDS) | {"assigned_technician"}
+		return all_managed | {"assigned_technician"}
+
 	# The Operations Control Room and the PCB Team Leader act through guarded
 	# actions, never by free-form editing of journey content.
 	return all_managed
@@ -588,8 +616,14 @@ def get_permission_query_conditions(user=None):
 	if roles & {"System Manager", "Management", "Operations Control Room", PCB_TEAM_LEAD_ROLE, "Finance PCB", "Account Manager"}:
 		return ""
 
+	conditions = []
+	# The RECTs Data Entry clerk works every RECTs request, never PCB ones.
+	if RECTS_DATA_ENTRY_ROLE in roles:
+		conditions.append("`tabJourney Request`.system = 'RECTs'")
 	if "Field Technician" in roles:
-		return f"`tabJourney Request`.assigned_technician = {frappe.db.escape(user)}"
+		conditions.append(f"`tabJourney Request`.assigned_technician = {frappe.db.escape(user)}")
+	if conditions:
+		return "(" + " or ".join(conditions) + ")"
 
 	return ""
 
@@ -601,6 +635,10 @@ def has_permission(doc, user=None, permission_type=None):
 	roles = set(frappe.get_roles(user))
 	if roles & {"System Manager", "Management", "Operations Control Room", PCB_TEAM_LEAD_ROLE, "Finance PCB", "Account Manager"}:
 		return True
+
+	if RECTS_DATA_ENTRY_ROLE in roles:
+		if doc.is_new() or permission_type == "create" or doc.system == "RECTs":
+			return True
 
 	if "Field Technician" in roles:
 		if doc.is_new() or permission_type == "create":
@@ -626,6 +664,10 @@ CONTROL_ROOM_NOTIFY_ROLES = ("Operations Control Room",)
 # The seal return is signed off by the PCB Team Leader, not the Control Room —
 # they own the physical seal stock the return puts back into the pool.
 PCB_TEAM_LEAD_ROLE = "PCB Team Leader"
+
+# Office staff who fill in and finish RECTs journey requests on the Tag Operator's
+# behalf, from the details the operator sends over Slack / WhatsApp.
+RECTS_DATA_ENTRY_ROLE = "RECTs Data Entry"
 
 
 def _notify_control_room_approval_pending(doc):
@@ -939,6 +981,12 @@ def submit_to_control_room(docname, vehicle_rows=None):
 		)
 	if not doc.seals:
 		frappe.throw(_("Select at least one Seal before submitting."), title=_("Seals Required"))
+	# The seals leave the Tag Operator's stock, so a clerk must name who tagged.
+	if doc.system == "RECTs" and not doc.assigned_technician and _is_rects_data_entry():
+		frappe.throw(
+			_("Select the Tag Operator (Assigned Technician) before submitting."),
+			title=_("Tag Operator Required"),
+		)
 	if doc.pre_tagging_checklist and any(not row.completed for row in doc.pre_tagging_checklist):
 		frappe.throw(
 			_("Complete every item on the Pre-Tagging Checklist before submitting to the Control Room."),
@@ -1191,13 +1239,16 @@ def complete_tagging(
 	vehicle the Control Room has approved. On a multi-vehicle request the
 	confirmation, tagging time and remarks are given per call and stored on each
 	vehicle; a single-vehicle request keeps using the form's own fields."""
-	_ensure_role(
-		"Field Technician",
-		_("Only the assigned Field Technician can complete tagging."),
-	)
 	doc = _get_journey_request(docname)
+	# On RECTs the Data Entry clerk completes tagging on the Tag Operator's behalf.
+	clerk = doc.system == "RECTs" and _is_rects_data_entry()
+	if not clerk:
+		_ensure_role(
+			"Field Technician",
+			_("Only the assigned Field Technician can complete tagging."),
+		)
 	is_admin = "System Manager" in set(frappe.get_roles()) or frappe.session.user == "Administrator"
-	if not is_admin and doc.assigned_technician and doc.assigned_technician != frappe.session.user:
+	if not (is_admin or clerk) and doc.assigned_technician and doc.assigned_technician != frappe.session.user:
 		frappe.throw(
 			_("This journey request is assigned to {0}.").format(doc.assigned_technician),
 			title=_("Not Assigned to You"),
@@ -2116,12 +2167,61 @@ def _rects_holds_own_seals_only(user=None):
 	return "System Manager" not in frappe.get_roles(user or frappe.session.user)
 
 
+def _is_rects_data_entry(user=None):
+	"""A RECTs Data Entry clerk fills in RECTs journey requests in the office on the
+	Tag Operator's behalf (from the details they send over Slack / WhatsApp).
+	A Field Technician who also holds the role still tags with their own seals."""
+	roles = set(frappe.get_roles(user or frappe.session.user))
+	return RECTS_DATA_ENTRY_ROLE in roles and "Field Technician" not in roles
+
+
+def _rects_seal_holder(assigned_technician, user=None):
+	"""Whose seals a RECTs request is tagged with: the request's Tag Operator for
+	a data-entry clerk, otherwise the technician filling it in."""
+	user = user or frappe.session.user
+	return assigned_technician if _is_rects_data_entry(user) else user
+
+
+@frappe.whitelist()
+@validate_and_sanitize_search_inputs
+def rects_tag_operator_query(doctype, txt, searchfield, start, page_len, filters):
+	"""Enabled Field Technicians, and anyone holding RECTs seals, for a RECTs
+	request's Tag Operator."""
+	return frappe.db.sql(
+		"""
+		select u.name, u.full_name
+		from `tabUser` u
+		where u.enabled = 1
+			and (
+				exists (
+					select 1 from `tabHas Role` hr
+					where hr.parent = u.name and hr.parenttype = 'User' and hr.role = 'Field Technician'
+				)
+				or exists (
+					select 1 from `tabSeal Device` sd
+					where sd.current_custody_type = 'User' and sd.current_custodian = u.name
+						and ifnull(sd.belongs_to, 'TNT') = 'RECTs'
+				)
+			)
+			and (u.name like %(txt)s or u.full_name like %(txt)s)
+		order by u.full_name
+		limit %(start)s, %(page_len)s
+		""",
+		{"txt": f"%{cstr(txt)}%", "start": cint(start), "page_len": cint(page_len)},
+	)
+
+
 @frappe.whitelist()
 @validate_and_sanitize_search_inputs
 def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
 	journey_request = (filters or {}).get("journey_request") or ""
 	rects = (filters or {}).get("system") == "RECTs"
 	customer = (filters or {}).get("customer") or ""
+	mine_only = rects and _rects_holds_own_seals_only()
+	holder = _rects_seal_holder((filters or {}).get("technician")) if mine_only else frappe.session.user
+	if mine_only and not holder:
+		# A data-entry clerk sees no seals until the Tag Operator is chosen.
+		return []
 	return frappe.db.sql(
 		"""
 		select
@@ -2142,9 +2242,10 @@ def available_seal_query(doctype, txt, searchfield, start, page_len, filters):
 			"journey_request": journey_request,
 			"customer": customer,
 			"rects": 1 if rects else 0,
-			# A RECTs technician only picks seals they hold themselves.
-			"mine_only": 1 if rects and _rects_holds_own_seals_only() else 0,
-			"user": frappe.session.user,
+			# A RECTs technician only picks seals they hold themselves; a data-entry
+			# clerk only the seals held by the request's Tag Operator.
+			"mine_only": 1 if mine_only else 0,
+			"user": holder,
 			"txt": f"%{cstr(txt)}%",
 			"start": cint(start),
 			"page_len": cint(page_len),
