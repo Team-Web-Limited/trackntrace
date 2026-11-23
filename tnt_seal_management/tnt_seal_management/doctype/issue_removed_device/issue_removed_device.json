@@ -1,0 +1,66 @@
+{
+ "actions": [],
+ "creation": "2026-11-23 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "modified": "2026-11-23 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "owner": "Administrator",
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "name": "Issue Removed Device",
+ "istable": 1,
+ "editable_grid": 1,
+ "field_order": [
+  "serial_no",
+  "item_code",
+  "installed_under",
+  "return_delivery_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "serial_no",
+   "fieldtype": "Link",
+   "label": "Serial No / IMEI",
+   "options": "Serial No",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item",
+   "fetch_from": "serial_no.item_code",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "installed_under",
+   "fieldtype": "Link",
+   "label": "Installed Under (Delivery Note)",
+   "options": "Delivery Note",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 2,
+   "description": "The Delivery Note that took this device to the customer."
+  },
+  {
+   "fieldname": "return_delivery_note",
+   "fieldtype": "Link",
+   "label": "Return to Technician",
+   "options": "Delivery Note",
+   "read_only": 1,
+   "no_copy": 1,
+   "in_list_view": 1,
+   "columns": 2,
+   "description": "The return Delivery Note that brought this device back into the technician's warehouse."
+  }
+ ],
+ "permissions": []
+}

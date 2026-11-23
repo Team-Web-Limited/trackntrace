@@ -17,6 +17,10 @@ def _key(value):
 def validate_vehicle_links(doc, method=None):
 	if doc.flags.ignore_links:
 		return
+	# A return copies the vehicle rows of the Delivery Note it reverses; those
+	# were checked (or predate this check) when that note was saved.
+	if doc.get("is_return"):
+		return
 
 	rows = []  # (row, fieldname, table label)
 	for table_df in doc.meta.get_table_fields():

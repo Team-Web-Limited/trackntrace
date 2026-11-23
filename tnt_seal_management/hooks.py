@@ -57,6 +57,11 @@ fixtures = [
 					"Sales Order-custom_customer_response_remarks",
 					"Quotation-custom_account_manager",
 					"Quotation-custom_account_manager_name",
+					"Issue-custom_device_removal_section",
+					"Issue-custom_return_warehouse",
+					"Issue-custom_no_device_recovered",
+					"Issue-custom_no_device_reason",
+					"Issue-custom_removed_devices",
 				],
 			]
 		],
@@ -144,6 +149,7 @@ doctype_js = {
 	"Customer": "public/js/customer.js",
 	"Purchase Receipt": "public/js/purchase_receipt.js",
 	"Item": "public/js/item.js",
+	"Issue": "public/js/issue.js",
 }
 doctype_list_js = {"Sales Order": "public/js/sales_order_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -309,6 +315,9 @@ doc_events = {
 	},
 	"Sales Order": {"validate": "tnt_seal_management.vehicle_links.validate_vehicle_links"},
 	"Delivery Note": {"validate": "tnt_seal_management.vehicle_links.validate_vehicle_links"},
+	# Device removal: removed devices go back to the field technician by a
+	# return Delivery Note, and the Issue can't close until they have.
+	"Issue": {"validate": "tnt_seal_management.device_removal.validate_issue"},
 }
 
 # Scheduled Tasks
