@@ -56,12 +56,14 @@ class TaggingBooking(Document):
 			)
 
 	def _validate_destination(self):
-		"""Destination is required while a booking is open. Bookings already
-		approved, rejected or cancelled before the field existed have none, and
-		must stay saveable — the form's mandatory_depends_on mirrors this."""
+		"""Destination is required on a new booking. A booking made before the field
+		existed has none and must stay saveable — Finance has to be able to return,
+		reject or reopen it — so it is only enforced again when the booking is
+		submitted to Finance (see submit_to_finance). The form's mandatory_depends_on
+		still asks for it on any open booking."""
 		if self.booking_status in ("Finance PCB Approved", "Finance PCB Rejected", "Cancelled"):
 			return
-		if not (self.destination or "").strip():
+		if self.is_new() and not (self.destination or "").strip():
 			frappe.throw(_("Destination is required."), title=_("Missing Destination"))
 
 	def _validate_client_in_system(self):
@@ -660,6 +662,9 @@ def submit_to_finance(docname):
 				_("This booking is assigned to {0}.").format(doc.account_manager),
 				title=_("Not Assigned to You"),
 			)
+
+	if not (doc.destination or "").strip():
+		frappe.throw(_("Enter the Destination before submitting to Finance."), title=_("Missing Destination"))
 
 	doc._ensure_seal_journey(force=True)
 	doc.booking_status = "Pending Finance PCB Approval"
