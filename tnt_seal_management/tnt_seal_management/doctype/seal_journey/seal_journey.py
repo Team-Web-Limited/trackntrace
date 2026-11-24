@@ -146,8 +146,10 @@ class SealJourney(Document):
 		Dates default from the journey timeline (start -> completion). Billing is
 		inclusive whole days (start..return). When the return date is unknown the
 		charge is an estimate up to today and the status stays Pending Billing.
-		Billed stays terminal; Cancelled mirrors the journey lifecycle itself."""
-		if self.billing_status == "Billed":
+		Billed stays terminal; Cancelled mirrors the journey lifecycle itself.
+		A journey on a Sales Order (Processing Payment) is frozen too: the order
+		was raised from these figures and a later save must not change them."""
+		if self.billing_status in ("Billed", "Processing Payment"):
 			return
 
 		if self.journey_status == "Cancelled":
@@ -168,8 +170,13 @@ class SealJourney(Document):
 		# customer's rate sets applies — Local, or the shared Import/Export set.
 		# Journeys with no Journey Request have no type and bill as Local, which
 		# is what they did before rates were split by journey type.
+		# The journey's start moment decides which version of a changed billing
+		# applies — a journey that started before Finance approved a change keeps
+		# the old terms, even on the same day. Dates set by hand have no moment.
+		started = self.journey_start_date_time
+		at = started if started and getdate(started) == getdate(self.billing_start_date) else None
 		resolved = resolve_customer_billing(
-			self.customer, self.billing_start_date, self.journey_type
+			self.customer, self.billing_start_date, self.journey_type, at
 		)
 		rule_name = resolved["billing_rule"]
 		if not rule_name:
@@ -188,6 +195,7 @@ class SealJourney(Document):
 				"first_period_days",
 				"first_period_amount",
 				"extra_day_rate",
+				"extra_hour_rate",
 				"computation_method",
 			],
 			as_dict=True,
@@ -230,7 +238,7 @@ class SealJourney(Document):
 			}
 			billing_status = "No Per-Journey Charge"
 		else:
-			result = compute_billing_amount(rule, total_days, seal_count)
+			result = compute_billing_amount(rule, total_days, seal_count, self._elapsed_billing_hours(end_date))
 			billing_status = "Pending Billing"
 
 		self.billing_rule = rule.name
@@ -241,6 +249,8 @@ class SealJourney(Document):
 		self.extra_days = result["extra_days"]
 		self.extra_day_rate = result["extra_day_rate"]
 		self.extra_day_amount = result["extra_day_amount"]
+		self.extra_hours = result.get("extra_hours", 0)
+		self.extra_hour_rate = result.get("extra_hour_rate", 0)
 		self.seal_count = result["seal_count"]
 		self.per_seal_amount = result["per_seal_amount"]
 		self.total_charge = result["total_amount"]
@@ -257,6 +267,23 @@ class SealJourney(Document):
 		# then it functionally DOES have a per-journey charge.
 		if self.billing_status == "No Per-Journey Charge" and flt(self.extra_billing_amount) > 0:
 			self.billing_status = "Pending Billing"
+
+	def _elapsed_billing_hours(self, end_date):
+		"""Real duration of the journey in hours, for a Daily rate's hourly overrun —
+		from journey start to completion (or now while still running). Only used
+		while the billing dates are the ones derived from that timeline: dates set
+		by hand fall back to whole days (None), so a manual correction still wins."""
+		start = self.journey_start_date_time
+		if not start or getdate(start) != getdate(self.billing_start_date):
+			return None
+		end = self.completion_date_time
+		if end and getdate(end) != getdate(end_date):
+			return None
+		if not end:
+			if self.billing_return_date:
+				return None
+			end = now_datetime()
+		return max((get_datetime(end) - get_datetime(start)).total_seconds() / 3600, 0)
 
 	def set_extra_billing(self, primary_billing_type, total_days):
 		"""Compute the additional Extra Billing (Scenario 6) leasing charge for
@@ -426,6 +453,8 @@ class SealJourney(Document):
 		self.extra_days = 0
 		self.extra_day_rate = 0
 		self.extra_day_amount = 0
+		self.extra_hours = 0
+		self.extra_hour_rate = 0
 		self.seal_count = 0
 		self.per_seal_amount = 0
 		self.total_charge = 0

@@ -16,6 +16,7 @@ const CB_BILLING_PERIOD_TO_LEASE_INTERVAL = {
 // PERIOD_TYPE_DAYS in doctype/seal_billing_rate/seal_billing_rate.py.
 // Custom isn't listed: First Period Days is typed in instead.
 const CB_FREQUENCY_PERIOD_DAYS = {
+	Daily: 1,
 	Weekly: 7,
 	"Bi-Weekly": 14,
 	Monthly: 30,
@@ -23,7 +24,7 @@ const CB_FREQUENCY_PERIOD_DAYS = {
 	"Semi-Annually": 180,
 	Annually: 365,
 };
-const CB_FREQUENCY_OPTIONS = ["Weekly", "Bi-Weekly", "Monthly", "Quarterly", "Semi-Annually", "Annually", "Custom"];
+const CB_FREQUENCY_OPTIONS = ["Daily", "Weekly", "Bi-Weekly", "Monthly", "Quarterly", "Semi-Annually", "Annually", "Custom"];
 
 // A saved Frequency outside the dropdown (the retired "Days" option, Date
 // Range, or free text from when this field was an Autocomplete) is shown as
@@ -419,10 +420,15 @@ function _cb_status_cell_html(page, c) {
 	if (approval === "Pending Approval") {
 		// Only approvers (Finance) can act; everyone else just sees that the
 		// rule is waiting.
+		// A change to a customer who already had approved billing: the current
+		// terms keep applying until Finance approves it.
+		const note = c.billing_change_pending
+			? `<div class="text-muted small">${__("Current billing stays until approved")}</div>`
+			: "";
 		if (!page.cb_state.can_approve_billing) {
-			return `<button class="cbl-activate-btn cbl-activate-btn--pending" disabled title="${__("Waiting for Finance approval")}">${__("Pending Approval")}</button>`;
+			return `<button class="cbl-activate-btn cbl-activate-btn--pending" disabled title="${__("Waiting for Finance approval")}">${__("Pending Approval")}</button>${note}`;
 		}
-		return `<button class="cbl-activate-btn" data-name="${esc(c.billing_rule)}">${__("Activate")}</button>`;
+		return `<button class="cbl-activate-btn" data-name="${esc(c.billing_rule)}">${__("Activate")}</button>${note}`;
 	}
 	const cls = approval === "Rejected" ? "cbl-activate-btn--rejected" : "cbl-activate-btn--approved";
 	return `<button class="cbl-activate-btn ${cls}" disabled>${esc(__(approval))}</button>`;
@@ -1209,6 +1215,7 @@ function _cb_show_billing_dialog(page, data) {
 		"first_period_days",
 		"first_period_amount",
 		"extra_day_rate",
+		"extra_hour_rate",
 		"owned_rate_per_seal",
 		"lease_rate_per_seal",
 	];
@@ -1478,6 +1485,18 @@ function _cb_show_billing_dialog(page, data) {
 				default: currentLeasingTerms.extra_day_rate,
 			},
 			{
+				// Daily frequency only: the first period is 24 hrs, and every
+				// started hour past it is billed at this rate instead of the
+				// Extra Day Rate — see applyComputationMode.
+				fieldtype: "Currency",
+				precision: 2,
+				fieldname: "extra_hour_rate",
+				label: __("Extra Hour Rate (per hour)"),
+				options: "leasing_currency",
+				default: currentLeasingTerms.extra_hour_rate,
+				hidden: 1,
+			},
+			{
 				fieldtype: "Section Break",
 				fieldname: "customer_period_section",
 				label: __("Customer Period"),
@@ -1646,7 +1665,9 @@ function _cb_show_billing_dialog(page, data) {
 			if (billingType === "Leasing") {
 				const days = dialog.get_value("first_period_days");
 				const amount = dialog.get_value("first_period_amount");
+				const isDaily = dialog.get_value("billing_period_type") === "Daily";
 				const extraRate = dialog.get_value("extra_day_rate");
+				const extraHourRate = dialog.get_value("extra_hour_rate");
 				const leasingRateType = dialog.get_value("billing_rule_label") || "Non-Flat Rate";
 				const isLeasingFlat = leasingRateType === "Flat Rate";
 				// Flat Rate has no day-tiering, so it's always Simple. Neither
@@ -1654,7 +1675,10 @@ function _cb_show_billing_dialog(page, data) {
 				// bills a full one), so it's hidden and not required — saved as 0.
 				const leasingComputation = isLeasingFlat ? "Simple" : _cb_get_computation_method(dialog);
 				const isCompound = leasingComputation === "Compound";
-				const usesExtraDayRate = !isLeasingFlat && !isCompound;
+				const usesExtraRate = !isLeasingFlat && !isCompound;
+				// A Daily rule bills past its 24 hrs by the hour, not by the day.
+				const usesExtraDayRate = usesExtraRate && !isDaily;
+				const usesExtraHourRate = usesExtraRate && isDaily;
 				if (!days || amount === "" || amount === null) {
 					frappe.show_alert(
 						{
@@ -1671,6 +1695,10 @@ function _cb_show_billing_dialog(page, data) {
 					frappe.show_alert({ message: __("Enter the Extra Day Rate."), indicator: "red" }, 5);
 					return;
 				}
+				if (usesExtraHourRate && (extraHourRate === "" || extraHourRate === null)) {
+					frappe.show_alert({ message: __("Enter the Extra Hour Rate."), indicator: "red" }, 5);
+					return;
+				}
 				if (!_cb_validate_period_bounds(dialog)) return;
 				_cb_submit_leasing_billing(
 					page,
@@ -1682,6 +1710,7 @@ function _cb_show_billing_dialog(page, data) {
 						first_period_days: days,
 						first_period_amount: amount,
 						extra_day_rate: usesExtraDayRate ? extraRate : 0,
+						extra_hour_rate: usesExtraHourRate ? extraHourRate : 0,
 						currency: dialog.get_value("leasing_currency") || "KES",
 						period_from_date: dialog.get_value("period_from_date"),
 						period_to_date: dialog.get_value("period_to_date"),
@@ -1712,6 +1741,8 @@ function _cb_show_billing_dialog(page, data) {
 				return;
 			}
 			const subDays = dialog.get_value("first_period_days");
+			const subIsDaily = frequency === "Daily";
+			const subExtraHourRate = dialog.get_value("extra_hour_rate");
 			// Computation only applies where applyComputationMode shows it —
 			// Flat Rate has no per-journey day-tiering to batch, and a
 			// seat-based customer's journeys aren't billed per journey at all
@@ -1720,6 +1751,11 @@ function _cb_show_billing_dialog(page, data) {
 			const computationMethod = isComputationApplicable() ? _cb_get_computation_method(dialog) : "Simple";
 			if (!cint(subDays)) {
 				frappe.show_alert({ message: __("Enter First Period Days."), indicator: "red" }, 5);
+				return;
+			}
+			const subUsesExtraHour = subIsDaily && rateType === "Non-Flat Rate" && computationMethod !== "Compound";
+			if (subUsesExtraHour && (subExtraHourRate === "" || subExtraHourRate === null || subExtraHourRate === undefined)) {
+				frappe.show_alert({ message: __("Enter the Extra Hour Rate."), indicator: "red" }, 5);
 				return;
 			}
 			if (!_cb_validate_period_bounds(dialog)) return;
@@ -1736,6 +1772,8 @@ function _cb_show_billing_dialog(page, data) {
 					// period, each started period is a renewal billed in full
 					// (billing.compute_billing_amount).
 					extra_day_rate: 0,
+					// Daily: hours past the first 24 hrs are billed at this rate.
+					extra_hour_rate: subUsesExtraHour ? subExtraHourRate : 0,
 					currency: dialog.get_value("leasing_currency") || "KES",
 					period_from_date: dialog.get_value("period_from_date"),
 					period_to_date: dialog.get_value("period_to_date"),
@@ -1790,6 +1828,7 @@ function _cb_show_billing_dialog(page, data) {
 		dialog.set_value("first_period_days", currentSubscriptionTerms.first_period_days || "");
 		dialog.set_value("first_period_amount", currentSubscriptionTerms.first_period_amount || "");
 		dialog.set_value("extra_day_rate", currentSubscriptionTerms.extra_day_rate || "");
+		dialog.set_value("extra_hour_rate", currentSubscriptionTerms.extra_hour_rate || "");
 		setComputationMethod(currentSubscriptionTerms.computation_method);
 
 		applySeatBasedRateOverride();
@@ -1827,7 +1866,20 @@ function _cb_show_billing_dialog(page, data) {
 		const isSubscription = dialog.get_value("billing_type") === "Subscription";
 		const isFlatRate = dialog.get_value("billing_rule_label") !== "Non-Flat Rate";
 		const isCompound = applicable && _cb_get_computation_method(dialog) === "Compound";
-		dialog.set_df_property("extra_day_rate", "hidden", isSubscription || isFlatRate || isCompound ? 1 : 0);
+		const isDaily = dialog.get_value("billing_period_type") === "Daily";
+		// Extra Day Rate is Leasing-only. Extra Hour Rate (Daily) also applies to a
+		// Non-Flat Rate Subscription: the first 24 hrs are the period, and each
+		// started hour past it is charged at this rate rather than a full renewal.
+		dialog.set_df_property("extra_day_rate", "hidden", isSubscription || isFlatRate || isCompound || isDaily ? 1 : 0);
+		dialog.set_df_property("extra_hour_rate", "hidden", isFlatRate || isCompound || !isDaily ? 1 : 0);
+		// A seat-based Subscription's journeys aren't billed per journey (the seat
+		// fee is), so an hourly overrun has nothing to apply to there.
+		const seatBased = isSubscription && !!isLeaseSeatBased();
+		dialog.set_df_property(
+			"extra_hour_rate",
+			"description",
+			seatBased ? __("Not charged while billing is per seat — journeys are not billed individually.") : ""
+		);
 	};
 
 	// Frequency drives First Period Days on a Subscription: a standard
@@ -1836,7 +1888,11 @@ function _cb_show_billing_dialog(page, data) {
 	// Subscription and Leasing.
 	const applyFrequencyDays = () => {
 		const mapped = CB_FREQUENCY_PERIOD_DAYS[dialog.get_value("billing_period_type")];
+		const isDaily = dialog.get_value("billing_period_type") === "Daily";
 		dialog.set_df_property("first_period_days", "read_only", mapped ? 1 : 0);
+		dialog.set_df_property("first_period_days", "description", isDaily ? __("1 day = 24 hrs") : "");
+		// Daily swaps Extra Day Rate for Extra Hour Rate.
+		dialog.ccl_apply_computation_mode && dialog.ccl_apply_computation_mode();
 		if (mapped && cint(dialog.get_value("first_period_days")) !== mapped) {
 			dialog.set_value("first_period_days", mapped);
 		}
@@ -1877,6 +1933,7 @@ function _cb_show_billing_dialog(page, data) {
 				dialog.set_value("first_period_days", currentLeasingTerms.first_period_days || "");
 				dialog.set_value("first_period_amount", currentLeasingTerms.first_period_amount || "");
 				dialog.set_value("extra_day_rate", currentLeasingTerms.extra_day_rate || "");
+				dialog.set_value("extra_hour_rate", currentLeasingTerms.extra_hour_rate || "");
 				dialog.set_value("leasing_currency", currentLeasingTerms.currency || "KES");
 				setComputationMethod(currentLeasingTerms.computation_method);
 			}
@@ -1986,6 +2043,7 @@ function _cb_show_billing_dialog(page, data) {
 	const refreshBillingCurrency = bindCurrencyGroup("leasing_currency", [
 		"first_period_amount",
 		"extra_day_rate",
+		"extra_hour_rate",
 		"lease_rate_per_seal",
 		"owned_rate_per_seal",
 	]);
@@ -2052,6 +2110,7 @@ function _cb_show_billing_dialog(page, data) {
 	dialog.fields_dict.journey_type.df.onchange = applyJourneyTypeRates;
 	dialog.fields_dict.billing_type.df.onchange = applyFieldModeForType;
 	dialog.fields_dict.billing_rule_label.df.onchange = applyFieldModeForType;
+	dialog.ccl_apply_computation_mode = applyComputationMode;
 	dialog.fields_dict.billing_period_type.df.onchange = applyFrequencyDays;
 	dialog.fields_dict.outright_purchase.df.onchange = applyBillingTypeOptionsForOwnership;
 	// Number of Seals (Leased or Owned) / Rate per Seal drive both the
@@ -2544,9 +2603,15 @@ function _cb_finish_billing_save(page, dialog, customer, billingMessage, recurri
 	}
 
 	Promise.all(calls)
-		.then(() => {
+		.then((responses) => {
 			dialog.hide();
-			frappe.show_alert({ message: __("{0} Recurring billing saved.", [billingMessage]), indicator: "green" });
+			// Seat fees are paid in advance: a change to seats or rate waits for the
+			// paid-through date rather than applying now.
+			const scheduled = (responses || []).map((r) => r && r.message && r.message.scheduled_for).find(Boolean);
+			const note = scheduled
+				? " " + __("New seats and rate start on {0}.", [frappe.datetime.str_to_user(scheduled)])
+				: "";
+			frappe.show_alert({ message: __("{0} Recurring billing saved.", [billingMessage]) + note, indicator: "green" }, scheduled ? 10 : 5);
 			_cb_load(page);
 		})
 		.catch(() => {
@@ -2571,6 +2636,7 @@ function _cb_submit_leasing_billing(page, customer, terms, dialog, recurringArgs
 			first_period_days: terms.first_period_days,
 			first_period_amount: terms.first_period_amount,
 			extra_day_rate: terms.extra_day_rate,
+			extra_hour_rate: terms.extra_hour_rate,
 			currency: terms.currency,
 			period_from_date: terms.period_from_date || null,
 			period_to_date: terms.period_to_date || null,
@@ -2617,6 +2683,7 @@ function _cb_submit_billing(page, customer, terms, dialog, recurringArgs) {
 			first_period_days: terms.first_period_days,
 			first_period_amount: terms.first_period_amount,
 			extra_day_rate: terms.extra_day_rate,
+			extra_hour_rate: terms.extra_hour_rate,
 			currency: terms.currency,
 			period_from_date: terms.period_from_date || null,
 			period_to_date: terms.period_to_date || null,

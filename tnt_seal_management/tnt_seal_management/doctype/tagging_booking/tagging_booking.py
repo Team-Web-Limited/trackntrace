@@ -36,8 +36,8 @@ class TaggingBooking(Document):
 				self.account_manager = frappe.session.user
 
 	def validate(self):
+		self._validate_destination()
 		self._validate_client_in_system()
-		self._validate_customer_billing_ready()
 		self._validate_booking_date_time_not_past()
 		self._validate_vehicles_belong_to_client()
 		self._validate_return_trip()
@@ -55,20 +55,14 @@ class TaggingBooking(Document):
 				title=_("Not Allowed"),
 			)
 
-	def _validate_customer_billing_ready(self):
-		"""Stop a booking for a customer whose billing isn't set up or is still
-		awaiting Finance approval — its journeys would complete unbillable.
-		Checked only for a new booking or when the client changes, so existing
-		bookings can still be amended, approved or reopened."""
-		if not self.client_name:
+	def _validate_destination(self):
+		"""Destination is required while a booking is open. Bookings already
+		approved, rejected or cancelled before the field existed have none, and
+		must stay saveable — the form's mandatory_depends_on mirrors this."""
+		if self.booking_status in ("Finance PCB Approved", "Finance PCB Rejected", "Cancelled"):
 			return
-		if not self.is_new() and not self.has_value_changed("client_name"):
-			return
-		from tnt_seal_management.tnt_seal_management.billing import get_booking_block_reason
-
-		reason = get_booking_block_reason(self.client_name, self.booking_date_time)
-		if reason:
-			frappe.throw(reason, title=_("Billing Not Ready"))
+		if not (self.destination or "").strip():
+			frappe.throw(_("Destination is required."), title=_("Missing Destination"))
 
 	def _validate_client_in_system(self):
 		"""A booking only deals with customers ticked for its system's branch."""
@@ -432,7 +426,8 @@ _EXPORT_COLUMNS = (
 	("Booking Status", "booking_status", 26),
 	("Booking", "name", 20),
 	("Client", "client_name", 28),
-	("Location", "location", 24),
+	("Tagging Location", "location", 24),
+	("Destination", "destination", 24),
 	("Date and Time", "booking_date_time", 20),
 	("Phone", "contact_person_phone", 18),
 )
@@ -581,6 +576,8 @@ def create_return_trip_booking(journey_name):
 				"booking_source": "Account Manager",
 				"account_manager": original.account_manager,
 				"location": journey.destination or original.location,
+				# The return leg runs back to where the outbound was tagged.
+				"destination": original.location,
 				"booking_date_time": now_datetime(),
 				"contact_person_name": original.contact_person_name,
 				"contact_person_phone": original.contact_person_phone,
@@ -697,7 +694,8 @@ def notify_booking_approvers(doc, recipients, subject, intro):
 	lines = [
 		intro,
 		_("Client: {0}").format(doc.client_name or "-"),
-		_("Location: {0}").format(doc.location or "-"),
+		_("Tagging Location: {0}").format(doc.location or "-"),
+		_("Destination: {0}").format(doc.destination or "-"),
 		_("Date and Time: {0}").format(doc.booking_date_time or "-"),
 		_("Contact: {0} ({1})").format(doc.contact_person_name or "-", doc.contact_person_phone or "-"),
 		_("Vehicles: {0}").format(vehicles or "-"),
@@ -733,6 +731,15 @@ def approve_booking(docname, remarks=None, pcb_team_leader=None):
 			title=_("Invalid Status"),
 		)
 	team_leader = resolve_team_leader(pcb_team_leader)
+
+	# Billing is enforced here, by Finance, rather than when the booking is
+	# made: a journey approved for a customer with no usable billing rule would
+	# complete unbillable. Finance approves the billing rule first, then the booking.
+	from tnt_seal_management.tnt_seal_management.billing import get_booking_block_reason
+
+	reason = get_booking_block_reason(doc.client_name, doc.booking_date_time)
+	if reason:
+		frappe.throw(reason, title=_("Billing Not Approved"))
 
 	doc.booking_status = "Finance PCB Approved"
 	doc.finance_pcb_approver = frappe.session.user

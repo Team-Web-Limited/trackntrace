@@ -31,7 +31,7 @@ merges every active plan row into one Sales Invoice per cycle automatically
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, nowdate
+from frappe.utils import add_days, cint, flt, getdate, now_datetime, nowdate
 
 LEASE_ITEM = "Seal Lease Fee"
 OWNERSHIP_ITEM = "Seal Ownership Service Fee"
@@ -212,6 +212,91 @@ def _upsert_subscription_line(
 	return sub, plan
 
 
+def _line_or_schedule(
+	customer, item_code, plan_label, qty, rate, billing_interval, currency, start_date, interval_days=None
+):
+	"""Apply a seat-fee line now, or — when the customer already pays this fee and
+	the terms change — schedule the change for the day after the period they have
+	already paid for (the Subscription's current period end). Seat fees are paid
+	in advance, so new seats or a new rate never take effect mid-period.
+
+	Returns (subscription, plan, scheduled_for): ``scheduled_for`` is the date the
+	change starts, or None when it was applied now."""
+	sub = _find_customer_subscription(customer)
+	row, plan = _find_plan_row_for_item(sub, item_code)
+
+	if plan:
+		interval, interval_count = _resolve_interval(billing_interval, interval_days)
+		unchanged = (
+			cint(row.qty) == cint(qty)
+			and flt(plan.cost) == flt(rate)
+			and (plan.billing_interval, cint(plan.billing_interval_count)) == (interval, interval_count)
+		)
+		if unchanged:
+			_cancel_pending_seat_fee_changes(customer, item_code)
+			return sub, plan, None
+
+		paid_through = sub.get("current_invoice_end")
+		if paid_through and getdate(paid_through) >= getdate(nowdate()):
+			starts = add_days(getdate(paid_through), 1)
+			_cancel_pending_seat_fee_changes(customer, item_code)
+			frappe.get_doc(
+				{
+					"doctype": "Seat Fee Change",
+					"customer": customer,
+					"item_code": item_code,
+					"seal_count": cint(qty),
+					"rate_per_seal": flt(rate),
+					"billing_interval": billing_interval,
+					"interval_days": cint(interval_days),
+					"currency": currency,
+					"effective_from": starts,
+				}
+			).insert(ignore_permissions=True)
+			return sub, plan, starts
+
+	# New fee, or the paid period has already ended: apply now.
+	_cancel_pending_seat_fee_changes(customer, item_code)
+	sub, plan = _upsert_subscription_line(
+		customer, item_code, plan_label, qty, rate, billing_interval, currency, start_date, interval_days=interval_days
+	)
+	return sub, plan, None
+
+
+def _cancel_pending_seat_fee_changes(customer, item_code):
+	for name in frappe.get_all(
+		"Seat Fee Change", filters={"customer": customer, "item_code": item_code, "status": "Pending"}, pluck="name"
+	):
+		frappe.db.set_value("Seat Fee Change", name, "status", "Cancelled")
+
+
+def apply_due_seat_fee_changes():
+	"""Daily: apply every Pending seat-fee change whose start date has come."""
+	for change in frappe.get_all(
+		"Seat Fee Change",
+		filters={"status": "Pending", "effective_from": ["<=", nowdate()]},
+		fields=["name", "customer", "item_code", "seal_count", "rate_per_seal", "billing_interval", "interval_days", "currency"],
+		order_by="effective_from asc, creation asc",
+	):
+		try:
+			_upsert_subscription_line(
+				change.customer,
+				change.item_code,
+				change.item_code,
+				change.seal_count,
+				change.rate_per_seal,
+				change.billing_interval,
+				change.currency,
+				None,
+				interval_days=change.interval_days,
+			)
+			frappe.db.set_value("Seat Fee Change", change.name, {"status": "Applied", "applied_on": now_datetime()})
+			frappe.db.commit()
+		except Exception:
+			frappe.db.rollback()
+			frappe.log_error(title=f"Seat Fee Change {change.name} failed")
+
+
 def _get_subscription_line_info(customer, item_code):
 	sub = _find_customer_subscription(customer)
 	row, plan = _find_plan_row_for_item(sub, item_code)
@@ -318,7 +403,7 @@ def set_customer_lease_subscription(
 	if rate_per_seal in (None, "") or flt(rate_per_seal) < 0:
 		frappe.throw(_("Enter the Rate per Seal."))
 
-	sub, plan = _upsert_subscription_line(
+	sub, plan, scheduled_for = _line_or_schedule(
 		customer, LEASE_ITEM, "Seal Lease Fee", seal_count, rate_per_seal, billing_interval, currency, start_date,
 		interval_days=interval_days,
 	)
@@ -332,6 +417,7 @@ def set_customer_lease_subscription(
 		"seal_count": cint(seal_count),
 		"rate_per_seal": flt(rate_per_seal),
 		"billing_interval": billing_interval,
+		"scheduled_for": scheduled_for,
 	}
 
 
@@ -379,7 +465,7 @@ def set_customer_ownership_subscription(
 	if rate_per_seal in (None, "") or flt(rate_per_seal) < 0:
 		frappe.throw(_("Enter the Service Fee Rate."))
 
-	sub, plan = _upsert_subscription_line(
+	sub, plan, scheduled_for = _line_or_schedule(
 		customer, OWNERSHIP_ITEM, "Seal Ownership Service Fee", seal_count, rate_per_seal,
 		billing_interval, currency, start_date, interval_days=interval_days,
 	)
@@ -393,4 +479,5 @@ def set_customer_ownership_subscription(
 		"seal_count": cint(seal_count),
 		"rate_per_seal": flt(rate_per_seal),
 		"billing_interval": billing_interval,
+		"scheduled_for": scheduled_for,
 	}

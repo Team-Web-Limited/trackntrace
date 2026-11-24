@@ -171,6 +171,7 @@ def create_customer_tagging_booking(data):
 			"requested_by": user,
 			"account_manager": auto_assigned_account_manager,
 			"location": _required_text(data, "location", "Location"),
+			"destination": _required_text(data, "destination", "Destination"),
 			"booking_date_time": booking_date_time,
 			"contact_person_name": _required_text(data, "contact_person_name", "Name"),
 			"contact_person_phone": _required_text(

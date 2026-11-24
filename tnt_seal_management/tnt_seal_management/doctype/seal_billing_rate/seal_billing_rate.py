@@ -4,10 +4,11 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cint, cstr, date_diff, flt, getdate, now_datetime
+from frappe.utils import add_days, cint, cstr, date_diff, flt, getdate, now_datetime, nowdate
 
 # Default number of days a fixed contract period covers.
 PERIOD_TYPE_DAYS = {
+	"Daily": 1,
 	"Weekly": 7,
 	"Bi-Weekly": 14,
 	"Monthly": 30,
@@ -35,6 +36,7 @@ APPROVAL_WATCHED_FIELDS = (
 	"first_period_days",
 	"first_period_amount",
 	"extra_day_rate",
+	"extra_hour_rate",
 	# Per-seal rates are prices like any other term here, so re-pricing them on
 	# an already-approved rule sends it back for approval too.
 	"owned_rate_per_seal",
@@ -51,11 +53,12 @@ TERM_FIELDS = (
 	"first_period_days",
 	"first_period_amount",
 	"extra_day_rate",
+	"extra_hour_rate",
 	"currency",
 	"owned_rate_per_seal",
 	"lease_rate_per_seal",
 )
-_NUMERIC_TERMS = {"first_period_days", "first_period_amount", "extra_day_rate", "owned_rate_per_seal", "lease_rate_per_seal"}
+_NUMERIC_TERMS = {"first_period_days", "first_period_amount", "extra_day_rate", "extra_hour_rate", "owned_rate_per_seal", "lease_rate_per_seal"}
 SAME_AS_LOCAL_REMARK = "Same terms as the approved Local rate"
 
 
@@ -141,6 +144,8 @@ class SealBillingRate(Document):
 			frappe.throw(_("First Period Amount cannot be negative."))
 		if flt(self.extra_day_rate) < 0:
 			frappe.throw(_("Extra Day Rate cannot be negative."))
+		if flt(self.extra_hour_rate) < 0:
+			frappe.throw(_("Extra Hour Rate cannot be negative."))
 
 	def validate_single_global_default(self):
 		if self.billing_type == "Leasing":
@@ -226,12 +231,6 @@ def approve_seal_billing_rate(name, remarks=None):
 	_ensure_billing_approver_role()
 	doc = frappe.get_doc("Seal Billing Rate", name)
 	if doc.approval_status == "Approved":
-		# Nothing to transition, but still reconcile: a customer can end up
-		# assigned to an already-Approved rule (e.g. current_customers.py's
-		# _gate_customer_on_rule_approval running against stale data) without
-		# ever living through a Pending -> Approved transition here, so make
-		# sure they aren't left disabled on a rule that's fine.
-		_reenable_customers_pending_on_rule(doc.name)
 		return doc.as_dict()
 
 	doc.flags.approval_action = True
@@ -249,10 +248,62 @@ def approve_seal_billing_rate(name, remarks=None):
 	finally:
 		frappe.flags.in_import = False
 	approve_matching_import_export(doc)
-	_reenable_customers_pending_on_rule(doc.name)
+	_activate_replacement_assignments(doc)
 	frappe.db.commit()
 	_notify_rule_owner_decision(doc, approved=True)
 	return doc.as_dict()
+
+
+def _activate_replacement_assignments(rule):
+	"""A billing change waits beside the current assignment until Finance approves
+	its rule (see current_customers._upsert_customer_assignment). On approval it
+	takes over at the moment of approval: journeys that started before it keep the
+	old terms (even earlier the same day), the next journey to start bills on the
+	new ones. (Seat fees are different:
+	they are paid in advance and change on the paid-through date — see
+	api.seal_lease_billing._line_or_schedule.)"""
+	assignments = frappe.get_all(
+		"Customer Billing Assignment",
+		filters={"billing_rule": rule.name, "replaces_assignment": ["is", "set"], "active": 1},
+		fields=["name", "replaces_assignment", "effective_from"],
+	)
+	for row in assignments:
+		start = getdate(nowdate())
+		if row.effective_from and getdate(row.effective_from) > start:
+			start = getdate(row.effective_from)
+
+		now = now_datetime()
+		# Approved today: the cut-off is this moment, so both assignments cover today
+		# and the journey's start time picks between them. A start date in the future
+		# (picked in the modal) is a plain date boundary.
+		same_day = start == getdate(nowdate())
+		old_end = frappe.db.get_value("Customer Billing Assignment", row.replaces_assignment, "effective_to")
+		old_values = {}
+		if same_day:
+			old_values["superseded_on"] = now
+		if not old_end or getdate(old_end) >= start:
+			old_values["effective_to"] = start if same_day else add_days(start, -1)
+		# modified is left alone on the old one so the newest assignment still sorts first.
+		if old_values:
+			frappe.db.set_value(
+				"Customer Billing Assignment", row.replaces_assignment, old_values, update_modified=False
+			)
+		frappe.db.set_value(
+			"Customer Billing Assignment",
+			row.name,
+			{"effective_from": start, "replaces_assignment": None, "activated_on": now if same_day else None},
+		)
+
+
+def _drop_replacement_assignments(rule_name):
+	"""Finance rejected the rule of a pending billing change: the change never
+	happens and the current assignment carries on."""
+	for name in frappe.get_all(
+		"Customer Billing Assignment",
+		filters={"billing_rule": rule_name, "replaces_assignment": ["is", "set"]},
+		pluck="name",
+	):
+		frappe.delete_doc("Customer Billing Assignment", name, ignore_permissions=True, force=True)
 
 
 def approve_matching_import_export(local_doc):
@@ -305,7 +356,7 @@ def _notify_approvers_pending(doc):
 	)
 
 	lines = [
-		_("A billing rule is awaiting your approval. Customers assigned to it stay disabled until it is approved."),
+		_("A billing rule is awaiting your approval. Bookings for customers on it cannot be approved by Finance until it is."),
 		*_rule_summary_lines(doc),
 	]
 	notify_users(
@@ -345,7 +396,11 @@ def _notify_rule_owner_decision(doc, approved, remarks=None):
 
 
 def _reenable_customers_pending_on_rule(rule_name):
-	"""Customer.disabled is set to 1 by current_customers.set_customer_billing /
+	"""LEGACY — no longer called: Customer.disabled is not a billing gate any more
+	(pending billing is enforced when Finance approves a booking). Kept only for
+	old patches that import it.
+
+	Customer.disabled is set to 1 by current_customers.set_customer_billing /
 	set_customer_extra_billing whenever billing is (re)assigned, as a gate that
 	holds until Finance signs off. Once this rule is approved,
 	re-enable every customer whose assignment points at it — unless that
@@ -437,6 +492,7 @@ def reject_seal_billing_rate(name, remarks=None):
 		doc.save(ignore_permissions=True)
 	finally:
 		frappe.flags.in_import = False
+	_drop_replacement_assignments(doc.name)
 	frappe.db.commit()
 	_notify_rule_owner_decision(doc, approved=False, remarks=remarks)
 	return doc.as_dict()

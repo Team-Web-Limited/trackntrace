@@ -388,6 +388,39 @@ def booked_vehicles_for_journey(seal_journey):
 	return ", ".join(plates) or None
 
 
+def _route_from_booking(seal_journey):
+	"""Journey Request route fields seeded from the Tagging Booking: its Tagging
+	Location is where the journey starts (Origin) and its Destination is where it
+	ends. A RECTs request takes the text as typed; a PCB request needs Uffizio
+	geofences, so a place that matches none is left blank for the Account Manager
+	to pick. Destination is dropped when it equals Origin, which the request
+	rejects."""
+	from tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request import _match_geofence
+
+	booking_name = frappe.db.get_value("Seal Journey", seal_journey, "tagging_booking") if seal_journey else None
+	booking = (
+		frappe.db.get_value("Tagging Booking", booking_name, ["system", "location", "destination"], as_dict=True)
+		if booking_name
+		else None
+	)
+	if not booking:
+		return {}
+
+	origin = cstr(booking.location).strip()
+	destination = cstr(booking.destination).strip()
+	if destination.lower() == origin.lower():
+		destination = ""
+
+	if booking.system == "RECTs":
+		return {"origin_location": origin or None, "destination_location": destination or None}
+
+	origin_geofence = _match_geofence(origin) or ""
+	destination_geofence = _match_geofence(destination) or ""
+	if origin_geofence and origin_geofence == destination_geofence:
+		destination_geofence = ""
+	return {"origin": origin_geofence, "destination": destination_geofence}
+
+
 def _ensure_journey_request(assignment):
 	# A Cancelled Journey Request belongs to a prior, unwound assignment cycle
 	# (see _cancel_assignment) — it must not block a fresh one from being
@@ -418,12 +451,14 @@ def _ensure_journey_request(assignment):
 				}
 				for row in vehicle_journeys
 			],
-			# Leave the route blank at this stage — origin and destination are set
-			# later in the Journey Request. Passing empty strings prevents Frappe
-			# from auto-filling both mandatory Select fields with their first
-			# option, which would otherwise trip the "same address" validation.
+			# Origin / Destination start from the booking's Tagging Location and
+			# Destination (see _route_from_booking) and stay editable on the request.
+			# Empty strings, not None, stop Frappe auto-filling the mandatory
+			# Select fields with their first option, which would otherwise trip
+			# the "same address" validation.
 			"origin": "",
 			"destination": "",
+			**_route_from_booking(seal_journey),
 		}
 	)
 
@@ -928,8 +963,22 @@ def _attach_assignment_seals(assignments):
 			):
 				seals_by_job_order.setdefault(jo_by_request[row.parent], []).append(row.seal_number)
 
+	plates_by_journey = {}
+	if all_journeys:
+		plates_by_journey = {
+			row.name: row.vehicle_plate_number
+			for row in frappe.get_all(
+				"Seal Journey",
+				filters={"name": ["in", list(all_journeys)], "vehicle_plate_number": ["is", "set"]},
+				fields=["name", "vehicle_plate_number"],
+			)
+		}
+
 	for a in assignments:
 		journeys, jos = resolved[a.name]
+		a["vehicles"] = ", ".join(
+			dict.fromkeys(plates_by_journey[j] for j in sorted(journeys) if j in plates_by_journey)
+		)
 		seen = []
 		for source in [seals_by_parent.get(j, []) for j in sorted(journeys)] + [
 			seals_by_job_order.get(jo, []) for jo in sorted(jos)
@@ -1194,6 +1243,7 @@ _EXPORT_COLUMNS = (
 	("Contact Person", "contact_person_name", 24),
 	("Phone", "contact_person_phone", 18),
 	("Job Order/Journey", "_source", 20),
+	("Vehicle", "vehicles", 20),
 	("Seal", "seals", 26),
 )
 

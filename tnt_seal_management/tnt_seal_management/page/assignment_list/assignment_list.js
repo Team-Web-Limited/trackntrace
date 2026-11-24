@@ -328,7 +328,8 @@ function _asg_export_pdf(page) {
 									<th>${__("Contact Person")}</th>
 									<th>${__("Phone")}</th>
 									<th>${__("Job Order / Journey")}</th>
-									<th>${__("Seal")}</th>
+									<th>${__("Vehicle")}</th>
+				<th>${__("Seal")}</th>
 								</tr>
 							</thead>
 							<tbody>${rows}</tbody>
@@ -402,6 +403,7 @@ function _asg_pdf_row_html(assignment) {
 			<td>${esc(assignment.contact_person_name || dash)}</td>
 			<td>${esc(assignment.contact_person_phone || dash)}</td>
 			<td>${esc(source)}</td>
+			<td>${esc(assignment.vehicles || dash)}</td>
 			<td>${esc(assignment.seals || dash)}</td>
 		</tr>
 	`;
@@ -514,6 +516,7 @@ function _asg_render_table(page, assignments) {
 				<th>${__("Contact Person")}</th>
 				<th>${__("Phone")}</th>
 				<th>${__("Job Order / Journey")}</th>
+				<th>${__("Vehicle")}</th>
 				<th>${__("Seal")}</th>
 			</tr></thead>
 			<tbody>${assignments.map(_asg_row_html).join("")}</tbody>
@@ -571,6 +574,7 @@ function _asg_row_html(assignment) {
 			<td>${frappe.utils.escape_html(assignment.contact_person_name || "—")}</td>
 			<td>${frappe.utils.escape_html(assignment.contact_person_phone || "—")}</td>
 			<td>${frappe.utils.escape_html(source)}</td>
+			<td>${frappe.utils.escape_html(assignment.vehicles || "—")}</td>
 			<td>${frappe.utils.escape_html(assignment.seals || "—")}</td>
 		</tr>
 	`;

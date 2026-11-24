@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import cint, cstr, flt
 from tnt_seal_management.tnt_seal_management.doctype.seal_billing_rate.seal_billing_rate import PERIOD_TYPE_DAYS
 
 
@@ -287,6 +287,20 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25, 
 		order_by="priority desc, modified desc",
 	):
 		ownership.setdefault(a.customer, a)
+	# Customers whose billing change is waiting for Finance: their current terms
+	# stay in force until it is approved (see _upsert_customer_assignment).
+	change_pending = set(
+		frappe.get_all(
+			"Customer Billing Assignment",
+			filters={
+				"assignment_type": "Customer",
+				"customer": ["in", [c.name for c in customers] or [""]],
+				"active": 1,
+				"replaces_assignment": ["is", "set"],
+			},
+			pluck="customer",
+		)
+	)
 	journey_types_by_rule_name = {}
 	rule_names = {r.billing_rule_name for r in rule_info.values() if r.billing_rule_name}
 	if rule_names:
@@ -303,6 +317,7 @@ def get_current_customer_list(search=None, status=None, page=1, page_length=25, 
 		customer.billing_label = info[0] if info else None
 		customer.billing_kind = info[1] if info else None
 		customer.billing_rule = rule_name
+		customer.billing_change_pending = 1 if customer.name in change_pending else 0
 		owned = ownership.get(customer.name)
 		customer.outright_purchase = cint(owned.outright_purchase) if owned else 0
 		customer.owned_seal_count = cint(owned.owned_seal_count) if owned and owned.outright_purchase else 0
@@ -585,9 +600,41 @@ def _upsert_customer_assignment(
 		return
 
 	if existing:
-		# Keep the first, point it at the new rule, remove duplicates.
 		primary = existing[0].name
 		doc = frappe.get_doc("Customer Billing Assignment", primary)
+
+		# The current assignment points at an Approved rule and the customer is
+		# moving to a different one: that is a billing change, not an edit. Keep
+		# the current assignment (journeys billed under it keep its terms) and add
+		# the new one beside it, waiting for Finance. It takes over from the
+		# approval date — see seal_billing_rate._activate_replacement_assignments.
+		if (
+			doc.billing_rule != billing_rule
+			and doc.active
+			and frappe.db.get_value("Seal Billing Rate", doc.billing_rule, "approval_status") == "Approved"
+		):
+			replacement = {
+				"doctype": "Customer Billing Assignment",
+				"assignment_type": "Customer",
+				"customer": customer,
+				"billing_rule": billing_rule,
+				"active": 1,
+				"replaces_assignment": doc.name,
+				# Left open unless the user picked a start: Finance's approval date
+				# decides it (_activate_replacement_assignments).
+				"effective_from": None if effective_from is _UNSET else effective_from,
+				"effective_to": None if effective_to is _UNSET else effective_to,
+				"override_first_period_amount": (
+					doc.override_first_period_amount if override_first_period_amount is _UNSET else override_first_period_amount
+				),
+				"override_currency": doc.override_currency if override_currency is _UNSET else override_currency,
+				"outright_purchase": doc.outright_purchase if outright_purchase is _UNSET else outright_purchase,
+				"owned_seal_count": doc.owned_seal_count if owned_seal_count is _UNSET else owned_seal_count,
+			}
+			frappe.get_doc(replacement).insert(ignore_permissions=True)
+			return
+
+		# Keep the first, point it at the new rule, remove duplicates.
 		doc.billing_rule = billing_rule
 		doc.active = 1
 		if effective_from is not _UNSET:
@@ -603,8 +650,6 @@ def _upsert_customer_assignment(
 		if owned_seal_count is not _UNSET:
 			doc.owned_seal_count = owned_seal_count
 		doc.save(ignore_permissions=True)
-		for row in existing[1:]:
-			frappe.delete_doc("Customer Billing Assignment", row.name, ignore_permissions=True)
 		return
 
 	doc = frappe.get_doc(
@@ -640,6 +685,7 @@ RULE_DISPLAY_FIELDS = [
 	"first_period_days",
 	"first_period_amount",
 	"extra_day_rate",
+	"extra_hour_rate",
 	"owned_rate_per_seal",
 	"lease_rate_per_seal",
 	"currency",
@@ -793,6 +839,7 @@ def set_customer_billing(
 	first_period_days=None,
 	first_period_amount=None,
 	extra_day_rate=None,
+	extra_hour_rate=None,
 	currency=None,
 	tax_category=None,
 	outright_purchase=None,
@@ -884,11 +931,18 @@ def set_customer_billing(
 			frappe.throw(_("Choose a Rate Type — Flat Rate or Non-Flat Rate."))
 		is_flat = rate_type == "Flat Rate"
 		is_compound = not is_flat and computation_method == "Compound"
-		uses_extra_day_rate = not is_flat and not is_compound
+		uses_extra_rate = not is_flat and not is_compound
+		# A Daily rule's first period is 24 hrs and what runs past it is billed per
+		# hour (Extra Hour Rate) rather than per day.
+		is_daily = billing_period_type == "Daily"
+		uses_extra_day_rate = uses_extra_rate and not is_daily
+		uses_extra_hour_rate = uses_extra_rate and is_daily
 		if not first_period_days or first_period_amount in (None, ""):
 			frappe.throw(_("Enter First Period Days and First Period Amount."))
 		if uses_extra_day_rate and extra_day_rate in (None, ""):
 			frappe.throw(_("Enter the Extra Day Rate."))
+		if uses_extra_hour_rate and extra_hour_rate in (None, ""):
+			frappe.throw(_("Enter the Extra Hour Rate."))
 
 		# Frequency drives First Period Days for Leasing too (Set Billing modal);
 		# derived here rather than in Seal Billing Rate.validate, which leaves
@@ -905,6 +959,7 @@ def set_customer_billing(
 			journey_type=journey_type,
 			owned_rate_per_seal=owned_rate_per_seal,
 			lease_rate_per_seal=lease_rate_per_seal,
+			extra_hour_rate=extra_hour_rate if uses_extra_hour_rate else 0,
 			computation_method="Compound" if is_compound else "Simple",
 			billing_period_type=billing_period_type or "Custom",
 			rate_type=rate_type,
@@ -926,13 +981,6 @@ def set_customer_billing(
 
 		if is_primary_journey_type:
 			_ensure_international_defaults(customer_name, rule_name)
-
-		# Runs for both journey types: the Import/Export rate set has no
-		# assignment of its own, but it's still one of the customer's active
-		# rules — see _customer_billing_fully_approved, which now checks for
-		# it by name — so saving a new/edited one can just as well leave the
-		# customer newly pending, or clear a pending state that's now resolved.
-		_gate_customer_on_rule_approval(customer)
 
 		frappe.db.commit()
 		rule = frappe.db.get_value(
@@ -974,6 +1022,13 @@ def set_customer_billing(
 		journey_type=journey_type,
 		owned_rate_per_seal=owned_rate_per_seal,
 		lease_rate_per_seal=lease_rate_per_seal,
+		# A Daily Non-Flat Rate Subscription bills hours past its first 24 hrs
+		# at this rate instead of renewing the period.
+		extra_hour_rate=(
+			flt(extra_hour_rate)
+			if billing_period_type == "Daily" and rate_type == "Non-Flat Rate" and resolved_computation != "Compound"
+			else 0
+		),
 	)
 	if is_primary_journey_type:
 		_upsert_customer_assignment(
@@ -991,10 +1046,6 @@ def set_customer_billing(
 
 	if is_primary_journey_type:
 		_ensure_international_defaults(customer_name, rule_name)
-
-	# Runs for both journey types — see the mirroring comment in the Leasing
-	# branch above.
-	_gate_customer_on_rule_approval(customer)
 
 	frappe.db.commit()
 	rule = frappe.db.get_value(
@@ -1016,6 +1067,7 @@ _INTERNATIONAL_COPY_FIELDS = (
 	"first_period_days",
 	"first_period_amount",
 	"extra_day_rate",
+	"extra_hour_rate",
 	"currency",
 	"owned_rate_per_seal",
 	"lease_rate_per_seal",
@@ -1058,32 +1110,6 @@ def _ensure_international_defaults(customer_name, local_rule_name):
 		frappe.flags.in_import = False
 
 
-def _gate_customer_on_rule_approval(customer):
-	"""Customer.disabled doubles as a "billing pending approval" gate: a
-	customer stays disabled from the moment billing is (re)assigned until the
-	Finance approves every one of their active rules — see
-	seal_billing_rate._reenable_customers_pending_on_rule /
-	_customer_billing_fully_approved, which flip it back on a *fresh* Pending
-	-> Approved transition.
-
-	That only fires on a transition, so unconditionally disabling here on
-	every save is wrong: re-saving a rule that's already Approved (nothing
-	actually pending) leaves the customer disabled with no future approval
-	event left to ever re-enable them. So gate on the customer's actual
-	current standing — same check _reenable_customers_pending_on_rule uses —
-	instead of blindly setting disabled=1. Checked across every active
-	assignment (primary + Extra Billing), not just the one just saved, so
-	saving one doesn't wrongly re-enable a customer still pending on the
-	other."""
-	from tnt_seal_management.tnt_seal_management.doctype.seal_billing_rate.seal_billing_rate import (
-		_customer_billing_fully_approved,
-	)
-
-	frappe.db.set_value(
-		"Customer", customer, "disabled", 0 if _customer_billing_fully_approved(customer) else 1
-	)
-
-
 def _find_customer_rule(expected_name, billing_type, journey_type):
 	"""Locate one of a customer's private rules.
 
@@ -1119,6 +1145,7 @@ def _upsert_customer_leasing_rule(
 	computation_method="Simple",
 	billing_period_type=None,
 	rate_type="Non-Flat Rate",
+	extra_hour_rate=0,
 ):
 	"""Create or update the customer's private Leasing rate, auto-named
 	"<Customer Name> BR". There is exactly one per customer — found via the
@@ -1166,6 +1193,7 @@ def _upsert_customer_leasing_rule(
 		"first_period_days": cint(first_period_days),
 		"first_period_amount": flt(first_period_amount),
 		"extra_day_rate": flt(extra_day_rate),
+		"extra_hour_rate": flt(extra_hour_rate),
 		"owned_rate_per_seal": flt(owned_rate_per_seal),
 		"lease_rate_per_seal": flt(lease_rate_per_seal),
 		"computation_method": computation_method or "Simple",
@@ -1175,17 +1203,58 @@ def _upsert_customer_leasing_rule(
 
 	frappe.flags.in_import = True
 	try:
-		if existing_rule:
-			doc = frappe.get_doc("Seal Billing Rate", existing_rule)
-			doc.update(values)
-			doc.save(ignore_permissions=True)
-		else:
-			doc = frappe.get_doc({"doctype": "Seal Billing Rate", **values})
-			doc.insert(ignore_permissions=True)
+		doc = _write_customer_rule(existing_rule, values, journey_type)
 	finally:
 		frappe.flags.in_import = False
 
 	return doc.name
+
+
+def _rule_terms_changed(doc, values):
+	"""True when ``values`` change any term Finance approves on ``doc``."""
+	from tnt_seal_management.tnt_seal_management.doctype.seal_billing_rate.seal_billing_rate import (
+		_NUMERIC_TERMS,
+		APPROVAL_WATCHED_FIELDS,
+	)
+
+	for field in APPROVAL_WATCHED_FIELDS:
+		if field not in values:
+			continue
+		if field in _NUMERIC_TERMS:
+			if flt(doc.get(field)) != flt(values[field]):
+				return True
+		elif field in ("active", "is_global_default"):
+			if cint(doc.get(field)) != cint(values[field]):
+				return True
+		elif cstr(doc.get(field)) != cstr(values[field]):
+			return True
+	return False
+
+
+def _write_customer_rule(existing_rule, values, journey_type):
+	"""Save a customer's private rule. An *Approved* Local rule whose terms change
+	is never edited in place — journeys billed under it must keep its terms — so
+	the change is a new rule (pending Finance approval) and the old one stays in
+	force until it is approved (see _upsert_customer_assignment and
+	seal_billing_rate._activate_replacement_assignments). A rule nobody has
+	approved yet, and the Import/Export set (which has no dated assignment), are
+	edited in place."""
+	if existing_rule:
+		doc = frappe.get_doc("Seal Billing Rate", existing_rule)
+		if (
+			journey_type == JOURNEY_TYPE_LOCAL
+			and doc.approval_status == "Approved"
+			and _rule_terms_changed(doc, values)
+		):
+			doc = frappe.get_doc({"doctype": "Seal Billing Rate", **values})
+			doc.insert(ignore_permissions=True)
+			return doc
+		doc.update(values)
+		doc.save(ignore_permissions=True)
+		return doc
+	doc = frappe.get_doc({"doctype": "Seal Billing Rate", **values})
+	doc.insert(ignore_permissions=True)
+	return doc
 
 
 def _upsert_customer_subscription_rule(
@@ -1201,6 +1270,7 @@ def _upsert_customer_subscription_rule(
 	journey_type=None,
 	owned_rate_per_seal=None,
 	lease_rate_per_seal=None,
+	extra_hour_rate=0,
 ):
 	"""Create or update the customer's private Subscription rate, auto-named
 	"<Customer Name> BR" — same mechanism as ``_upsert_customer_leasing_rule``,
@@ -1266,6 +1336,7 @@ def _upsert_customer_subscription_rule(
 		"first_period_days": cint(first_period_days),
 		"first_period_amount": flt(first_period_amount),
 		"extra_day_rate": flt(extra_day_rate),
+		"extra_hour_rate": flt(extra_hour_rate),
 		"owned_rate_per_seal": flt(owned_rate_per_seal),
 		"lease_rate_per_seal": flt(lease_rate_per_seal),
 	}
@@ -1277,13 +1348,7 @@ def _upsert_customer_subscription_rule(
 	# escape hatch _upsert_customer_leasing_rule already relies on.
 	frappe.flags.in_import = True
 	try:
-		if existing_rule:
-			doc = frappe.get_doc("Seal Billing Rate", existing_rule)
-			doc.update(values)
-			doc.save(ignore_permissions=True)
-		else:
-			doc = frappe.get_doc({"doctype": "Seal Billing Rate", **values})
-			doc.insert(ignore_permissions=True)
+		doc = _write_customer_rule(existing_rule, values, journey_type)
 	finally:
 		frappe.flags.in_import = False
 
@@ -1501,7 +1566,6 @@ def set_customer_extra_billing(
 		effective_to=period_to_date or None,
 	)
 
-	_gate_customer_on_rule_approval(customer)
 	frappe.db.commit()
 	return {
 		"customer": customer,

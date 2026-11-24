@@ -414,7 +414,8 @@ function _journey_request_add_buttons(frm) {
 	const status = frm.doc.journey_request_status;
 	// System Manager / Administrator may act at any stage of the workflow.
 	const isAdmin = frappe.user.has_role("System Manager");
-	const isTech = frappe.user.has_role("Field Technician") || isAdmin;
+	// The PCB Team Leader steps in for the Field Technician, so they get the same actions.
+	const isTech = frappe.user.has_role("Field Technician") || frappe.user.has_role("PCB Team Leader") || isAdmin;
 	// The RECTs Data Entry clerk also completes tagging for the Tag Operator.
 	const canTag = isTech || _jr_is_rects_clerk(frm);
 	const isControlRoom = frappe.user.has_role("Operations Control Room") || isAdmin;
@@ -465,7 +466,9 @@ function _journey_request_add_buttons(frm) {
 		}).addClass("btn-primary");
 	}
 
-	if (_jr_has_stage(frm, "Untagging") && isTech) {
+	// The RECTs Data Entry clerk does the Tag Operator's untagging and seal return too.
+	const canWork = canTag;
+	if (_jr_has_stage(frm, "Untagging") && canWork) {
 		frm.add_custom_button(__("Confirm Untagging"), () =>
 			_jr_with_vehicle(frm, "Untagging", (vehicleRow) => _jr_prompt_confirm_untagging(frm, vehicleRow))
 		).addClass(
@@ -476,7 +479,7 @@ function _journey_request_add_buttons(frm) {
 	// "Awaiting Seal Return" is the seal-return work window. The assigned FT
 	// captures evidence and confirms the return, which sends it to the PCB Team
 	// Leader for approval.
-	if (_jr_has_stage(frm, "Awaiting Seal Return") && isTech) {
+	if (_jr_has_stage(frm, "Awaiting Seal Return") && canWork) {
 		frm.add_custom_button(__("Confirm Seal Return"), () =>
 			_jr_with_vehicle(frm, "Awaiting Seal Return", (vehicleRow) => _jr_prompt_confirm_seal_return(frm, vehicleRow))
 		).addClass(
@@ -879,7 +882,7 @@ function _journey_request_add_seals_grid_button(frm) {
 	}
 
 	const isAdmin = frappe.user.has_role("System Manager");
-	const isTech = frappe.user.has_role("Field Technician") || isAdmin;
+	const isTech = frappe.user.has_role("Field Technician") || frappe.user.has_role("PCB Team Leader") || isAdmin;
 	if (!isTech && !_jr_is_rects_clerk(frm)) return;
 
 	frm.add_custom_button(frm.doc.system === "RECTs" ? __("Submit") : __("Submit to Control Room"), () => {
@@ -981,7 +984,7 @@ function _journey_request_apply_locks(frm) {
 	}
 
 	const status = _jr_effective_status(frm);
-	const isTech = frappe.user.has_role("Field Technician");
+	const isTech = frappe.user.has_role("Field Technician") || frappe.user.has_role("PCB Team Leader");
 	// The RECTs Data Entry clerk edits the Draft and the tagging details only.
 	const isClerk = _jr_is_rects_clerk(frm);
 	const isNew = frm.is_new();
@@ -997,11 +1000,11 @@ function _journey_request_apply_locks(frm) {
 	} else if ((isTech || isClerk) && status === "Tagging") {
 		lockedContent = true;
 		lockedTagging = false;
-	} else if (isTech && status === "Untagging") {
+	} else if ((isTech || isClerk) && status === "Untagging") {
 		lockedContent = true;
 		lockedTagging = true;
 		lockedUntagging = false;
-	} else if (isTech && status === "Awaiting Seal Return") {
+	} else if ((isTech || isClerk) && status === "Awaiting Seal Return") {
 		// Seal-return work window: untagging is locked-in, seal return is editable.
 		lockedContent = true;
 		lockedTagging = true;

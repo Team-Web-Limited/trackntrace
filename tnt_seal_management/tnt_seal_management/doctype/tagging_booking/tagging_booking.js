@@ -14,6 +14,14 @@ frappe.ui.form.on("Tagging Booking", {
 		frm.set_query("client_name", () => ({
 			filters: { [frm.doc.system === "RECTs" ? "custom_division_rects" : "custom_division_ects"]: 1 },
 		}));
+		// Destination takes a geofence name or any typed place — same suggestions
+		// as the Journey Request's route fields.
+		if (frm.fields_dict.destination) {
+			frm.fields_dict.destination.df.ignore_validation = 1;
+			frm.set_query("destination", () => ({
+				query: "tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.search_route_places",
+			}));
+		}
 		setup_vehicle_query(frm);
 		inject_return_trip_styles();
 	},

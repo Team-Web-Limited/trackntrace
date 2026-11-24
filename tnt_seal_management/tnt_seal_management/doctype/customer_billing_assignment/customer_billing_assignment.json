@@ -16,6 +16,9 @@
   "priority",
   "active",
   "is_extra_billing",
+  "replaces_assignment",
+  "activated_on",
+  "superseded_on",
   "seal_ownership_section",
   "outright_purchase",
   "seal_ownership_column_break",
@@ -203,6 +206,31 @@
    "options": "Sales Order",
    "read_only": 1,
    "no_copy": 1
+  },
+  {
+   "fieldname": "replaces_assignment",
+   "fieldtype": "Link",
+   "options": "Customer Billing Assignment",
+   "label": "Replaces Assignment",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "Set while this assignment waits for Finance to approve its rule. On approval it takes over from the one it replaces, which ends the day before."
+  },
+  {
+   "fieldname": "activated_on",
+   "fieldtype": "Datetime",
+   "label": "Took Effect At",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "When Finance approved the change. Journeys that started before this keep the previous billing."
+  },
+  {
+   "fieldname": "superseded_on",
+   "fieldtype": "Datetime",
+   "label": "Replaced At",
+   "read_only": 1,
+   "no_copy": 1,
+   "description": "When a newer assignment took over. Journeys that started from then on use that one."
   }
  ],
  "index_web_pages_for_search": 1,

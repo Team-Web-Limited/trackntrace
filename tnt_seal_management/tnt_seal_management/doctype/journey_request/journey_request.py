@@ -499,7 +499,14 @@ def _locked_fields_for(roles, status):
 		| set(SEAL_RETURN_CONFIRMATION_FIELDS)
 	)
 
-	if "Field Technician" in roles:
+	# The PCB Team Leader steps in for the Field Technician, so they can edit
+	# exactly what the technician can at every stage.
+	# The RECTs Data Entry clerk does the Tag Operator's work at every stage too;
+	# the only difference is that who the Tag Operator is can only be picked in Draft.
+	clerk_only = RECTS_DATA_ENTRY_ROLE in roles and not ({"Field Technician", PCB_TEAM_LEAD_ROLE} & roles)
+	if "Field Technician" in roles or PCB_TEAM_LEAD_ROLE in roles or RECTS_DATA_ENTRY_ROLE in roles:
+		if clerk_only and status != "Draft":
+			return _locked_fields_for({"Field Technician"}, status) | {"assigned_technician"}
 		if status == "Draft":
 			return set()
 		if status == "Tagging":
@@ -525,16 +532,6 @@ def _locked_fields_for(roles, status):
 				| set(UNTAGGING_CONFIRMATION_FIELDS)
 			)
 		return all_managed
-
-	# The RECTs Data Entry clerk does the Tag Operator's form work: the Draft and
-	# the tagging details. Untagging and seal return stay with the operator.
-	# They pick the Tag Operator, whose seals the request uses, only while Draft.
-	if RECTS_DATA_ENTRY_ROLE in roles:
-		if status == "Draft":
-			return set()
-		if status == "Tagging":
-			return set(CONTENT_FIELDS) | {"assigned_technician"}
-		return all_managed | {"assigned_technician"}
 
 	# The Operations Control Room and the PCB Team Leader act through guarded
 	# actions, never by free-form editing of journey content.
@@ -821,11 +818,34 @@ def _notify_technician_seal_return_decision(doc, approved, remarks=None):
 
 def _ensure_role(role, message):
 	# System Manager / Administrator may act on any stage of the workflow.
+	# ``role`` may be a tuple of roles, any one of which is enough.
 	roles = set(frappe.get_roles())
 	if "System Manager" in roles or frappe.session.user == "Administrator":
 		return
-	if role not in roles:
+	allowed = {role} if isinstance(role, str) else set(role)
+	if not allowed & roles:
 		frappe.throw(message, title=_("Insufficient Permission"))
+
+
+# Roles that do the Field Technician's work on a request: the PCB Team Leader
+# steps in for the technician at times, on any request.
+FIELD_WORK_ROLES = ("Field Technician", "PCB Team Leader")
+
+
+def _is_team_lead():
+	return PCB_TEAM_LEAD_ROLE in set(frappe.get_roles())
+
+
+def _field_work_roles(doc):
+	"""Roles that may do the technician's work on ``doc``: a RECTs request also
+	takes the Data Entry clerk, who does it for the Tag Operator."""
+	return FIELD_WORK_ROLES + ((RECTS_DATA_ENTRY_ROLE,) if doc.system == "RECTs" else ())
+
+
+def _steps_in_for_technician(doc):
+	"""True when the user acts for the assigned technician rather than as them —
+	a Team Leader, or the Data Entry clerk on a RECTs request."""
+	return _is_team_lead() or (doc.system == "RECTs" and _is_rects_data_entry())
 
 
 def _seals_with_customer(doc, seals=None):
@@ -1244,11 +1264,11 @@ def complete_tagging(
 	clerk = doc.system == "RECTs" and _is_rects_data_entry()
 	if not clerk:
 		_ensure_role(
-			"Field Technician",
+			FIELD_WORK_ROLES,
 			_("Only the assigned Field Technician can complete tagging."),
 		)
 	is_admin = "System Manager" in set(frappe.get_roles()) or frappe.session.user == "Administrator"
-	if not (is_admin or clerk) and doc.assigned_technician and doc.assigned_technician != frappe.session.user:
+	if not (is_admin or clerk or _is_team_lead()) and doc.assigned_technician and doc.assigned_technician != frappe.session.user:
 		frappe.throw(
 			_("This journey request is assigned to {0}.").format(doc.assigned_technician),
 			title=_("Not Assigned to You"),
@@ -1424,13 +1444,13 @@ def confirm_untagging(docname, manual_location=None, remarks=None, vehicle_row=N
 	when no live location is available the client prompts for a manual location
 	and calls this method again with that value.
 	"""
+	doc = _get_journey_request(docname)
 	_ensure_role(
-		"Field Technician",
+		_field_work_roles(doc),
 		_("Only the assigned Field Technician can confirm untagging."),
 	)
-	doc = _get_journey_request(docname)
 	is_admin = "System Manager" in set(frappe.get_roles()) or frappe.session.user == "Administrator"
-	if not is_admin and doc.assigned_technician and doc.assigned_technician != frappe.session.user:
+	if not (is_admin or _steps_in_for_technician(doc)) and doc.assigned_technician and doc.assigned_technician != frappe.session.user:
 		frappe.throw(
 			_("This journey request is assigned to {0}.").format(doc.assigned_technician),
 			title=_("Not Assigned to You"),
@@ -1543,12 +1563,18 @@ def confirm_seal_return(
 	This is the end of the journey request: there is no approval step. The
 	technician either returns the seal to a warehouse or retains it (keeps it in
 	their own custody), and the seals go back into the pool right away."""
+	doc = _get_journey_request(docname)
 	_ensure_role(
-		"Field Technician",
+		_field_work_roles(doc),
 		_("Only the assigned Field Technician can confirm the seal return."),
 	)
-	doc = _get_journey_request(docname)
-	is_admin = "System Manager" in set(frappe.get_roles()) or frappe.session.user == "Administrator"
+	# A Team Leader or Data Entry clerk stepping in confirms for the assigned
+	# technician without taking the seals into their own custody, like an admin.
+	is_admin = (
+		"System Manager" in set(frappe.get_roles())
+		or frappe.session.user == "Administrator"
+		or _steps_in_for_technician(doc)
+	)
 	if doc.vehicles:
 		rows = _target_vehicle_rows(doc, vehicle_row, "Awaiting Seal Return")
 	else:
@@ -2179,7 +2205,12 @@ def _rects_seal_holder(assigned_technician, user=None):
 	"""Whose seals a RECTs request is tagged with: the request's Tag Operator for
 	a data-entry clerk, otherwise the technician filling it in."""
 	user = user or frappe.session.user
-	return assigned_technician if _is_rects_data_entry(user) else user
+	# A PCB Team Leader stepping in works with the request's technician's seals,
+	# not their own — same as the clerk.
+	team_lead = PCB_TEAM_LEAD_ROLE in set(frappe.get_roles(user))
+	if _is_rects_data_entry(user) or (team_lead and assigned_technician):
+		return assigned_technician
+	return user
 
 
 @frappe.whitelist()

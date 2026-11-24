@@ -158,6 +158,8 @@
   "extra_days",
   "extra_day_rate",
   "extra_day_amount",
+  "extra_hours",
+  "extra_hour_rate",
   "billing_total_section",
   "seal_count",
   "per_seal_amount",
@@ -997,6 +999,21 @@
    "fieldname": "extra_day_amount",
    "fieldtype": "Currency",
    "label": "Extra Day Amount",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.extra_hours",
+   "description": "Daily rate: hours past the first 24 hrs. The charge is in Extra Day Amount.",
+   "fieldname": "extra_hours",
+   "fieldtype": "Int",
+   "label": "Extra Hours",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.extra_hours",
+   "fieldname": "extra_hour_rate",
+   "fieldtype": "Currency",
+   "label": "Extra Hour Rate",
    "read_only": 1
   },
   {

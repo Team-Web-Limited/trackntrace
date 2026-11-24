@@ -194,7 +194,7 @@ _ALLOWED_ROLES = frozenset({
 })
 
 _FIELDS = [
-	"name", "customer", "container_number", "vehicle_plate_number",
+	"name", "customer", "container_number", "vehicle_plate_number", "salesperson",
 	"origin", "destination", "tagging_date_time", "arrival_date_time",
 	"untagging_completed_date_time", "completion_date_time",
 	"assigned_seal", "file_number", "days_taken", "days_taken_display",
@@ -390,6 +390,90 @@ def _fetch_journeys(from_date, to_date, customer, system=None):
 		j["untagging_completed_date_time"] = _effective_untagging_date(j)
 
 	return journeys
+
+
+def _journey_salesperson_users(journeys):
+	return list(dict.fromkeys(j.get("salesperson") for j in journeys if j.get("salesperson")))
+
+
+def _sales_person_label(journeys):
+	"""The salesperson(s) captured on the Tagging Bookings behind these journeys,
+	as full names — one name, or a comma-separated list when the journeys span
+	more than one."""
+	names = [
+		frappe.db.get_value("User", user, "full_name") or user for user in _journey_salesperson_users(journeys)
+	]
+	return ", ".join(names)[:140] or None
+
+
+def _sales_person_for_user(user):
+	"""The Sales Person record for a user: the one linked to their Employee, else
+	one named after them. None when there isn't one."""
+	employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
+	if employee:
+		match = frappe.db.get_value("Sales Person", {"employee": employee}, "name")
+		if match:
+			return match
+	full_name = frappe.db.get_value("User", user, "full_name")
+	return full_name if full_name and frappe.db.exists("Sales Person", full_name) else None
+
+
+def _append_sales_team(so, journeys):
+	"""Put the booking's salesperson(s) on the Sales Order's Sales Team. The Sales
+	Order's Sales Person field is filled from that table by a Server Script
+	(Fetch Sales person from Sales Team Child Table), so this is what makes the
+	name appear. A user with no Sales Person record is left out of the table."""
+	people = list(dict.fromkeys(filter(None, (_sales_person_for_user(u) for u in _journey_salesperson_users(journeys)))))
+	for person in people:
+		so.append("sales_team", {"sales_person": person, "allocated_percentage": 100 / len(people)})
+
+
+def _imeis_by_journey(journey_names):
+	"""{seal_journey: 'IMEI1, IMEI2'} — the IMEI of each Seal Device attached to
+	the journey at tagging (Seal Journey.journey_seals, carried over from the
+	Journey Request's seals)."""
+	if not journey_names:
+		return {}
+	rows = frappe.get_all(
+		"Journey Request Seal",
+		filters={"parenttype": "Seal Journey", "parentfield": "journey_seals", "parent": ["in", journey_names]},
+		fields=["parent", "seal_device"],
+		order_by="idx asc",
+	)
+	device_imei = {
+		d.name: d.imei_number
+		for d in frappe.get_all(
+			"Seal Device",
+			filters={"name": ["in", list({r.seal_device for r in rows if r.seal_device}) or [""]]},
+			fields=["name", "imei_number"],
+		)
+	}
+	imeis = {}
+	for row in rows:
+		imei = device_imei.get(row.seal_device)
+		if imei and imei not in imeis.setdefault(row.parent, []):
+			imeis[row.parent].append(imei)
+	return {parent: ", ".join(values) for parent, values in imeis.items()}
+
+
+def _append_journey_vehicles(so, journeys):
+	"""One Installation Location row per journey on the Sales Order: its vehicle
+	and the IMEI(s) of the seal(s) attached at tagging. A Sales Order for
+	recurring fees only (no journeys) keeps the single N/A row."""
+	imeis = _imeis_by_journey([j["name"] for j in journeys])
+	rows = [(j.get("vehicle_plate_number"), imeis.get(j["name"])) for j in journeys]
+	rows = [row for row in rows if row[0] or row[1]]
+	for vehicle, imei in rows or [("N/A", None)]:
+		so.append("custom_installation_location", {
+			"contact_name": "N/A",
+			"contact_mobile_no": "N/A",
+			"vehicle_registration_no": vehicle,
+			"vehicle_model": "N/A",
+			"vehicle_make": "N/A",
+			"vehicle_colour": "N/A",
+			"location": "N/A",
+			"custom_imei_number": imei,
+		})
 
 
 def _get_seals_by_journey(journey_names):
@@ -637,15 +721,8 @@ def generate_sales_order(customer, from_date=None, to_date=None, system=None):
 	if business_line:
 		so.cost_center = business_line
 
-	so.append("custom_installation_location", {
-		"contact_name": "N/A",
-		"contact_mobile_no": "N/A",
-		"vehicle_registration_no": "N/A",
-		"vehicle_model": "N/A",
-		"vehicle_make": "N/A",
-		"vehicle_colour": "N/A",
-		"location": "N/A"
-	})
+	_append_sales_team(so, journeys)
+	_append_journey_vehicles(so, journeys)
 
 	def add_item(item_code, qty, rate, description):
 		if flt(rate) > 0 or flt(qty) > 0:
@@ -759,6 +836,12 @@ def generate_sales_order(customer, from_date=None, to_date=None, system=None):
 	_apply_sales_order_taxes(so, summary["tax_category"])
 
 	so.insert(ignore_permissions=True, ignore_mandatory=True)
+
+	# The Server Script fills Sales Person from the Sales Team table, so a
+	# salesperson with no Sales Person record would be blanked — keep the name.
+	sales_person_text = _sales_person_label(journeys)
+	if sales_person_text and not so.custom_sales_person:
+		so.db_set("custom_sales_person", sales_person_text, update_modified=False)
 
 	for j in journeys:
 		frappe.db.set_value("Seal Journey", j["name"], {

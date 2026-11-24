@@ -22,6 +22,7 @@
   "salesperson",
   "account_manager_submission_date_time",
   "location",
+  "destination",
   "booking_date_time",
   "return_trip",
   "return_trip_from",
@@ -139,8 +140,14 @@
    "fieldname": "location",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Location",
+   "label": "Tagging Location",
    "reqd": 1
+  },
+  {
+   "fieldname": "destination",
+   "fieldtype": "Autocomplete",
+   "label": "Destination",
+   "mandatory_depends_on": "eval:!['Finance PCB Approved', 'Finance PCB Rejected', 'Cancelled'].includes(doc.booking_status)"
   },
   {
    "fieldname": "booking_date_time",

@@ -1,0 +1,137 @@
+{
+ "actions": [],
+ "autoname": "format:SFC-{#####}",
+ "creation": "2026-11-24 16:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "customer",
+  "item_code",
+  "status",
+  "change_column",
+  "effective_from",
+  "applied_on",
+  "terms_section",
+  "seal_count",
+  "rate_per_seal",
+  "terms_column",
+  "billing_interval",
+  "interval_days",
+  "currency"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Select",
+   "label": "Fee",
+   "options": "Seal Lease Fee\nSeal Ownership Service Fee",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nApplied\nCancelled",
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "change_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The day after the customer's paid-through date.",
+   "fieldname": "effective_from",
+   "fieldtype": "Date",
+   "label": "Starts On",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "applied_on",
+   "fieldtype": "Datetime",
+   "label": "Applied On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "terms_section",
+   "fieldtype": "Section Break",
+   "label": "New Terms"
+  },
+  {
+   "fieldname": "seal_count",
+   "fieldtype": "Int",
+   "label": "Number of Seals",
+   "reqd": 1
+  },
+  {
+   "fieldname": "rate_per_seal",
+   "fieldtype": "Currency",
+   "label": "Rate per Seal",
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "terms_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "billing_interval",
+   "fieldtype": "Data",
+   "label": "Billing Interval",
+   "reqd": 1
+  },
+  {
+   "fieldname": "interval_days",
+   "fieldtype": "Int",
+   "label": "Interval Days"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-24 16:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Tnt Seal Management",
+ "name": "Seat Fee Change",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance PCB",
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Account Manager"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

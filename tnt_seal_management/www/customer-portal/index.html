@@ -38,8 +38,12 @@
 			<form data-booking-form>
 				<div class="row">
 					<div class="col-md-6 form-group">
-						<label for="tb-location">{{ _("Location") }}</label>
+						<label for="tb-location">{{ _("Tagging Location") }}</label>
 						<input class="form-control" id="tb-location" name="location" maxlength="140" required>
+					</div>
+					<div class="col-md-6 form-group">
+						<label for="tb-destination">{{ _("Destination") }}</label>
+						<input class="form-control" id="tb-destination" name="destination" maxlength="140" required>
 					</div>
 					<div class="col-md-6 form-group">
 						<label id="tb-date-time-label">{{ _("Requested Date and Time") }}</label>

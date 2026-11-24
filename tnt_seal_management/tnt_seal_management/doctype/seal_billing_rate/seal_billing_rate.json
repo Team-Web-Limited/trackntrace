@@ -25,6 +25,7 @@
   "first_period_amount",
   "pricing_column_break",
   "extra_day_rate",
+  "extra_hour_rate",
   "owned_rate_per_seal",
   "lease_rate_per_seal",
   "approval_section",
@@ -110,7 +111,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Billing Period Type",
-   "options": "Weekly\nBi-Weekly\nMonthly\nQuarterly\nSemi-Annually\nAnnually\nDate Range\nDays\nCustom"
+   "options": "Daily\nWeekly\nBi-Weekly\nMonthly\nQuarterly\nSemi-Annually\nAnnually\nDate Range\nDays\nCustom"
   },
   {
    "default": "0",
@@ -162,6 +163,14 @@
    "fieldname": "extra_day_rate",
    "fieldtype": "Currency",
    "label": "Extra Day Rate",
+   "options": "currency"
+  },
+  {
+   "depends_on": "eval:doc.billing_period_type=='Daily'",
+   "description": "Daily rules only: charged for each hour past the first 24 hrs, instead of the Extra Day Rate.",
+   "fieldname": "extra_hour_rate",
+   "fieldtype": "Currency",
+   "label": "Extra Hour Rate",
    "options": "currency"
   },
   {

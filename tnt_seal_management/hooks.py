@@ -44,6 +44,7 @@ fixtures = [
 					"Warehouse-custom_show_erp_stock",
 					"Warehouse-custom_seals_in_stock",
 					"Warehouse-custom_customer",
+					"Installation Location-custom_imei_number",
 					"Sales Order-custom_rects_order_type",
 					"Sales Order-custom_rects_reference",
 					"Warehouse-custom_location",
@@ -343,6 +344,10 @@ scheduler_events = {
 		# Uffizio geofences change rarely; refresh the staging copy daily at 03:00.
 		"0 3 * * *": [
 			"tnt_seal_management.tnt_seal_management.api.geofence_sync.scheduled_sync_geofences",
+		],
+		# Seat-fee changes wait for the customer's paid-through date, then apply.
+		"30 0 * * *": [
+			"tnt_seal_management.tnt_seal_management.api.seal_lease_billing.apply_due_seat_fee_changes",
 		],
 		"*/15 * * * *": [
 			"tnt_seal_management.tnt_seal_management.api.seal_sync.scheduled_sync_alert_data",

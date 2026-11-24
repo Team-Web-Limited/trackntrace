@@ -18,14 +18,14 @@ import math
 
 import frappe
 from frappe import _
-from frappe.utils import cint, date_diff, flt, getdate, nowdate
+from frappe.utils import cint, date_diff, flt, get_datetime, getdate, nowdate
 
 
 # ---------------------------------------------------------------------------
 # Resolution
 # ---------------------------------------------------------------------------
 
-def get_applicable_billing_rule(customer, on_date=None, journey_type=None):
+def get_applicable_billing_rule(customer, on_date=None, journey_type=None, at=None):
 	"""Return the name of the Seal Billing Rate that applies to ``customer`` on
 	``on_date`` (defaults to today), resolved in priority order:
 
@@ -40,13 +40,13 @@ def get_applicable_billing_rule(customer, on_date=None, journey_type=None):
 	``resolve_customer_billing`` for callers that only need the rule name, not
 	any per-customer rate override.
 	"""
-	return resolve_customer_billing(customer, on_date, journey_type)["billing_rule"]
+	return resolve_customer_billing(customer, on_date, journey_type, at)["billing_rule"]
 
 
 _NO_OVERRIDE = {"override_first_period_amount": None, "override_currency": None}
 
 
-def resolve_customer_billing(customer, on_date=None, journey_type=None):
+def resolve_customer_billing(customer, on_date=None, journey_type=None, at=None):
 	"""Like ``get_applicable_billing_rule``, but also returns any per-customer
 	Rate/Currency override captured on the winning Customer Billing Assignment
 	(see the Set Billing modal's Rate Terms section — Subscription only,
@@ -84,13 +84,13 @@ def resolve_customer_billing(customer, on_date=None, journey_type=None):
 		# after-the-fact case where they were removed or sent back for approval.
 		return {"billing_rule": alt_rule, **_NO_OVERRIDE}
 
-	resolved = _resolve_assignment("Customer", "customer", customer, on_date)
+	resolved = _resolve_assignment("Customer", "customer", customer, on_date, at)
 	if resolved:
 		return resolved
 
 	group = frappe.db.get_value("Customer", customer, "customer_group")
 	if group:
-		resolved = _resolve_assignment("Customer Group", "customer_group", group, on_date)
+		resolved = _resolve_assignment("Customer Group", "customer_group", group, on_date, at)
 		if resolved:
 			return resolved
 
@@ -130,7 +130,10 @@ def get_booking_block_reason(customer, on_date=None):
 				return None
 			unusable = unusable or row.billing_rule
 
-	if _global_default_rule():
+	# The global default only covers a customer with no billing assigned at all.
+	# A customer whose own rule is pending, rejected or inactive must not slip
+	# through on the default: their journeys would bill at the wrong rate.
+	if not unusable and _global_default_rule():
 		return None
 
 	if unusable:
@@ -140,17 +143,16 @@ def get_booking_block_reason(customer, on_date=None):
 		label = rule.billing_rule_name or unusable
 		if rule.get("active") and rule.get("approval_status") != "Approved":
 			return _(
-				"{0}'s billing rule {1} is {2}. A booking can only be made once Finance has approved it — "
-				"ask Finance to approve the rule, then book again."
+				"{0}'s billing rule {1} is {2}. Approve the billing rule first, then approve this booking."
 			).format(customer, frappe.bold(label), frappe.bold(rule.approval_status or "awaiting approval"))
 		return _(
 			"{0}'s billing rule {1} is inactive. Set billing for this customer again (Set Billing) "
-			"and have Finance approve it before booking."
+			"and approve it before approving this booking."
 		).format(customer, frappe.bold(label))
 
 	return _(
-		"{0} has no billing set up for {1}. A journey booked now could not be billed. "
-		"Use Set Billing on this customer (and have Finance approve it) before booking."
+		"{0} has no billing set up for {1}. A journey approved now could not be billed. "
+		"Use Set Billing on this customer and approve it before approving this booking."
 	).format(customer, frappe.utils.formatdate(on_date))
 
 
@@ -188,7 +190,13 @@ def _import_export_rule_for(customer):
 	return rule_name
 
 
-def _resolve_assignment(assignment_type, field, value, on_date):
+def _resolve_assignment(assignment_type, field, value, on_date, at=None):
+	"""``at`` is the moment the journey started. A billing change takes effect at
+	the time Finance approves it, not at the start of that day: when ``at`` is
+	given, an assignment that took over (``activated_on``) only applies to
+	journeys that started after that, and one that was replaced (``superseded_on``)
+	only to journeys that started before it."""
+	at = get_datetime(at) if at else None
 	rows = frappe.get_all(
 		"Customer Billing Assignment",
 		# is_extra_billing rows are additional Scenario 6 leasing agreements that
@@ -197,7 +205,7 @@ def _resolve_assignment(assignment_type, field, value, on_date):
 		filters={"assignment_type": assignment_type, field: value, "active": 1, "is_extra_billing": 0},
 		fields=[
 			"billing_rule", "priority", "effective_from", "effective_to",
-			"override_first_period_amount", "override_currency",
+			"override_first_period_amount", "override_currency", "activated_on", "superseded_on",
 		],
 		order_by="priority desc, modified desc",
 	)
@@ -205,6 +213,10 @@ def _resolve_assignment(assignment_type, field, value, on_date):
 		if not row.billing_rule:
 			continue
 		if not _date_valid(row.effective_from, row.effective_to, on_date):
+			continue
+		if at and row.activated_on and at < get_datetime(row.activated_on):
+			continue
+		if at and row.superseded_on and at >= get_datetime(row.superseded_on):
 			continue
 		if not _rule_is_usable(row.billing_rule):
 			continue
@@ -368,7 +380,7 @@ def _date_valid(effective_from, effective_to, on_date):
 # Calculation
 # ---------------------------------------------------------------------------
 
-def compute_billing_amount(rule, total_days, seal_count=1):
+def compute_billing_amount(rule, total_days, seal_count=1, elapsed_hours=None):
 	"""Apply the single normalized billing formula. ``rule`` is a dict/doc with
 	first_period_days/first_period_amount/extra_day_rate (+ name/billing_period_type/
 	currency). ``total_days`` is the inclusive billable day count.
@@ -376,7 +388,16 @@ def compute_billing_amount(rule, total_days, seal_count=1):
 	Billing is per seal: the formula yields the charge for a single seal
 	(``per_seal_amount``), and ``total_amount`` multiplies that by ``seal_count``
 	— a journey can carry several seals and each is billed. The breakdown fields
-	(first_period_amount, extra_day_rate, extra_day_amount) stay per-seal."""
+	(first_period_amount, extra_day_rate, extra_day_amount) stay per-seal.
+
+	A Daily rule (billing_period_type "Daily", first period = 24 hrs per day) with
+	an ``extra_hour_rate`` bills what runs past the first period by the hour
+	instead of by the day. ``elapsed_hours`` is the journey's real duration; when
+	unknown it is ``total_days * 24``. Each started hour counts. The charge is kept
+	in extra_day_amount (so totals, Sales Orders and reports stay correct);
+	extra_days is the overrun rounded up to started days, extra_day_rate the
+	resulting per-day average, and extra_hours / extra_hour_rate carry the hourly
+	detail."""
 	first_period_days = cint(rule.get("first_period_days"))
 	first_period_amount = flt(rule.get("first_period_amount"))
 	extra_day_rate = flt(rule.get("extra_day_rate"))
@@ -408,6 +429,18 @@ def compute_billing_amount(rule, total_days, seal_count=1):
 		extra_day_amount = extra_days * extra_day_rate
 		per_seal_amount = first_period_amount + extra_day_amount
 
+	extra_hours = 0
+	extra_hour_rate = flt(rule.get("extra_hour_rate"))
+	if rule.get("billing_period_type") == "Daily" and extra_hour_rate > 0 and first_period_days > 0:
+		hours = flt(elapsed_hours) if elapsed_hours is not None else total_days * 24
+		extra_hours = max(math.ceil(hours - first_period_days * 24), 0)
+		extra_days = math.ceil(extra_hours / 24)
+		extra_day_amount = extra_hours * extra_hour_rate
+		extra_day_rate = extra_day_amount / extra_days if extra_days else 0.0
+		per_seal_amount = first_period_amount + extra_day_amount
+	else:
+		extra_hour_rate = 0.0
+
 	total_amount = per_seal_amount * seal_count
 
 	return {
@@ -420,6 +453,8 @@ def compute_billing_amount(rule, total_days, seal_count=1):
 		"extra_days": extra_days,
 		"extra_day_rate": extra_day_rate,
 		"extra_day_amount": extra_day_amount,
+		"extra_hours": extra_hours,
+		"extra_hour_rate": extra_hour_rate,
 		"seal_count": seal_count,
 		"per_seal_amount": per_seal_amount,
 		"total_amount": total_amount,
