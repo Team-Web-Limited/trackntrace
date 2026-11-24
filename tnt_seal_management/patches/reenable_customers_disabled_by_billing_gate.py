@@ -1,9 +1,13 @@
 """Customer.disabled is no longer a "billing pending approval" gate.
 
-Customers disabled only because their billing rule was awaiting Finance approval
-(or were left disabled after it was approved) are re-enabled so they list in
-Tagging Booking. Billing is now enforced when Finance approves the booking.
-Only customers with an active billing assignment are touched.
+The old gate disabled a customer whenever their billing was set and only
+re-enabled them on a fresh Pending -> Approved approval. So customers were left
+disabled while their billing was pending or rejected, and also after it was
+approved by any other route. This re-enables every disabled customer who has
+billing set up (an active billing assignment) — the ones the gate could have
+caught — so they list in Tagging Booking again. Billing is now enforced when
+Finance approves the booking. A disabled customer with no billing assignment was
+never touched by the gate and is left alone.
 """
 
 import frappe
