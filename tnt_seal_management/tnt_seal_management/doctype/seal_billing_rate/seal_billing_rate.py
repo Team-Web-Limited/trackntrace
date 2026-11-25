@@ -359,6 +359,7 @@ def _notify_approvers_pending(doc):
 		_("A billing rule is awaiting your approval. Bookings for customers on it cannot be approved by Finance until it is."),
 		*_rule_summary_lines(doc),
 	]
+	lines.extend(_blocked_booking_lines(doc))
 	notify_users(
 		[u for u in get_users_with_role(BILLING_APPROVER_ROLE) if u[0] != frappe.session.user],
 		_("Billing Rule Awaiting Approval: {0}").format(doc.billing_rule_name or doc.name),
@@ -367,6 +368,42 @@ def _notify_approvers_pending(doc):
 		document_name=doc.name,
 		link=f"/app/seal-billing-rate/{doc.name}",
 	)
+
+
+def _blocked_booking_lines(doc):
+	"""Links to the tagging bookings waiting on Finance whose customer is on this
+	rule (by its own assignment or its customer group's), so the approver can open
+	the booking straight from the email. Best effort: never breaks the save."""
+	try:
+		assignments = frappe.get_all(
+			"Customer Billing Assignment",
+			filters={"billing_rule": doc.name, "active": 1},
+			fields=["customer", "customer_group"],
+		)
+		customers = {a.customer for a in assignments if a.customer}
+		groups = [a.customer_group for a in assignments if a.customer_group]
+		if groups:
+			customers.update(frappe.get_all("Customer", filters={"customer_group": ["in", groups]}, pluck="name"))
+		if not customers:
+			return []
+		bookings = frappe.get_all(
+			"Tagging Booking",
+			filters={"client_name": ["in", list(customers)], "booking_status": "Pending Finance PCB Approval"},
+			fields=["name", "client_name"],
+			order_by="creation desc",
+			limit=20,
+		)
+	except Exception:
+		frappe.log_error(title="TNT Notify", message=frappe.get_traceback())
+		return []
+
+	if not bookings:
+		return []
+	lines = [_("Tagging bookings waiting on this rule:")]
+	for b in bookings:
+		url = frappe.utils.get_url_to_form("Tagging Booking", b.name)
+		lines.append(f'<a href="{url}">{b.name}</a> - {frappe.utils.escape_html(b.client_name or "")}')
+	return lines
 
 
 def _notify_rule_owner_decision(doc, approved, remarks=None):
