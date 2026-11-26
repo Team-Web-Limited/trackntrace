@@ -204,7 +204,7 @@ _FIELDS = [
 	"extra_billing_amount", "extra_billing_seal_count",
 	"extra_billing_first_period_amount", "extra_billing_extra_days",
 	"extra_billing_extra_day_amount",
-	"sales_order_reference", "billing_status", "extra_days", "currency",
+	"sales_order_reference", "billing_status", "extra_days", "extra_hours", "currency",
 	"billable_days",
 	# The rule each journey was actually billed on, and which rate set it came
 	# from — a customer's Local and Import/Export rates are separate rules, so
@@ -752,27 +752,45 @@ def generate_sales_order(customer, from_date=None, to_date=None, system=None):
 		rate = flt(summary["normal_charges"]) / seal_total
 		add_item(rental_item, seal_total, rate, "Completed Journeys - Normal Charges")
 	
-	if flt(summary["extra_charges"]) > 0 and billing_type == "Subscription":
+	# Journeys billed by the hour past their first period (Hourly, or Daily with
+	# an Extra Hour Rate) get their own line in hours: quantity is the extra
+	# hours across their seals, rate the per-hour charge. Everything else keeps
+	# the day / renewal-period lines below.
+	def seals(j):
+		return max(cint(j.get("seal_count")), 1)
+
+	hourly = [j for j in journeys if cint(j.get("extra_hours")) > 0]
+	day_journeys = [j for j in journeys if cint(j.get("extra_hours")) <= 0]
+	extra_hour_qty = sum(cint(j.get("extra_hours")) * seals(j) for j in hourly)
+	extra_hour_amount = sum(flt(j.get("extra_day_amount")) * seals(j) for j in hourly)
+	if extra_hour_amount > 0 and extra_hour_qty > 0:
+		add_item(
+			extra_item, extra_hour_qty, extra_hour_amount / extra_hour_qty,
+			"Completed Journeys - Extra Charges for Extra Hours",
+		)
+	day_extra_charges = flt(summary["extra_charges"]) - extra_hour_amount
+
+	if day_extra_charges > 0.005 and billing_type == "Subscription":
 		# A Subscription journey's extra charge is whole renewal periods, not
 		# day-rated (billing.compute_billing_amount) — quantity is the
 		# additional periods across all journeys' seals, rate the period amount.
 		extra_periods = sum(
-			math.ceil(cint(j.get("extra_days")) / cint(j.get("first_period_days"))) * max(cint(j.get("seal_count")), 1)
-			for j in journeys
+			math.ceil(cint(j.get("extra_days")) / cint(j.get("first_period_days"))) * seals(j)
+			for j in day_journeys
 			if flt(j.get("extra_day_amount")) > 0 and cint(j.get("first_period_days")) > 0
 		)
 		if extra_periods > 0:
-			rate = flt(summary["extra_charges"]) / extra_periods
+			rate = day_extra_charges / extra_periods
 			add_item(extra_item, extra_periods, rate, "Completed Journeys - Additional Subscription Periods")
-	elif flt(summary["extra_charges"]) > 0:
+	elif day_extra_charges > 0.005:
 		# Quantity is the total extra days across all journeys, and rate is the extra day rate
-		extra_days = sum(cint(j.get("extra_days")) * max(cint(j.get("seal_count")), 1) for j in journeys)
+		extra_days = sum(cint(j.get("extra_days")) * seals(j) for j in day_journeys)
 		if extra_days > 0:
-			rate = flt(summary["extra_charges"]) / extra_days
+			rate = day_extra_charges / extra_days
 			add_item(extra_item, extra_days, rate, "Completed Journeys - Extra Charges for Extra Days")
 		else:
 			# Fallback if extra days is 0 (should not happen if extra_charges > 0)
-			add_item(extra_item, 1, summary["extra_charges"], "Completed Journeys - Extra Charges for Extra Days")
+			add_item(extra_item, 1, day_extra_charges, "Completed Journeys - Extra Charges for Extra Days")
 
 	if flt(summary["extra_billing_total"]) > 0:
 		# Scenario 6's leasing component is always billed on PCB-LEASING /

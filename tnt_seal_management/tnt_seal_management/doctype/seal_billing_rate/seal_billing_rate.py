@@ -17,6 +17,18 @@ PERIOD_TYPE_DAYS = {
 	"Annually": 365,
 }
 
+# Hourly rules price a first period of N hours (first_period_hours) plus an
+# Extra Hour Rate for each started hour past it. first_period_days is kept as
+# the whole days those hours span, for everything that still reasons in days.
+HOURLY = "Hourly"
+
+
+def days_spanned_by_hours(hours):
+	"""Whole days a first period of ``hours`` spans: 6 hrs = 1, 30 hrs = 2."""
+	hours = cint(hours)
+	return max(-(-hours // 24), 1) if hours > 0 else 0
+
+
 # Finance (Finance PCB) approves billing rules: whoever sets a customer's
 # billing can approve it themselves.
 BILLING_APPROVER_ROLE = "Finance PCB"
@@ -34,6 +46,7 @@ APPROVAL_WATCHED_FIELDS = (
 	"period_from_date",
 	"period_to_date",
 	"first_period_days",
+	"first_period_hours",
 	"first_period_amount",
 	"extra_day_rate",
 	"extra_hour_rate",
@@ -51,6 +64,7 @@ TERM_FIELDS = (
 	"computation_method",
 	"billing_period_type",
 	"first_period_days",
+	"first_period_hours",
 	"first_period_amount",
 	"extra_day_rate",
 	"extra_hour_rate",
@@ -58,7 +72,7 @@ TERM_FIELDS = (
 	"owned_rate_per_seal",
 	"lease_rate_per_seal",
 )
-_NUMERIC_TERMS = {"first_period_days", "first_period_amount", "extra_day_rate", "extra_hour_rate", "owned_rate_per_seal", "lease_rate_per_seal"}
+_NUMERIC_TERMS = {"first_period_days", "first_period_hours", "first_period_amount", "extra_day_rate", "extra_hour_rate", "owned_rate_per_seal", "lease_rate_per_seal"}
 SAME_AS_LOCAL_REMARK = "Same terms as the approved Local rate"
 
 
@@ -119,6 +133,11 @@ class SealBillingRate(Document):
 		Every Subscription rule (Flat or Non-Flat Rate) derives it from the
 		period type, same as the Set Billing modal's Frequency; Custom, like
 		Days, keeps the entered value."""
+		if self.billing_period_type == HOURLY:
+			self.first_period_days = days_spanned_by_hours(self.first_period_hours)
+			return
+		self.first_period_hours = 0
+
 		if self.billing_type == "Leasing":
 			return
 
@@ -138,6 +157,11 @@ class SealBillingRate(Document):
 			self.first_period_days = mapped
 
 	def validate_pricing(self):
+		if self.billing_period_type == HOURLY:
+			if cint(self.first_period_hours) <= 0:
+				frappe.throw(_("First Period Hours must be greater than 0."))
+			if self.computation_method == "Compound":
+				frappe.throw(_("An Hourly rule can't use Compound computation: Compound pools days, not hours."))
 		if cint(self.first_period_days) <= 0:
 			frappe.throw(_("First Period Days must be greater than 0."))
 		if flt(self.first_period_amount) < 0:

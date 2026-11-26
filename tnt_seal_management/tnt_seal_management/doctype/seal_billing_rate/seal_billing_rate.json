@@ -22,6 +22,7 @@
   "period_from_date",
   "period_to_date",
   "first_period_days",
+  "first_period_hours",
   "first_period_amount",
   "pricing_column_break",
   "extra_day_rate",
@@ -111,7 +112,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Billing Period Type",
-   "options": "Daily\nWeekly\nBi-Weekly\nMonthly\nQuarterly\nSemi-Annually\nAnnually\nDate Range\nDays\nCustom"
+   "options": "Hourly\nDaily\nWeekly\nBi-Weekly\nMonthly\nQuarterly\nSemi-Annually\nAnnually\nDate Range\nDays\nCustom"
   },
   {
    "default": "0",
@@ -148,6 +149,13 @@
    "label": "First Period Days"
   },
   {
+   "depends_on": "eval:doc.billing_period_type=='Hourly'",
+   "description": "Hourly rules: hours the First Period Amount covers. First Period Days is set to the days these hours span.",
+   "fieldname": "first_period_hours",
+   "fieldtype": "Int",
+   "label": "First Period Hours"
+  },
+  {
    "default": "1000",
    "fieldname": "first_period_amount",
    "fieldtype": "Currency",
@@ -166,8 +174,8 @@
    "options": "currency"
   },
   {
-   "depends_on": "eval:doc.billing_period_type=='Daily'",
-   "description": "Daily rules only: charged for each hour past the first 24 hrs, instead of the Extra Day Rate.",
+   "depends_on": "eval:['Daily','Hourly'].includes(doc.billing_period_type)",
+   "description": "Daily and Hourly rules: charged for each started hour past the first period, instead of the Extra Day Rate.",
    "fieldname": "extra_hour_rate",
    "fieldtype": "Currency",
    "label": "Extra Hour Rate",
@@ -240,7 +248,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-12 13:00:00.000000",
+ "modified": "2026-11-26 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Billing Rate",

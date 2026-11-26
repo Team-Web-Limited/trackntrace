@@ -196,6 +196,7 @@ class SealJourney(Document):
 				"first_period_amount",
 				"extra_day_rate",
 				"extra_hour_rate",
+				"first_period_hours",
 				"computation_method",
 			],
 			as_dict=True,
@@ -249,6 +250,7 @@ class SealJourney(Document):
 		self.extra_days = result["extra_days"]
 		self.extra_day_rate = result["extra_day_rate"]
 		self.extra_day_amount = result["extra_day_amount"]
+		self.first_period_hours = result.get("first_period_hours", 0)
 		self.extra_hours = result.get("extra_hours", 0)
 		self.extra_hour_rate = result.get("extra_hour_rate", 0)
 		self.seal_count = result["seal_count"]
@@ -453,6 +455,7 @@ class SealJourney(Document):
 		self.extra_days = 0
 		self.extra_day_rate = 0
 		self.extra_day_amount = 0
+		self.first_period_hours = 0
 		self.extra_hours = 0
 		self.extra_hour_rate = 0
 		self.seal_count = 0

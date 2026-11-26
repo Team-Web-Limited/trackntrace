@@ -153,6 +153,7 @@
   "billable_days",
   "billing_breakdown_section",
   "first_period_days",
+  "first_period_hours",
   "first_period_amount",
   "billing_breakdown_column_break",
   "extra_days",
@@ -974,6 +975,13 @@
    "read_only": 1
   },
   {
+   "depends_on": "eval:doc.first_period_hours",
+   "fieldname": "first_period_hours",
+   "fieldtype": "Int",
+   "label": "First Period Hours",
+   "read_only": 1
+  },
+  {
    "fieldname": "first_period_amount",
    "fieldtype": "Currency",
    "label": "First Period Amount",
@@ -1230,7 +1238,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-12 12:00:00.000000",
+ "modified": "2026-11-26 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Tnt Seal Management",
  "name": "Seal Journey",

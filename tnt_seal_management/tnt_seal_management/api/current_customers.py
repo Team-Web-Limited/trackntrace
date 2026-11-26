@@ -1,7 +1,11 @@
 import frappe
 from frappe import _
 from frappe.utils import cint, cstr, flt
-from tnt_seal_management.tnt_seal_management.doctype.seal_billing_rate.seal_billing_rate import PERIOD_TYPE_DAYS
+from tnt_seal_management.tnt_seal_management.doctype.seal_billing_rate.seal_billing_rate import (
+	HOURLY,
+	PERIOD_TYPE_DAYS,
+	days_spanned_by_hours,
+)
 
 
 CUSTOMER_BILLING_TYPE_FIELD = "custom_billing_type"
@@ -683,6 +687,7 @@ RULE_DISPLAY_FIELDS = [
 	"computation_method",
 	"billing_period_type",
 	"first_period_days",
+	"first_period_hours",
 	"first_period_amount",
 	"extra_day_rate",
 	"extra_hour_rate",
@@ -842,6 +847,7 @@ def set_customer_billing(
 	extra_hour_rate=None,
 	currency=None,
 	tax_category=None,
+	first_period_hours=None,
 	outright_purchase=None,
 	owned_seal_count=None,
 	journey_type=None,
@@ -921,6 +927,18 @@ def set_customer_billing(
 	if computation_method not in (None, "", "Simple", "Compound"):
 		frappe.throw(_("Invalid Computation."))
 
+	# Hourly: First Period Hours replaces First Period Days (which becomes the
+	# whole days those hours span), and each started hour past it is billed at
+	# the Extra Hour Rate. Compound pools days, so it isn't offered with Hourly.
+	is_hourly = billing_period_type == HOURLY
+	if is_hourly:
+		if cint(first_period_hours) <= 0:
+			frappe.throw(_("Enter First Period Hours."))
+		if computation_method == "Compound":
+			frappe.throw(_("Hourly billing can't use Compound computation."))
+		first_period_days = days_spanned_by_hours(first_period_hours)
+	first_period_hours = cint(first_period_hours) if is_hourly else 0
+
 	if billing_type == "Leasing":
 		# Billing Rule for Leasing: Non-Flat Rate (the default, and what every
 		# Leasing rule was before it had one) is day-tiered — First Period
@@ -935,8 +953,9 @@ def set_customer_billing(
 		# A Daily rule's first period is 24 hrs and what runs past it is billed per
 		# hour (Extra Hour Rate) rather than per day.
 		is_daily = billing_period_type == "Daily"
-		uses_extra_day_rate = uses_extra_rate and not is_daily
-		uses_extra_hour_rate = uses_extra_rate and is_daily
+		bills_by_hour = is_daily or is_hourly
+		uses_extra_day_rate = uses_extra_rate and not bills_by_hour
+		uses_extra_hour_rate = uses_extra_rate and bills_by_hour
 		if not first_period_days or first_period_amount in (None, ""):
 			frappe.throw(_("Enter First Period Days and First Period Amount."))
 		if uses_extra_day_rate and extra_day_rate in (None, ""):
@@ -963,6 +982,7 @@ def set_customer_billing(
 			computation_method="Compound" if is_compound else "Simple",
 			billing_period_type=billing_period_type or "Custom",
 			rate_type=rate_type,
+			first_period_hours=first_period_hours,
 		)
 		if is_primary_journey_type:
 			_upsert_customer_assignment(
@@ -1026,9 +1046,12 @@ def set_customer_billing(
 		# at this rate instead of renewing the period.
 		extra_hour_rate=(
 			flt(extra_hour_rate)
-			if billing_period_type == "Daily" and rate_type == "Non-Flat Rate" and resolved_computation != "Compound"
+			if billing_period_type in ("Daily", HOURLY)
+			and rate_type == "Non-Flat Rate"
+			and resolved_computation != "Compound"
 			else 0
 		),
+		first_period_hours=first_period_hours,
 	)
 	if is_primary_journey_type:
 		_upsert_customer_assignment(
@@ -1065,6 +1088,7 @@ _INTERNATIONAL_COPY_FIELDS = (
 	"computation_method",
 	"billing_period_type",
 	"first_period_days",
+	"first_period_hours",
 	"first_period_amount",
 	"extra_day_rate",
 	"extra_hour_rate",
@@ -1146,6 +1170,7 @@ def _upsert_customer_leasing_rule(
 	billing_period_type=None,
 	rate_type="Non-Flat Rate",
 	extra_hour_rate=0,
+	first_period_hours=0,
 ):
 	"""Create or update the customer's private Leasing rate, auto-named
 	"<Customer Name> BR". There is exactly one per customer — found via the
@@ -1191,6 +1216,7 @@ def _upsert_customer_leasing_rule(
 		# workflow that applies to shared Subscription rate cards.
 		"currency": currency or "KES",
 		"first_period_days": cint(first_period_days),
+		"first_period_hours": cint(first_period_hours),
 		"first_period_amount": flt(first_period_amount),
 		"extra_day_rate": flt(extra_day_rate),
 		"extra_hour_rate": flt(extra_hour_rate),
@@ -1271,6 +1297,7 @@ def _upsert_customer_subscription_rule(
 	owned_rate_per_seal=None,
 	lease_rate_per_seal=None,
 	extra_hour_rate=0,
+	first_period_hours=0,
 ):
 	"""Create or update the customer's private Subscription rate, auto-named
 	"<Customer Name> BR" — same mechanism as ``_upsert_customer_leasing_rule``,
@@ -1334,6 +1361,7 @@ def _upsert_customer_subscription_rule(
 		"currency": currency or "KES",
 		"billing_period_type": billing_period_type,
 		"first_period_days": cint(first_period_days),
+		"first_period_hours": cint(first_period_hours),
 		"first_period_amount": flt(first_period_amount),
 		"extra_day_rate": flt(extra_day_rate),
 		"extra_hour_rate": flt(extra_hour_rate),

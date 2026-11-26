@@ -24,7 +24,23 @@ const CB_FREQUENCY_PERIOD_DAYS = {
 	"Semi-Annually": 180,
 	Annually: 365,
 };
-const CB_FREQUENCY_OPTIONS = ["Daily", "Weekly", "Bi-Weekly", "Monthly", "Quarterly", "Semi-Annually", "Annually", "Custom"];
+const CB_FREQUENCY_OPTIONS = ["Hourly", "Daily", "Weekly", "Bi-Weekly", "Monthly", "Quarterly", "Semi-Annually", "Annually", "Custom"];
+
+// Hourly (First Period Hours + Extra Hour Rate) is offered on the RECTs page
+// only. A customer already saved on Hourly still sees it, whatever the page.
+function _cb_frequency_options(page, terms) {
+	if (page.cb_system === "RECTS" || (terms && terms.billing_period_type === "Hourly")) {
+		return CB_FREQUENCY_OPTIONS;
+	}
+	return CB_FREQUENCY_OPTIONS.filter((option) => option !== "Hourly");
+}
+
+// Whole days a first period of N hours spans (6 hrs = 1, 30 hrs = 2) — mirrors
+// days_spanned_by_hours in doctype/seal_billing_rate/seal_billing_rate.py.
+function _cb_days_spanned_by_hours(hours) {
+	hours = cint(hours);
+	return hours > 0 ? Math.max(Math.ceil(hours / 24), 1) : 0;
+}
 
 // A saved Frequency outside the dropdown (the retired "Days" option, Date
 // Range, or free text from when this field was an Autocomplete) is shown as
@@ -1213,6 +1229,7 @@ function _cb_show_billing_dialog(page, data) {
 	// contract-level and deliberately carry across a switch untouched.
 	const JT_RATE_FIELDS = [
 		"first_period_days",
+		"first_period_hours",
 		"first_period_amount",
 		"extra_day_rate",
 		"extra_hour_rate",
@@ -1442,7 +1459,7 @@ function _cb_show_billing_dialog(page, data) {
 				fieldtype: "Select",
 				fieldname: "billing_period_type",
 				label: __("Frequency"),
-				options: CB_FREQUENCY_OPTIONS,
+				options: _cb_frequency_options(page, cur.rule || {}),
 				default: _cb_frequency_for_terms(cur.rule || {}),
 			},
 			{ fieldtype: "Column Break" },
@@ -1461,6 +1478,15 @@ function _cb_show_billing_dialog(page, data) {
 				fieldname: "first_period_days",
 				label: __("First Period Days"),
 				default: currentLeasingTerms.first_period_days,
+			},
+			{
+				// Hourly frequency only, in place of First Period Days: the hours
+				// the First Period Amount covers — see applyFrequencyDays.
+				fieldtype: "Int",
+				fieldname: "first_period_hours",
+				label: __("First Period Hours"),
+				default: currentLeasingTerms.first_period_hours,
+				hidden: 1,
 			},
 			{ fieldtype: "Column Break" },
 			{
@@ -1485,9 +1511,9 @@ function _cb_show_billing_dialog(page, data) {
 				default: currentLeasingTerms.extra_day_rate,
 			},
 			{
-				// Daily frequency only: the first period is 24 hrs, and every
-				// started hour past it is billed at this rate instead of the
-				// Extra Day Rate — see applyComputationMode.
+				// Daily and Hourly frequencies: every started hour past the first
+				// period (24 hrs, or First Period Hours) is billed at this rate
+				// instead of the Extra Day Rate — see applyComputationMode.
 				fieldtype: "Currency",
 				precision: 2,
 				fieldname: "extra_hour_rate",
@@ -1663,9 +1689,15 @@ function _cb_show_billing_dialog(page, data) {
 			}
 
 			if (billingType === "Leasing") {
-				const days = dialog.get_value("first_period_days");
+				const isHourly = dialog.get_value("billing_period_type") === "Hourly";
+				const hours = cint(dialog.get_value("first_period_hours"));
+				if (isHourly && hours <= 0) {
+					frappe.show_alert({ message: __("Enter First Period Hours."), indicator: "red" }, 5);
+					return;
+				}
+				const days = isHourly ? _cb_days_spanned_by_hours(hours) : dialog.get_value("first_period_days");
 				const amount = dialog.get_value("first_period_amount");
-				const isDaily = dialog.get_value("billing_period_type") === "Daily";
+				const isDaily = ["Daily", "Hourly"].includes(dialog.get_value("billing_period_type"));
 				const extraRate = dialog.get_value("extra_day_rate");
 				const extraHourRate = dialog.get_value("extra_hour_rate");
 				const leasingRateType = dialog.get_value("billing_rule_label") || "Non-Flat Rate";
@@ -1708,6 +1740,7 @@ function _cb_show_billing_dialog(page, data) {
 						computation_method: leasingComputation,
 						billing_period_type: dialog.get_value("billing_period_type"),
 						first_period_days: days,
+						first_period_hours: isHourly ? hours : 0,
 						first_period_amount: amount,
 						extra_day_rate: usesExtraDayRate ? extraRate : 0,
 						extra_hour_rate: usesExtraHourRate ? extraHourRate : 0,
@@ -1740,8 +1773,24 @@ function _cb_show_billing_dialog(page, data) {
 				frappe.show_alert({ message: __("Enter the Rate."), indicator: "red" }, 5);
 				return;
 			}
-			const subDays = dialog.get_value("first_period_days");
-			const subIsDaily = frequency === "Daily";
+			const subIsHourly = frequency === "Hourly";
+			const subHours = cint(dialog.get_value("first_period_hours"));
+			if (subIsHourly && subHours <= 0) {
+				frappe.show_alert({ message: __("Enter First Period Hours."), indicator: "red" }, 5);
+				return;
+			}
+			if (subIsHourly && isLeaseSeatBased()) {
+				frappe.show_alert(
+					{
+						message: __("Hourly can't be used with a per-seat fee: the seat fee needs a calendar cycle. Pick another Frequency."),
+						indicator: "red",
+					},
+					7
+				);
+				return;
+			}
+			const subDays = subIsHourly ? _cb_days_spanned_by_hours(subHours) : dialog.get_value("first_period_days");
+			const subIsDaily = frequency === "Daily" || subIsHourly;
 			const subExtraHourRate = dialog.get_value("extra_hour_rate");
 			// Computation only applies where applyComputationMode shows it —
 			// Flat Rate has no per-journey day-tiering to batch, and a
@@ -1767,6 +1816,7 @@ function _cb_show_billing_dialog(page, data) {
 					computation_method: computationMethod,
 					billing_period_type: frequency,
 					first_period_days: subDays,
+					first_period_hours: subIsHourly ? subHours : 0,
 					first_period_amount: subAmount,
 					// Subscription never uses Extra Day Rate: past the first
 					// period, each started period is a renewal billed in full
@@ -1826,6 +1876,7 @@ function _cb_show_billing_dialog(page, data) {
 		dialog.set_value("billing_period_type", _cb_frequency_for_terms(currentSubscriptionTerms));
 		dialog.set_value("leasing_currency", currentSubscriptionTerms.currency || "KES");
 		dialog.set_value("first_period_days", currentSubscriptionTerms.first_period_days || "");
+		dialog.set_value("first_period_hours", currentSubscriptionTerms.first_period_hours || "");
 		dialog.set_value("first_period_amount", currentSubscriptionTerms.first_period_amount || "");
 		dialog.set_value("extra_day_rate", currentSubscriptionTerms.extra_day_rate || "");
 		dialog.set_value("extra_hour_rate", currentSubscriptionTerms.extra_hour_rate || "");
@@ -1847,6 +1898,8 @@ function _cb_show_billing_dialog(page, data) {
 	const isComputationApplicable = () => {
 		const billingType = dialog.get_value("billing_type");
 		if (dialog.get_value("billing_rule_label") !== "Non-Flat Rate") return false;
+		// Compound pools days across journeys; an Hourly rule is always Simple.
+		if (dialog.get_value("billing_period_type") === "Hourly") return false;
 		if (billingType === "Leasing") return true;
 		return billingType === "Subscription" && !isLeaseSeatBased();
 	};
@@ -1866,7 +1919,7 @@ function _cb_show_billing_dialog(page, data) {
 		const isSubscription = dialog.get_value("billing_type") === "Subscription";
 		const isFlatRate = dialog.get_value("billing_rule_label") !== "Non-Flat Rate";
 		const isCompound = applicable && _cb_get_computation_method(dialog) === "Compound";
-		const isDaily = dialog.get_value("billing_period_type") === "Daily";
+		const isDaily = ["Daily", "Hourly"].includes(dialog.get_value("billing_period_type"));
 		// Extra Day Rate is Leasing-only. Extra Hour Rate (Daily) also applies to a
 		// Non-Flat Rate Subscription: the first 24 hrs are the period, and each
 		// started hour past it is charged at this rate rather than a full renewal.
@@ -1889,6 +1942,12 @@ function _cb_show_billing_dialog(page, data) {
 	const applyFrequencyDays = () => {
 		const mapped = CB_FREQUENCY_PERIOD_DAYS[dialog.get_value("billing_period_type")];
 		const isDaily = dialog.get_value("billing_period_type") === "Daily";
+		// Hourly swaps First Period Days for First Period Hours; the days are
+		// derived from the hours on save.
+		const isHourly = dialog.get_value("billing_period_type") === "Hourly";
+		dialog.set_df_property("first_period_hours", "hidden", isHourly ? 0 : 1);
+		dialog.set_df_property("first_period_days", "hidden", isHourly ? 1 : 0);
+		if (isHourly) setComputationMethod("Simple");
 		dialog.set_df_property("first_period_days", "read_only", mapped ? 1 : 0);
 		dialog.set_df_property("first_period_days", "description", isDaily ? __("1 day = 24 hrs") : "");
 		// Daily swaps Extra Day Rate for Extra Hour Rate.
@@ -1931,6 +1990,7 @@ function _cb_show_billing_dialog(page, data) {
 				dialog.set_value("billing_rule_label", currentLeasingTerms.rate_type || "Non-Flat Rate");
 				dialog.set_value("billing_period_type", _cb_frequency_for_terms(currentLeasingTerms));
 				dialog.set_value("first_period_days", currentLeasingTerms.first_period_days || "");
+				dialog.set_value("first_period_hours", currentLeasingTerms.first_period_hours || "");
 				dialog.set_value("first_period_amount", currentLeasingTerms.first_period_amount || "");
 				dialog.set_value("extra_day_rate", currentLeasingTerms.extra_day_rate || "");
 				dialog.set_value("extra_hour_rate", currentLeasingTerms.extra_hour_rate || "");
@@ -2634,6 +2694,7 @@ function _cb_submit_leasing_billing(page, customer, terms, dialog, recurringArgs
 			computation_method: terms.computation_method,
 			billing_period_type: terms.billing_period_type,
 			first_period_days: terms.first_period_days,
+			first_period_hours: terms.first_period_hours || 0,
 			first_period_amount: terms.first_period_amount,
 			extra_day_rate: terms.extra_day_rate,
 			extra_hour_rate: terms.extra_hour_rate,
@@ -2681,6 +2742,7 @@ function _cb_submit_billing(page, customer, terms, dialog, recurringArgs) {
 			computation_method: terms.computation_method,
 			billing_period_type: terms.billing_period_type,
 			first_period_days: terms.first_period_days,
+			first_period_hours: terms.first_period_hours || 0,
 			first_period_amount: terms.first_period_amount,
 			extra_day_rate: terms.extra_day_rate,
 			extra_hour_rate: terms.extra_hour_rate,

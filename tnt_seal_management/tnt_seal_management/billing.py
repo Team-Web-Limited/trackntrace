@@ -390,6 +390,10 @@ def compute_billing_amount(rule, total_days, seal_count=1, elapsed_hours=None):
 	— a journey can carry several seals and each is billed. The breakdown fields
 	(first_period_amount, extra_day_rate, extra_day_amount) stay per-seal.
 
+	An Hourly rule (billing_period_type "Hourly") covers its first
+	``first_period_hours`` with first_period_amount and bills every started hour
+	past that at ``extra_hour_rate``, kept the same way as a Daily overrun below.
+
 	A Daily rule (billing_period_type "Daily", first period = 24 hrs per day) with
 	an ``extra_hour_rate`` bills what runs past the first period by the hour
 	instead of by the day. ``elapsed_hours`` is the journey's real duration; when
@@ -431,7 +435,18 @@ def compute_billing_amount(rule, total_days, seal_count=1, elapsed_hours=None):
 
 	extra_hours = 0
 	extra_hour_rate = flt(rule.get("extra_hour_rate"))
-	if rule.get("billing_period_type") == "Daily" and extra_hour_rate > 0 and first_period_days > 0:
+	first_period_hours = cint(rule.get("first_period_hours"))
+	if rule.get("billing_period_type") == "Hourly" and first_period_hours > 0:
+		# Hourly: the first period is first_period_hours, and each started hour
+		# past it is charged at extra_hour_rate (even at a rate of 0 — the day
+		# and renewal math above never applies to an Hourly rule).
+		hours = flt(elapsed_hours) if elapsed_hours is not None else total_days * 24
+		extra_hours = max(math.ceil(hours - first_period_hours), 0)
+		extra_days = math.ceil(extra_hours / 24)
+		extra_day_amount = extra_hours * extra_hour_rate
+		extra_day_rate = extra_day_amount / extra_days if extra_days else 0.0
+		per_seal_amount = first_period_amount + extra_day_amount
+	elif rule.get("billing_period_type") == "Daily" and extra_hour_rate > 0 and first_period_days > 0:
 		hours = flt(elapsed_hours) if elapsed_hours is not None else total_days * 24
 		extra_hours = max(math.ceil(hours - first_period_days * 24), 0)
 		extra_days = math.ceil(extra_hours / 24)
@@ -453,6 +468,7 @@ def compute_billing_amount(rule, total_days, seal_count=1, elapsed_hours=None):
 		"extra_days": extra_days,
 		"extra_day_rate": extra_day_rate,
 		"extra_day_amount": extra_day_amount,
+		"first_period_hours": first_period_hours if rule.get("billing_period_type") == "Hourly" else 0,
 		"extra_hours": extra_hours,
 		"extra_hour_rate": extra_hour_rate,
 		"seal_count": seal_count,
@@ -495,6 +511,8 @@ def calculate_billing(customer, start_date, return_date=None, on_date=None, seal
 			"first_period_days",
 			"first_period_amount",
 			"extra_day_rate",
+			"extra_hour_rate",
+			"first_period_hours",
 		],
 		as_dict=True,
 	)
