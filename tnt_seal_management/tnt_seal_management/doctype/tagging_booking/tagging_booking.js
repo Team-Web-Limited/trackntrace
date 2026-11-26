@@ -22,6 +22,11 @@ frappe.ui.form.on("Tagging Booking", {
 				query: "tnt_seal_management.tnt_seal_management.doctype.journey_request.journey_request.search_route_places",
 			}));
 		}
+		// Only users who resolve to an enabled Sales Person, so the Sales Order
+		// generated later can credit them (api/sales_persons.py).
+		frm.set_query("salesperson", () => ({
+			query: "tnt_seal_management.tnt_seal_management.api.sales_persons.search_salesperson_users",
+		}));
 		setup_vehicle_query(frm);
 		inject_return_trip_styles();
 	},

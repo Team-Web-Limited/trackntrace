@@ -27,6 +27,7 @@ from tnt_seal_management.tnt_seal_management.api.current_customers import (
 	TAX_CATEGORY_EXEMPT,
 	TAX_CATEGORY_ZERO_RATED,
 )
+from tnt_seal_management.tnt_seal_management.api.sales_persons import sales_person_for_user
 from tnt_seal_management.tnt_seal_management.billing import resolve_customer_billing
 
 VAT_RATE = 0.16
@@ -406,26 +407,18 @@ def _sales_person_label(journeys):
 	return ", ".join(names)[:140] or None
 
 
-def _sales_person_for_user(user):
-	"""The Sales Person record for a user: the one linked to their Employee, else
-	one named after them. None when there isn't one."""
-	employee = frappe.db.get_value("Employee", {"user_id": user}, "name")
-	if employee:
-		match = frappe.db.get_value("Sales Person", {"employee": employee}, "name")
-		if match:
-			return match
-	full_name = frappe.db.get_value("User", user, "full_name")
-	return full_name if full_name and frappe.db.exists("Sales Person", full_name) else None
-
-
 def _append_sales_team(so, journeys):
 	"""Put the booking's salesperson(s) on the Sales Order's Sales Team. The Sales
 	Order's Sales Person field is filled from that table by a Server Script
 	(Fetch Sales person from Sales Team Child Table), so this is what makes the
-	name appear. A user with no Sales Person record is left out of the table."""
-	people = list(dict.fromkeys(filter(None, (_sales_person_for_user(u) for u in _journey_salesperson_users(journeys)))))
-	for person in people:
-		so.append("sales_team", {"sales_person": person, "allocated_percentage": 100 / len(people)})
+	name appear. A user with no enabled Sales Person record is left out of the
+	table (ERPNext refuses a disabled one). Shares add up to exactly 100: the
+	last row takes the rounding remainder (3 people = 33.33 / 33.33 / 33.34)."""
+	people = list(dict.fromkeys(filter(None, (sales_person_for_user(u) for u in _journey_salesperson_users(journeys)))))
+	share = flt(100 / len(people), 2) if people else 0
+	for i, person in enumerate(people):
+		pct = flt(100 - share * (len(people) - 1), 2) if i == len(people) - 1 else share
+		so.append("sales_team", {"sales_person": person, "allocated_percentage": pct})
 
 
 def _imeis_by_journey(journey_names):

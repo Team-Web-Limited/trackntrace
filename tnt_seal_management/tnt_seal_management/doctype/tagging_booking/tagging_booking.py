@@ -37,6 +37,7 @@ class TaggingBooking(Document):
 
 	def validate(self):
 		self._validate_destination()
+		self._validate_salesperson()
 		self._validate_client_in_system()
 		self._validate_booking_date_time_not_past()
 		self._validate_vehicles_belong_to_client()
@@ -53,6 +54,28 @@ class TaggingBooking(Document):
 					self.return_trip_from
 				),
 				title=_("Not Allowed"),
+			)
+
+	def _validate_salesperson(self):
+		"""Salesperson is optional, but when one is picked they must resolve to an
+		enabled Sales Person, or the Sales Order generated from this booking can't
+		credit them (see api/sales_persons.py). Only checked when the field is set
+		or changed, so a booking saved before this check stays saveable."""
+		if not self.salesperson:
+			return
+		if not self.is_new() and not self.has_value_changed("salesperson"):
+			return
+
+		from tnt_seal_management.tnt_seal_management.api.sales_persons import sales_person_for_user
+
+		if not sales_person_for_user(self.salesperson):
+			name = frappe.db.get_value("User", self.salesperson, "full_name") or self.salesperson
+			frappe.throw(
+				_(
+					"{0} has no enabled Sales Person record, so they can't be credited on the Sales Order. "
+					"Link their Employee on a Sales Person record (or name one exactly {0}), or leave Salesperson empty."
+				).format(frappe.bold(name)),
+				title=_("Salesperson Not Set Up"),
 			)
 
 	def _validate_destination(self):
